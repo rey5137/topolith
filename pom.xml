@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
+<project child.project.url.inherit.append.path="false"
+         xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
@@ -30,7 +31,9 @@
         </developer>
     </developers>
 
-    <scm>
+    <scm child.scm.connection.inherit.append.path="false"
+         child.scm.developerConnection.inherit.append.path="false"
+         child.scm.url.inherit.append.path="false">
         <url>https://github.com/rey5137/topolith</url>
         <connection>scm:git:https://github.com/rey5137/topolith.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/rey5137/topolith.git</developerConnection>
@@ -42,9 +45,14 @@
         <url>https://github.com/rey5137/topolith/issues</url>
     </issueManagement>
 
-    <!-- M0 adds topolith-core, topolith-spring-boot, topolith-processor and topolith-test (docs/plan/mvp-plan.md §1). -->
     <modules>
         <module>topolith-bom</module>
+        <module>topolith-core</module>
+        <module>topolith-spring-boot</module>
+        <module>topolith-spring-cloud</module>
+        <module>topolith-processor</module>
+        <module>topolith-spring-test</module>
+        <module>samples</module>
     </modules>
 
     <properties>
@@ -75,6 +83,13 @@
                 <scope>import</scope>
             </dependency>
             <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
                 <groupId>com.tngtech.archunit</groupId>
                 <artifactId>archunit-junit5</artifactId>
                 <version>${archunit.version}</version>
@@ -84,6 +99,11 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.4</version>
+            </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>

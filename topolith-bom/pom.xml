@@ -15,8 +15,49 @@
     <name>Topolith BOM</name>
     <description>Versions of every Topolith module, for hosts and module repos to import</description>
 
-    <!-- Entries are added with each module (M0). The platform BOM that also pins Spring Boot is delivery/62, M4. -->
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <configuration>
+                    <flattenMode>bom</flattenMode>
+                    <pomElements>
+                        <properties>remove</properties>
+                        <dependencyManagement>extended_interpolate</dependencyManagement>
+                    </pomElements>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
     <dependencyManagement>
-        <dependencies/>
+        <dependencies>
+            <dependency>
+                <groupId>io.github.rey5137</groupId>
+                <artifactId>topolith-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.rey5137</groupId>
+                <artifactId>topolith-spring-boot</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.rey5137</groupId>
+                <artifactId>topolith-spring-cloud</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.rey5137</groupId>
+                <artifactId>topolith-processor</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.rey5137</groupId>
+                <artifactId>topolith-spring-test</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
     </dependencyManagement>
 </project>

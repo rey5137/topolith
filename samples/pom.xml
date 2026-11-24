@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.github.rey5137</groupId>
+        <artifactId>topolith-parent</artifactId>
+        <version>${revision}</version>
+    </parent>
+    <artifactId>topolith-samples</artifactId>
+    <packaging>pom</packaging>
+    <name>Topolith Samples</name>
+    <description>Topolith sample applications</description>
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+    <!-- Sample modules arrive in M4.1. -->
+</project>

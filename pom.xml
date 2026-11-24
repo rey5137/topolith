@@ -11,7 +11,8 @@
     <packaging>pom</packaging>
 
     <name>Topolith</name>
-    <description>Write Spring Boot modules once; choose in configuration whether each runs in-process, remote or not at all</description>
+    <description>Write Spring Boot modules once; choose in configuration whether each runs in-process,
+        remote or not at all</description>
     <url>https://github.com/rey5137/topolith</url>
     <inceptionYear>2026</inceptionYear>
 
@@ -86,6 +87,13 @@
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
                 <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.modulith</groupId>
+                <artifactId>spring-modulith-bom</artifactId>
+                <version>${spring-modulith.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>

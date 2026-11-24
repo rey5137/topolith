@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.rey5137</groupId>
+        <artifactId>topolith-parent</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>topolith-bom</artifactId>
+    <packaging>pom</packaging>
+    <name>Topolith BOM</name>
+    <description>Versions of every Topolith module, for hosts and module repos to import</description>
+
+    <!-- Entries are added with each module (M0). The platform BOM that also pins Spring Boot is delivery/62, M4. -->
+    <dependencyManagement>
+        <dependencies/>
+    </dependencyManagement>
+</project>

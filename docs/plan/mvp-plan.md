@@ -72,6 +72,6 @@ Spec: `test/20`, `test/21`.
 | M4.1 | `samples/`: user and payment modules (`*-api`, `*-module`, `*-service`), monolith, hybrid and `none` hosts | The three topologies pass the same Payment tests |
 | M4.2 | End-to-end tests with Testcontainers: hybrid with a fixed URL and with Consul discovery | CI green |
 | M4.3 | Docs: getting started, adopting a legacy repo (RFC 0001 §4.3), configuration reference | Every snippet matches a test |
-| M4.4 | Release workflow to Maven Central, CHANGELOG `0.1.0` (Q-1 settled first) | A dry run produces signed artifacts |
+| M4.4 | Release workflow to Maven Central, CHANGELOG `0.1.0` | A dry run produces signed artifacts |
 
 **Exit:** 0.1.0 published.

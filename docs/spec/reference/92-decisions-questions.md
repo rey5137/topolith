@@ -10,7 +10,7 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 
 | Id | Decision | Rationale | Source |
 |---|---|---|---|
-| D-1 | The project is named **Topolith**; Maven groupId `io.github.rey5137` until Q-1 is settled | Names the idea (topology + monolith); no JVM project, artifact or software trademark found by web search | RFC 0001 §11 |
+| D-1 | The project is named **Topolith**; the Maven groupId is **`io.github.rey5137`** | Names the idea (topology + monolith). Name check on 2026-11-24: nothing on Maven Central, npm, PyPI or crates.io; no software product or trademark found; `topolith.dev` and `topolith.com` belong to others, so a domain-based groupId isn't available, and the GitHub namespace needs no domain. | RFC 0001 §11; Q-1 (answered) |
 | D-2 | An internal contract call runs with **`NOT_SUPPORTED`** at the boundary: the caller's transaction is suspended and the callee's own `@Transactional` decides. A call made inside an active transaction emits a warning metric. | Matches remote behaviour exactly. `REQUIRES_NEW` forces a transaction a remote callee might not open and holds two connections at once (pool starvation). | RFC 0001 §6, §11 |
 | D-3 | The contract interface carries **`@HttpExchange`** by default; a separate HTTP interface stays supported | `*-api` needs only `spring-web` annotations, not MVC. Spring MVC maps `@HttpExchange` on a `@RestController` implementation (Framework 6.1+), so one interface serves client and server and they can't drift. | RFC 0001 §5, §11 |
 | D-4 | Boundary and data-ownership checks **`fail` by default**; an adopted legacy repo starts from an ArchUnit **frozen baseline** that can only shrink | New code stays clean; old code starts green and only improves. Noisy, unranked violations kill adoption (Packwerk retrospective). | RFC 0001 §8, §11 |
@@ -23,6 +23,4 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 
 ## Open questions
 
-| Id | Question | Owner |
-|---|---|---|
-| Q-1 | Register `topolith.dev` and move the groupId to `dev.topolith` before the first Maven Central release? Check Maven Central and USPTO for "Topolith" directly first. | owner, before 0.1.0 |
+None open.

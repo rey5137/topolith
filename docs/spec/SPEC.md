@@ -7,7 +7,7 @@ Topolith enforces module boundaries itself; Spring Modulith is an optional add-o
 
 - **Implementation:** Java 21, Maven multi-module, Spring Boot 4.2 / Spring Framework 7.
 - **Optional integrations:** Spring Cloud LoadBalancer (discovery), Spring Modulith (verification, events, docs).
-- **Open source:** Apache-2.0, published to Maven Central as `io.github.rey5137:topolith-*` (Q-1).
+- **Open source:** Apache-2.0, published to Maven Central as `io.github.rey5137:topolith-*` (D-1).
 - **Design record:** [`rfc/0001-architecture.md`](../../rfc/0001-architecture.md). The spec states the rules; the RFC
   states the reasoning and the alternatives that lost.
 

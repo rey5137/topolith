@@ -69,7 +69,8 @@ class StartupValidationTest {
                 assertTrue(message.contains("alpha.remote.service-id"));
             }, properties);
         }
-        run(context -> assertNull(context.getStartupFailure()), "topolith.modules.alpha.mode=external",
+        // a lone service id is a valid selection; without Cloud it fails with TL0009 instead (AC-EXT-06)
+        run(context -> failure(context, TopolithCode.TL0009), "topolith.modules.alpha.mode=external",
                 "topolith.modules.alpha.remote.service-id=discovery");
     }
 

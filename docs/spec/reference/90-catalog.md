@@ -20,7 +20,7 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0006 | Two module descriptors, or two API descriptors, declare the same id | failure | M1.1 |
 | TL0007 | A non-internal module owns a registered bean, auto-configuration, entity or repository | failure | M3.3 |
 | TL0008 | Required module dependencies contain a cycle | failure | M1.1 |
-| TL0009 | Service-id discovery needs a missing Cloud integration | failure | M2.2 |
+| TL0009 | Service-id discovery needs a missing Cloud integration (`spring-cloud-starter-loadbalancer`) | failure | M2.2 (AC-EXT-06) |
 | TL0010 | A refreshed mode or URL/service-id wiring change needs a restart | warning | M2.6 |
 | TL0011 | Refreshed endpoint settings are invalid or the client rebuild failed | warning | M2.6 |
 | TL0012 | An internal class references another module's non-API class | failure | M3.3 |

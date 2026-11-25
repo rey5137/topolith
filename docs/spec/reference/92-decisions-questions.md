@@ -56,6 +56,24 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-45 | A caller's base URL is `remote.url` + `/<id>` (`lb://<service-id>/<id>`); contract paths are relative to it; see below | The provider's fixed prefix (D-44) is the caller's too, so a contract carries no module prefix | M2.4 owner decision |
 | D-46 | Security hook: public `@Incubating` `ExposedEndpoints` and `ExposedRequestMatcher`; Topolith registers no `SecurityFilterChain`; see below | A host secures `/<id>/**` with its own chain (INV-4); Spring Security stays optional (INV-7) | M2.4 owner decision |
 | D-47 | The D-2 boundary is an advisor on an internal provider bean, counted by `topolith.contract.calls.in.transaction`; see below | Makes D-2 enforceable for every caller without a proxy per call site | M2.4 owner decision |
+| D-48 | A host configures one external group with `ModuleClients.restClientBuilder`; see below | Explicit customization preserves Topolith settings | M2.5 owner decision |
+| D-49 | An external contract may map to a separate HTTP interface; see below | Keep API contracts free of spring-web | M2.5 owner decision |
+
+### D-49 — Separate HTTP interface (M2.5)
+
+`topolith.modules.<id>.remote.http-interface.<contract FQN>=<interface FQN>` maps a provided contract to a
+loadable interface extending it and carrying `@HttpExchange` on the type or a method. Invalid interfaces fail TL0026
+naming the module, contract and interface. A mapping for a non-external module or an unprovided contract fails TL0003.
+Mapping keys are case-sensitive class names and must come from a case-preserving property source; environment variables
+are unsupported for these mappings. The mapped interface is registered in the module's HTTP group and its proxy supplies the contract. A provider controller
+implements the HTTP interface and is exposed under `/<id>` (D-44); the contract needs no spring-web annotation.
+
+### D-48 — Client customization (M2.5)
+
+The host declares `ModuleClients.restClientBuilder(id, customizer)` as a bean. Unknown or non-external ids fail
+TL0003 naming `topolith.modules.<id>.mode`. The customizer cannot replace the base URL or request factory; attempts
+to do so fail, preserving the Topolith URL and timeouts. Replacing the URI factory, interceptor list or message converters and cloning the
+builder are also rejected, preserving error response translation. Topolith retains its error advice.
 
 ### D-44 to D-47 — Exposure, caller URL, security hook and transaction boundary (M2.4)
 
@@ -114,7 +132,7 @@ client refresh is deferred to M2.6.
 Startup fails with TL0026, naming the module and where relevant the contract, when an external module has (a) no HTTP
 client stack (no spring-web, or no Boot HTTP service-client auto-configuration; add `spring-boot-starter-restclient`),
 (b) a contract in its `provides` that cannot be loaded, or (c) a provided contract with no `@HttpExchange` on the type
-or a method. M2.5's separate-HTTP-interface option will relax (c). TL0009 stays Cloud-only (D-42).
+or a method. D-49 relaxes (c) only for mapped contracts. TL0009 stays Cloud-only (D-42).
 
 ### D-42 — Service-id discovery (TL0009)
 

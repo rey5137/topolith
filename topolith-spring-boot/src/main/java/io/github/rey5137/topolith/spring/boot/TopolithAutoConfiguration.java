@@ -14,7 +14,8 @@ import org.springframework.core.Ordered;
  */
 @AutoConfiguration
 @AutoConfigureOrder(Ordered.HIGHEST_PRECEDENCE)
-@Import({TopolithModuleImportSelector.class, TopolithEndpointConfiguration.class})
+@Import({TopolithModuleImportSelector.class, TopolithEndpointConfiguration.class,
+        ModuleClientsCheckConfiguration.class})
 public class TopolithAutoConfiguration {
 
     /** The persistence checks that need no persistence library (D-32). */

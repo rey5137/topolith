@@ -1,6 +1,7 @@
 package io.github.rey5137.topolith.spring.boot;
 
 import java.util.Set;
+import java.util.Map;
 
 import io.github.rey5137.topolith.core.Mode;
 import org.springframework.beans.factory.BeanFactory;
@@ -42,7 +43,8 @@ final class ExternalHttpServicesRegistrar extends AbstractHttpServiceRegistrar {
         TopologyResolver.Resolution resolution = TopologyResolver.resolve(beanFactory, environment, classLoader);
         for (String id : resolution.topology().idsOf(Mode.EXTERNAL)) {
             Class<?>[] contracts = resolution.contracts().getOrDefault(id, Set.of()).stream()
-                    .map(name -> load(name)).toArray(Class<?>[]::new);
+                    .map(name -> load(resolution.httpInterfaces().getOrDefault(id, Map.of()).getOrDefault(name, name)))
+                    .toArray(Class<?>[]::new);
             if (contracts.length > 0) {
                 registry.forGroup(id, ClientType.REST_CLIENT).register(contracts);
             }

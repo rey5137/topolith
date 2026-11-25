@@ -26,7 +26,8 @@ final class ExternalContracts {
     }
 
     /** Adds a TL0026 diagnostic for every external module that has no usable client. */
-    static void check(Set<String> externals, Map<String, Set<String>> contracts, ClassLoader loader,
+    static void check(Set<String> externals, Map<String, Set<String>> contracts,
+            Map<String, Map<String, String>> mappings, ClassLoader loader,
             List<Diagnostic> problems) {
         if (externals.isEmpty()) {
             return;
@@ -50,7 +51,19 @@ final class ExternalContracts {
                             + name + ", which cannot be loaded.", "Add the module's API JAR to the host classpath."));
                     continue;
                 }
-                if (!exchange(type)) {
+                String mapped = mappings.getOrDefault(id, Map.of()).get(name);
+                if (mapped != null) {
+                    try {
+                        Class<?> http = Class.forName(mapped, false, loader);
+                        if (!http.isInterface() || !type.isAssignableFrom(http) || !exchange(http)) {
+                            throw new IllegalArgumentException();
+                        }
+                    } catch (ClassNotFoundException | LinkageError | IllegalArgumentException e) {
+                        problems.add(new Diagnostic(TopolithCode.TL0026, "external module '" + id + "' contract "
+                                + name + " has invalid HTTP interface " + mapped + ".", "Map a loadable interface "
+                                + "extending the contract and carrying @HttpExchange."));
+                    }
+                } else if (!exchange(type)) {
                     problems.add(new Diagnostic(TopolithCode.TL0026, "contract " + name + " of external module '" + id
                             + "' carries no @HttpExchange.", "Annotate the contract or its methods with "
                             + "@HttpExchange (or @GetExchange and the like)."));

@@ -9,7 +9,8 @@ It also specifies the internal transaction boundary required by the 0.1 plan.
 
 By default the `*-api` contract uses `@HttpExchange`, a service implements it, and a thin `@RestController`
 exposes it. External mode registers one HTTP service group per module for its provided contracts. A separate HTTP
-interface remains supported. Implements INV-5, INV-8 and D-3.
+interface remains supported. Its case-sensitive contract FQN mapping key requires a case-preserving property source;
+environment variables are unsupported for these mappings. Implements INV-5, INV-8 and D-3.
 
 - AC-EXT-01 (M2.1): An external contract call uses the HTTP service group named for its module.
 - AC-EXT-02 (M2.4): An annotated contract implemented by a service is exposed through a thin controller.
@@ -103,7 +104,8 @@ has one discovery registration. Implements INV-8 and P-2.
 
 ### R-EXT-06 — Client customization
 
-The host can configure a module client with `ModuleClients.restClientBuilder(<id>)`. Implements P-2.
+The host can configure a module client with `ModuleClients.restClientBuilder(<id>, <customizer>)`. A host status
+handler throwing its own exception bypasses Topolith's error translation. Implements P-2.
 
 - AC-EXT-15 (M2.5): Custom client configuration applies to the named module's group.
 

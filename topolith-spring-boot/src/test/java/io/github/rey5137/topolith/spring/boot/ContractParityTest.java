@@ -11,6 +11,9 @@ import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountFa
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountNotFoundException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.host.ClientHost;
 import io.github.rey5137.topolith.spring.boot.errorfixture.payment.api.PaymentDeclinedException;
+import io.github.rey5137.topolith.spring.boot.errorfixture.separate.PlainController;
+import io.github.rey5137.topolith.spring.boot.errorfixture.separate.api.PlainContract;
+import io.github.rey5137.topolith.spring.boot.errorfixture.separate.api.PlainException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -83,4 +86,38 @@ class ContractParityTest {
             }
         });
     }
+    private static void assertPlainContract(PlainContract contract) {
+        assertEquals("found ok", contract.find("ok"));
+        assertEquals("failed", assertThrows(PlainException.class, () -> contract.find("fail")).getMessage());
+    }
+
+    @Test
+    void ac_road_02_hybrid_and_monolith_meet_both_contracts() throws Exception {
+        ContractExceptionsTest.contracts(root, "separate", PlainContract.class);
+        Path providerRoot = Fixtures.dir(temp, "provider");
+        ContractExceptionsTest.contracts(providerRoot, "account", AccountContract.class);
+        ContractExceptionsTest.contracts(providerRoot, "payment");
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            var runner = new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(ClientHost.class)
+                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.modules.payment.mode=none",
+                            "topolith.modules.separate.mode=internal");
+            runner.withPropertyValues("topolith.modules.account.mode=internal").run(monolith -> {
+                assertNull(monolith.getStartupFailure());
+                assertInstanceOf(AccountController.class, monolith.getBean(AccountContract.class));
+                assertContract(monolith.getBean(AccountContract.class));
+                assertPlainContract(monolith.getBean(PlainContract.class));
+            });
+            ProviderErrorsTest.serve(providerRoot, "internal", provider ->
+                    runner.withPropertyValues("topolith.modules.account.mode=external",
+                            "topolith.modules.account.remote.url=http://127.0.0.1:" + ProviderErrorsTest.port(provider))
+                            .run(hybrid -> {
+                                assertNull(hybrid.getStartupFailure());
+                                assertFalse(hybrid.getBean(AccountContract.class) instanceof AccountController);
+                                assertInstanceOf(PlainController.class, hybrid.getBean(PlainContract.class));
+                                assertContract(hybrid.getBean(AccountContract.class));
+                                assertPlainContract(hybrid.getBean(PlainContract.class));
+                            }));
+        }
+    }
+
 }

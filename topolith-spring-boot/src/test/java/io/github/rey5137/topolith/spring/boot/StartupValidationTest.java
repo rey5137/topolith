@@ -74,6 +74,62 @@ class StartupValidationTest {
     }
 
     @Test
+    void ac_ext_07_and_08_client_property_defaults_and_overrides() throws Exception {
+        descriptor("modules", "alpha", module("alpha", "", ""));
+        String mode = "topolith.modules.alpha.mode=external";
+        String url = "topolith.modules.alpha.remote.url=http://localhost";
+        run(context -> {
+            assertEquals("http://localhost", context.getEnvironment().getProperty(
+                    "spring.http.serviceclient.alpha.base-url"));
+            assertEquals("2s", context.getEnvironment().getProperty("spring.http.serviceclient.alpha.connect-timeout"));
+            assertEquals("5s", context.getEnvironment().getProperty("spring.http.serviceclient.alpha.read-timeout"));
+        }, mode, url);
+        run(context -> {
+            assertEquals("3s", context.getEnvironment().getProperty("spring.http.serviceclient.alpha.connect-timeout"));
+            assertEquals("9s", context.getEnvironment().getProperty("spring.http.serviceclient.alpha.read-timeout"));
+        }, mode, url, "topolith.modules.alpha.remote.connect-timeout=3s",
+                "spring.http.serviceclient.alpha.read-timeout=9s");
+    }
+
+    @Test
+    void ac_ext_25_conflicting_client_properties_fail() throws Exception {
+        descriptor("modules", "alpha", module("alpha", "", ""));
+        String mode = "topolith.modules.alpha.mode=external";
+        String url = "topolith.modules.alpha.remote.url=http://localhost";
+        for (String[] pair : List.of(new String[] {url, "spring.http.serviceclient.alpha.base-url=http://other"},
+                new String[] {"topolith.modules.alpha.remote.connect-timeout=3s",
+                        "spring.http.serviceclient.alpha.connect-timeout=4s"},
+                new String[] {"topolith.modules.alpha.remote.read-timeout=3s",
+                        "spring.http.serviceclient.alpha.read-timeout=4s"})) {
+            String[] properties = pair[0].equals(url) ? new String[] {mode, pair[0], pair[1]}
+                    : new String[] {mode, url, pair[0], pair[1]};
+            run(context -> {
+                String message = failure(context, TopolithCode.TL0003).getMessage();
+                assertTrue(message.contains(pair[0].split("=")[0]));
+                assertTrue(message.contains(pair[1].split("=")[0]));
+            }, properties);
+        }
+        run(context -> assertNull(context.getStartupFailure()), mode, url,
+                "topolith.modules.alpha.remote.connect-timeout=2s",
+                "spring.http.serviceclient.alpha.connect-timeout=2000ms");
+    }
+
+    @Test
+    void ac_ext_25_equal_urls_are_not_a_conflict_and_malformed_durations_fail() throws Exception {
+        descriptor("modules", "alpha", module("alpha", "", ""));
+        run(context -> assertNull(context.getStartupFailure()), "topolith.modules.alpha.mode=external",
+                "topolith.modules.alpha.remote.url=HTTP://Svc:8080/",
+                "spring.http.serviceclient.alpha.base-url=http://svc:8080");
+        run(context -> {
+            String message = failure(context, TopolithCode.TL0003).getMessage();
+            assertTrue(message.contains("topolith.modules.alpha.remote.connect-timeout"), message);
+            assertTrue(message.contains("fast"), message);
+        }, "topolith.modules.alpha.mode=external", "topolith.modules.alpha.remote.url=http://svc",
+                "topolith.modules.alpha.remote.connect-timeout=fast",
+                "spring.http.serviceclient.alpha.connect-timeout=3s");
+    }
+
+    @Test
     void ac_val_02_duplicate_contracts() throws Exception {
         descriptor("modules", "alpha", module("alpha", "fixture.api.Contract", ""));
         descriptor("modules", "beta", module("beta", "fixture.api.Contract", ""));
@@ -109,7 +165,12 @@ class StartupValidationTest {
             assertTrue(message.contains("alpha") && message.contains("fixture.api.One")
                     && message.contains("fixture.api.Two"));
         }, "topolith.modules.alpha.mode=internal");
-        run(context -> assertNull(context.getStartupFailure()), "topolith.modules.alpha.mode=external",
+        // external: the contracts are not compared (no TL0022), but an unloadable one is TL0026 (D-41)
+        run(context -> {
+            String failure = String.valueOf(context.getStartupFailure());
+            assertTrue(failure.contains("TL0026") && !failure.contains("TL0022"));
+        },
+                "topolith.modules.alpha.mode=external",
                 "topolith.modules.alpha.remote.url=http://localhost");
         descriptor("apis", "alpha", "format-version=1\nid=alpha\napi-packages=fixture.api\napi-version=1.0\n"
                 + "provides=fixture.api.One\n");

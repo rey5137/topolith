@@ -48,6 +48,24 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-37 | A standalone host hosts only its own module (TL0025); see below | `topolith.standalone` exempts a module from TL0001, TL0018 and TL0019 and must not let a composed host use that | M1 gate architect review; owner |
 | D-38 | `TopolithCode.defaultSeverity()`; see below | The code fixes only a default severity; the effective one is resolved later (P-2, R-VAL-04) | M1 gate architect review; owner |
 | D-39 | The processor writes the lowest format-version that expresses the descriptor; see below | A format bump reaches consumers only when a provider uses a new feature | M1 gate architect review; owner |
+| D-40 | External client properties map `remote.*` to Boot's service-client keys; see below | One source of truth per setting, no silent winner | M2.1; owner |
+| D-41 | An external module without a usable client fails with TL0026; see below | A silent skip hid a missing starter or an unannotated contract | M2.1 review; owner |
+
+### D-40 — External client properties
+
+External modules map `remote.url`, `remote.connect-timeout`, and `remote.read-timeout` to the corresponding
+`spring.http.serviceclient.<id>.base-url`, `connect-timeout`, and `read-timeout` properties. Timeouts default to
+2s and 5s, written for a group only when neither its `spring.http.serviceclient.<id>.*` key nor Boot's global
+`spring.http.clients.*` key is set. A Boot-only value overrides the timeout default; conflicting explicitly configured Topolith and Boot
+values fail with TL0003 naming both keys, while equal values are accepted. Properties remain refreshable-friendly;
+client refresh is deferred to M2.6.
+
+### D-41 — An external module needs a usable client (TL0026)
+
+Startup fails with TL0026, naming the module and where relevant the contract, when an external module has (a) no HTTP
+client stack (no spring-web, or no Boot HTTP service-client auto-configuration; add `spring-boot-starter-restclient`),
+(b) a contract in its `provides` that cannot be loaded, or (c) a provided contract with no `@HttpExchange` on the type
+or a method. M2.5's separate-HTTP-interface option will relax (c). TL0009 stays Cloud-only.
 
 ### D-13 — Computed restart status (Q-3)
 

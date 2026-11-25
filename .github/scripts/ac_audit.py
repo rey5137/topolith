@@ -14,18 +14,28 @@ JAVA_METHOD = re.compile(
 )
 JAVA_COMMENTS = re.compile(r'//[^\n]*|/\*.*?\*/', re.DOTALL)
 PYTHON_TEST = re.compile(r'^\s*def (test_ac_[a-z]+_\d+(?:_\w*)?)\s*\(', re.MULTILINE)
-SLICE_IN_SUBJECT = re.compile(r'\((M\d+\.\d+)[,)]')
+SLICE_GROUP = re.compile(r'\(([^()]*\bM\d+\.\d+\b[^()]*)\)')
+SLICE = re.compile(r'\bM\d+\.\d+\b')
+
+
+def git(root, *args):
+    return subprocess.run(['git', '-C', str(root), *args], text=True, capture_output=True)
 
 
 def committed_slices(root):
-    """Slices named as `(Mn.m)` or `(Mn.m, ...)` in a commit subject of the checked-out history, or None."""
+    """Slices named in a parenthesised group of a commit subject, or None when the full history is unreadable."""
     try:
-        log = subprocess.run(['git', '-C', str(root), 'log', '--format=%s'], text=True, capture_output=True)
+        shallow = git(root, 'rev-parse', '--is-shallow-repository')
+        if shallow.returncode != 0 or shallow.stdout.strip() != 'false':
+            return None
+        if git(root, 'rev-parse', '--verify', '-q', 'HEAD').returncode != 0:
+            return set()
+        log = git(root, 'log', '--format=%s')
     except OSError:
         return None
     if log.returncode != 0:
         return None
-    return set(SLICE_IN_SUBJECT.findall(log.stdout))
+    return {item for group in SLICE_GROUP.findall(log.stdout) for item in SLICE.findall(group)}
 
 
 def audit(spec, root, committed):
@@ -85,7 +95,7 @@ def main():
     else:
         committed = committed_slices(args.root)
         if committed is None:
-            print(f'{args.root}: cannot read git history to find committed slices')
+            print(f'{args.root}: cannot read the full git history to find committed slices')
             return 1
     return audit(args.spec, args.root, committed)
 

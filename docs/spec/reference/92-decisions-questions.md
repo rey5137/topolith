@@ -102,8 +102,11 @@ lines starting with `#` are ignored. The startup boundary check reads the packag
 ### D-26 — Committed slices need named tests (M0 gate)
 
 A criterion's owning slice excuses a missing named test only until that slice is committed. The audit reads committed
-slices from commit subjects in the checked-out history (`(Mn.m)` or `(Mn.m, …)`), so CI checks out full history; the
-audit fails when it cannot read that history. A squash merge whose subject names no slice leaves its criteria pending.
+slices from every parenthesised group in the commit subjects of the checked-out history (`(Mn.m)`, `(D-n, Mn.m, …)`),
+so CI checks out full history; the audit fails on a shallow clone or unreadable history, and a repository with no
+commits has no committed slices. A subject that names a slice before it is built fails that slice's untested criteria,
+so planning commits name slices outside parentheses. A squash merge whose subject names no slice leaves its criteria
+pending.
 
 ## Open questions
 

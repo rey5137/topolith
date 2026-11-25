@@ -132,13 +132,16 @@ class ModuleClientsTest {
     @Test
     void ac_ext_15_topolith_client_settings_cannot_be_replaced() throws Exception {
         descriptor("remote", RemoteContract.class);
-        for (String setting : List.of("baseUrl", "requestFactory", "messageConverters", "configureMessageConverters")) {
+        for (String setting : List.of("baseUrl", "requestFactory", "defaultUriVariables", "messageConverters",
+                "configureMessageConverters")) {
             try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(temp)) {
                 new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(Host.class)
                         .withBean("custom", RestClientHttpServiceGroupConfigurer.class, () ->
                                 ModuleClients.restClientBuilder("remote", builder -> {
                                     if (setting.equals("baseUrl")) {
                                         builder.baseUrl("http://other");
+                                    } else if (setting.equals("defaultUriVariables")) {
+                                        builder.defaultUriVariables(java.util.Map.of("a", "b"));
                                     } else if (setting.equals("messageConverters")) {
                                         builder.messageConverters(List.of(new org.springframework.http.converter
                                                 .StringHttpMessageConverter()));

@@ -2,6 +2,7 @@ package io.github.rey5137.topolith.spring.boot;
 
 import java.math.BigInteger;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -29,11 +30,17 @@ final class ExternalVersionCheck {
 
     /** One warning line per external module that needs one, in id order. */
     static void check(BeanFactory beanFactory, TopologyResolver.Resolution resolution, Consumer<String> warn) {
+        check(beanFactory, resolution, resolution.topology().idsOf(Mode.EXTERNAL), warn);
+    }
+
+    /** The same for the given modules only, such as one whose client a refresh rebuilt. */
+    static void check(BeanFactory beanFactory, TopologyResolver.Resolution resolution, Set<String> ids,
+            Consumer<String> warn) {
         // under lazy initialization the groups are not configured until the registry exists
         beanFactory.getBeanProvider(HttpServiceProxyRegistry.class).getIfAvailable();
         ExternalClientBuilders clients = beanFactory.getBean(ExternalErrorsConfiguration.CLIENTS_BEAN,
                 ExternalClientBuilders.class);
-        for (String id : resolution.topology().idsOf(Mode.EXTERNAL)) {
+        for (String id : ids) {
             RestClient.Builder builder = clients.get(id);
             if (builder == null) {
                 continue;

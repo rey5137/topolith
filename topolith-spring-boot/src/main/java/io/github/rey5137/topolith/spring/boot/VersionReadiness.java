@@ -1,9 +1,11 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import io.github.rey5137.topolith.core.Mode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.BeanFactory;
@@ -35,20 +37,26 @@ final class VersionReadiness implements ApplicationListener<ApplicationReadyEven
                 TopologyResolver.Resolution.class);
         resolution.versionWarnings().forEach(LOG::warn);
         if (beanFactory.containsBean(ExternalErrorsConfiguration.CLIENTS_BEAN)) {
-            CompletableFuture<Void> done = new CompletableFuture<>();
-            remote = done;
-            Thread thread = new Thread(() -> {
-                try {
-                    ExternalVersionCheck.check(beanFactory, resolution, LOG::warn);
-                } catch (RuntimeException e) {
-                    LOG.warn("the remote API version check failed: {}", e.getClass().getSimpleName());
-                } finally {
-                    done.complete(null);
-                }
-            }, "topolith-version-check");
-            thread.setDaemon(true);
-            thread.start();
+            remote = startRemote(beanFactory, resolution, resolution.topology().idsOf(Mode.EXTERNAL));
         }
+    }
+
+    /** Checks the given external modules on one daemon thread; a refreshed client re-checks only itself (D-50). */
+    static CompletableFuture<Void> startRemote(BeanFactory beanFactory, TopologyResolver.Resolution resolution,
+            Set<String> ids) {
+        CompletableFuture<Void> done = new CompletableFuture<>();
+        Thread thread = new Thread(() -> {
+            try {
+                ExternalVersionCheck.check(beanFactory, resolution, ids, LOG::warn);
+            } catch (RuntimeException e) {
+                LOG.warn("the remote API version check failed: {}", e.getClass().getSimpleName());
+            } finally {
+                done.complete(null);
+            }
+        }, "topolith-version-check");
+        thread.setDaemon(true);
+        thread.start();
+        return done;
     }
 
     /** Waits for the remote checks started by the ready event; for tests and shutdown hooks. */

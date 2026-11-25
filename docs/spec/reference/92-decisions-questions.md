@@ -58,6 +58,7 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-47 | The D-2 boundary is an advisor on an internal provider bean, counted by `topolith.contract.calls.in.transaction`; see below | Makes D-2 enforceable for every caller without a proxy per call site | M2.4 owner decision |
 | D-48 | A host configures one external group with `ModuleClients.restClientBuilder`; see below | Explicit customization preserves Topolith settings | M2.5 owner decision |
 | D-49 | An external contract may map to a separate HTTP interface; see below | Keep API contracts free of spring-web | M2.5 owner decision |
+| D-50 | A refresh swaps delegates inside the group's one `RestClient`; see below | Proxies, error translation and customizers stay as built | M2.6; mechanism is the orchestrator's call, owner may revisit |
 
 ### D-49 — Separate HTTP interface (M2.5)
 
@@ -72,8 +73,45 @@ implements the HTTP interface and is exposed under `/<id>` (D-44); the contract 
 
 The host declares `ModuleClients.restClientBuilder(id, customizer)` as a bean. Unknown or non-external ids fail
 TL0003 naming `topolith.modules.<id>.mode`. The customizer cannot replace the base URL or request factory; attempts
-to do so fail, preserving the Topolith URL and timeouts. Replacing the URI factory, interceptor list or message converters and cloning the
+to do so fail, preserving the Topolith URL and timeouts. Replacing the URI factory, default URI variables, interceptor list or message converters and cloning the
 builder are also rejected, preserving error response translation. Topolith retains its error advice.
+
+### D-50 — Client refresh mechanism (M2.6)
+
+A refresh never replaces the group's `RestClient`, its proxies or the proxy factory advice (D-43), which the
+`HttpServiceProxyRegistry` owns. `ExternalClientSwapConfiguration` adds one `RestClientHttpServiceGroupConfigurer` at
+the lowest order, for external groups only (INV-2). After Boot's property, LoadBalancer's, D-43's and D-48's
+configurers it installs two Topolith-owned delegates in the group builder: a `UriBuilderFactory` over
+`<url>/<id>` (or `http://<service-id>/<id>`, which LoadBalancer resolves per request) and a `ClientHttpRequestFactory`
+built with Boot's `ClientHttpRequestFactoryBuilder` and `HttpClientSettings` mapped from the group's
+`spring.http.serviceclient.<id>.*` properties. Both read an `AtomicReference`. Because the D-48 guard still rejects a
+host's `uriBuilderFactory` and `requestFactory`, the delegates stay Topolith's. LoadBalancer's configurer adds its
+interceptor only when the startup base URL is `lb://`; a URL to service-id switch is therefore the TL0010 restart case
+already required by R-EXT-08, and a service-id to service-id change works through the same interceptor.
+
+`ExternalClientEndpoints.rebuild(id)` runs on a refresh that changes `remote.url`, `remote.service-id` (same kind),
+`remote.connect-timeout` or `remote.read-timeout`. It validates with the startup TL0003 rules
+(`TopologyResolver.checkRemote`) plus an `http(s)` URL check, recomputes the module's `topolithExternalClients`
+properties (the source is replaced, never mutated), builds the new delegates and only then sets both references. A
+validation or build failure restores the old source, keeps both references, logs TL0011 and records the failure for
+the actuator until a later refresh succeeds. A request already created finishes on the old request factory, which is
+not closed on swap (a small, accepted leak per refresh). After a successful swap the remote version check (D-22, D-24)
+runs again for that module on a daemon thread.
+
+Boot-side classes hold no Spring Cloud type. The public `@Incubating` `TopolithRefresh.apply(changedKeys)` takes the
+changed property keys, computes the requested modes (`TopologyResolver.requested`), TL0010 and restart pending, and
+calls `rebuild`; `topolith-spring-cloud` only maps an `EnvironmentChangeEvent` to it
+(`TopolithRefreshListener`, registered by `TopolithCloudAutoConfiguration` under `@ConditionalOnClass`). TL0014 names
+that listener class. The `topolith` endpoint adds a top-level `restartPending`; each module adds `requestedMode` when
+it differs from `mode`, `restartPending` reasons (`mode`, `wiring`) and, while its last refresh failed,
+`refresh: {status: failed, code: TL0011, message, at}`. Wiring is decided by the startup base URL: a refresh that moves it between load-balanced (`lb://`, whether set by
+`remote.service-id` or an `lb://` `remote.url`) and a direct http(s) URL is a wiring change (TL0010, restart
+pending, no swap). A removed timeout falls back as at startup: the group key, then Boot's global
+`spring.http.clients.*`, then 2s/5s. A change to `topolith.standalone` re-runs the mode comparison. A refreshed mode that
+does not resolve is still a requested mode change: TL0010 names the running mode and the raw value, with the hint
+that startup would fail (TL0003), and restart is pending until the value matches the running mode again. Default URI
+variables are protected like the base URL (D-48), because the swapped URI factory would drop them. Boot's own `ssl`, redirect and cookie settings of the group
+are mapped once at startup and carried into each rebuild; only the two timeouts change.
 
 ### D-44 to D-47 — Exposure, caller URL, security hook and transaction boundary (M2.4)
 

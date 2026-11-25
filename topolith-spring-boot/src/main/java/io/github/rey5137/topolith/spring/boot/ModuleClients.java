@@ -26,7 +26,7 @@ public final class ModuleClients {
 
     /**
      * Customize only the named external module's client. The Topolith base URL and request factory win: attempts to
-     * replace them are rejected. Replacing the URI factory, interceptor list or message converters and cloning the
+     * replace them are rejected. Replacing the URI factory, default URI variables, interceptor list or message converters and cloning the
      * builder are also rejected to preserve those settings. A host status handler throwing its own exception bypasses Topolith's error
      * translation.
      * Declare the returned configurer as a Spring bean.
@@ -39,7 +39,7 @@ public final class ModuleClients {
 
 final class ModuleClientConfigurer implements RestClientHttpServiceGroupConfigurer, BeanFactoryAware, InitializingBean {
     private static final Set<String> PROTECTED = Set.of("baseUrl", "uriBuilderFactory", "requestFactory",
-            "requestInterceptors", "messageConverters", "configureMessageConverters", "clone");
+            "requestInterceptors", "defaultUriVariables", "messageConverters", "configureMessageConverters", "clone");
     private final String moduleId;
     private final Consumer<RestClient.Builder> customizer;
     private BeanFactory beanFactory;

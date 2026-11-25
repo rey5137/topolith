@@ -105,7 +105,8 @@ has one discovery registration. Implements INV-8 and P-2.
 ### R-EXT-06 — Client customization
 
 The host can configure a module client with `ModuleClients.restClientBuilder(<id>, <customizer>)`. A host status
-handler throwing its own exception bypasses Topolith's error translation. Implements P-2.
+handler throwing its own exception bypasses Topolith's error translation. The customizer cannot replace the base
+URL, URI factory, default URI variables, request factory, interceptors or message converters (D-48, D-50). Implements P-2.
 
 - AC-EXT-15 (M2.5): Custom client configuration applies to the named module's group.
 

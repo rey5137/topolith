@@ -14,6 +14,8 @@ import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.core.Topology;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.BeanClassLoaderAware;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
@@ -41,6 +43,8 @@ import org.springframework.core.type.filter.TypeFilter;
  */
 final class TopolithModuleImportSelector
         implements ImportSelector, BeanFactoryAware, EnvironmentAware, BeanClassLoaderAware, ResourceLoaderAware {
+    private static final Logger LOG = LoggerFactory.getLogger(TopolithModuleImportSelector.class);
+
     private BeanFactory beanFactory;
     private Environment environment;
     private ClassLoader classLoader;
@@ -48,6 +52,13 @@ final class TopolithModuleImportSelector
 
     @Override
     public String[] selectImports(AnnotationMetadata importingClassMetadata) {
+        if (ClassUtils.isPresent("org.springframework.cloud.context.environment.EnvironmentChangeEvent", classLoader)
+                && !ClassUtils.isPresent("io.github.rey5137.topolith.spring.cloud.TopolithRefreshListener",
+                        classLoader)) {
+            LOG.warn(new Diagnostic(TopolithCode.TL0014, "Spring Cloud context classes are present but "
+                    + "topolith-spring-cloud is not, so Topolith ignores configuration refreshes.",
+                    "Add topolith-spring-cloud for refresh handling.").toString());
+        }
         TopologyResolver.Resolution resolution = TopologyResolver.resolve(beanFactory, environment, classLoader);
         Topology topology = resolution.topology();
         ExternalClientProperties.register(environment, topology);
@@ -75,6 +86,9 @@ final class TopolithModuleImportSelector
                 "org.springframework.web.service.registry.AbstractHttpServiceRegistrar", classLoader)) {
             imports.add("io.github.rey5137.topolith.spring.boot.ExternalHttpServicesRegistrar");
             imports.add("io.github.rey5137.topolith.spring.boot.ExternalErrorsConfiguration");
+            if (ClassUtils.isPresent("org.springframework.boot.http.client.HttpClientSettings", classLoader)) {
+                imports.add("io.github.rey5137.topolith.spring.boot.ExternalClientSwapConfiguration");
+            }
         }
         return imports.toArray(String[]::new);
     }

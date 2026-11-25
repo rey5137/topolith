@@ -57,10 +57,9 @@ class ModeCombinationTest {
                                 LedgerEntry.class, LedgerRepository.class);
                         check(context, "billing", billing, BillingComponent.class, BillingAutoConfiguration.class,
                                 BillingEntry.class, BillingRepository.class);
-                        assertEquals(Map.of("mode", ledger), context.getBean(TopolithEndpoint.class).modules()
-                                .get("modules").get("ledger"));
-                        assertEquals(Map.of("mode", billing), context.getBean(TopolithEndpoint.class).modules()
-                                .get("modules").get("billing"));
+                        Map<?, ?> reported = (Map<?, ?>) context.getBean(TopolithEndpoint.class).modules().get("modules");
+                        assertEquals(Map.of("mode", ledger), reported.get("ledger"));
+                        assertEquals(Map.of("mode", billing), reported.get("billing"));
                     });
         }
     }

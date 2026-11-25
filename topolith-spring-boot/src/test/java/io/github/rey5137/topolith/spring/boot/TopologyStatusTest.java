@@ -44,6 +44,64 @@ class TopologyStatusTest {
                 + "api-packages=" + Fixtures.USER_API + "\napi-version=" + apiVersion + "\n");
     }
 
+    private void runCloudDetection(boolean cloud, boolean integration) throws Exception {
+        Fixtures.module(root, "user", Fixtures.USER, List.of(Fixtures.USER_API));
+        Path classRoot = root.resolve("detection");
+        Path cloudSource = classRoot.resolve(
+                "org/springframework/cloud/context/environment/EnvironmentChangeEvent.java");
+        Path integrationSource = classRoot.resolve(
+                "io/github/rey5137/topolith/spring/cloud/TopolithRefreshListener.java");
+        java.nio.file.Files.createDirectories(cloudSource.getParent());
+        java.nio.file.Files.createDirectories(integrationSource.getParent());
+        java.nio.file.Files.writeString(cloudSource,
+                "package org.springframework.cloud.context.environment; public class EnvironmentChangeEvent {}\n");
+        java.nio.file.Files.writeString(integrationSource,
+                "package io.github.rey5137.topolith.spring.cloud; public class TopolithRefreshListener {}\n");
+        assertEquals(0, javax.tools.ToolProvider.getSystemJavaCompiler().run(null, null, null,
+                cloudSource.toString(), integrationSource.toString()));
+        try (var parent = new java.net.URLClassLoader(new URL[] {classRoot.toUri().toURL()},
+                getClass().getClassLoader()) {
+            @Override
+            protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                if (name.equals("org.springframework.cloud.context.environment.EnvironmentChangeEvent")) {
+                    if (!cloud) {
+                        throw new ClassNotFoundException(name);
+                    }
+                }
+                if (name.equals("io.github.rey5137.topolith.spring.cloud.TopolithRefreshListener")) {
+                    if (!integration) {
+                        throw new ClassNotFoundException(name);
+                    }
+                }
+                return super.loadClass(name, resolve);
+            }
+        };
+                Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(parent, root)) {
+            new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(Host.class)
+                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.modules.user.mode=none")
+                    .run(context -> assertNull(context.getStartupFailure()));
+        }
+    }
+
+    @Test
+    void ac_mode_18_cloud_without_integration_warns(CapturedOutput output) throws Exception {
+        runCloudDetection(true, false);
+        assertTrue(output.getAll().contains("TL0014"));
+        assertTrue(output.getAll().contains("Add topolith-spring-cloud"));
+    }
+
+    @Test
+    void ac_mode_19_no_cloud_does_not_warn(CapturedOutput output) throws Exception {
+        runCloudDetection(false, false);
+        assertFalse(output.getAll().contains("TL0014"));
+    }
+
+    @Test
+    void ac_mode_20_cloud_with_integration_does_not_warn(CapturedOutput output) throws Exception {
+        runCloudDetection(true, true);
+        assertFalse(output.getAll().contains("TL0014"));
+    }
+
     @Test
     void ac_val_05_warns_once_at_readiness_without_changing_state(CapturedOutput output) throws Exception {
         descriptors("2.0");
@@ -102,10 +160,10 @@ class TopologyStatusTest {
                     .run(context -> {
                         assertNull(context.getStartupFailure());
                         TopolithEndpoint endpoint = context.getBean(TopolithEndpoint.class);
-                        assertEquals(Map.of("modules", Map.of("payment", Map.of("mode", "none"),
+                        assertEquals(Map.of("restartPending", false, "modules", Map.of("payment", Map.of("mode", "none"),
                                 "user", Map.of("mode", "internal"))), endpoint.modules());
-                        assertEquals(List.of("payment", "user"), endpoint.modules().get("modules").keySet().stream()
-                                .toList());
+                        assertEquals(List.of("payment", "user"), ((Map<?, ?>) endpoint.modules().get("modules"))
+                                .keySet().stream().toList());
                         assertSame(context.getBean("topolithTopology"), context.getBean(Topology.class));
                         var discoverer = new WebEndpointDiscoverer(context.getSourceApplicationContext(),
                                 new ConversionServiceParameterValueMapper(), EndpointMediaTypes.DEFAULT, List.of(),

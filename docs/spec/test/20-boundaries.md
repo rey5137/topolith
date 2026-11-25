@@ -9,7 +9,7 @@ It routes work on `TopolithArchitecture.verify()` and non-internal module owners
 
 `TopolithArchitecture.verify()` derives rules from descriptors: a module accesses another only through its API and
 declared `requires` or `optional`, and required dependencies cannot form cycles. Checks fail by default. Implements
-INV-4, INV-5, P-4 and D-4.
+INV-4, INV-5, P-4 and D-4; owner resolution and the API shape are D-56.
 
 - AC-ARCH-01 (M3.1): Cross-module access to a non-API type fails, and access to a declared API passes.
 - AC-ARCH-02 (M3.1): Access without a declared required or optional dependency fails.
@@ -18,8 +18,8 @@ INV-4, INV-5, P-4 and D-4.
 
 ### R-ARCH-02 — Contract types
 
-Contract signatures cannot expose `Page`, `Stream`, entities, `InputStream` or lazy proxies. The descriptor's API
-packages identify the contract types to check. Implements INV-5 and INV-6.
+Contract signatures cannot expose `Page`, `Stream`, entities, `InputStream` or lazy proxies (the exact name-based list
+is D-56). The descriptor's API packages identify the contract types to check. Implements INV-5 and INV-6.
 
 - AC-ARCH-05 (M3.1): A fixture for each prohibited contract type fails the architecture check.
 - AC-ARCH-06 (M3.1): A contract using value types passes the contract-type check.

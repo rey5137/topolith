@@ -114,6 +114,34 @@ INV-6's "same exception types" covers declared contract exceptions and `ModuleUn
 Undeclared exceptions are outside the type guarantee; a later parity mode may wrap them at the internal boundary behind
 the P-2 switch. Amends INV-6; Q-22 stays open.
 
+### D-56 — Descriptor-driven architecture rules (M3.1)
+
+`TopolithArchitecture` (`topolith-spring-test`, `@Incubating`) has `verify()` (descriptors from the context class
+loader), `verify(ClassLoader)`, `verify(modules, apis, JavaClasses)` and `rules(modules, apis)`, which returns five
+`ArchRule`s in order (non-API access, undeclared dependency, `requires` cycles, descriptor consistency, contract types)
+for M3.2 to freeze one by one. Every rule fails by default (D-4), so `verify()` also fails when it finds no module
+descriptor. `verify(ClassLoader)` finds the descriptors and the classes through that loader, and test classes
+(`ImportOption.DoNotIncludeTests`) are not checked.
+
+- **Owner.** A class is owned by the module whose descriptor lists its package as an api package (exact match, also
+  outside that module's `package`); otherwise by the module with the longest `package` containing it; otherwise by none.
+  Classes owned by none, and the `contract` and `annotation` packages (D-54), are never checked as targets.
+- **Access.** A dependency from module A to module B's class outside B's api packages fails; to B's api package it
+  fails unless B is in A's `requires` or `optional`. A module's own classes, a controller implementing its own contract
+  included (D-53), are never flagged.
+- **Cycles.** The `requires` cycles of core's `ModuleGraph` (TL0008) fail the check; `optional` edges never do. Only
+  TL0008 is reported under this rule.
+- **Consistency.** Duplicate module ids (TL0006) and an api package listed by more than one descriptor id fail under
+  their own rule: no owner is picked silently (INV-4).
+- **Contract types.** The contracts are the public non-annotation interfaces of a module's api packages, narrowed to the
+  descriptor's `provides` (binary names, `Outer$Inner` for a nested contract) when it lists any. Inherited
+  methods and the generic arguments of the super-interfaces are checked too. A contract method may not use, in its
+  return type, a parameter or a generic argument at any depth, a type that is or
+  extends `org.springframework.data.domain.Slice` (so `Page`),
+  `java.util.stream.BaseStream` (so `Stream`), `java.io.InputStream`, `org.hibernate.proxy.HibernateProxy`,
+  `org.hibernate.collection.spi.PersistentCollection` or `java.lang.reflect.Proxy`, or one annotated
+  `jakarta.persistence.Entity`. All are matched by name, so no Spring Data, JPA or Hibernate dependency is needed.
+
 ### D-50 — Client refresh mechanism (M2.6)
 
 A refresh never replaces the group's `RestClient`, its proxies or the proxy factory advice (D-43), which the

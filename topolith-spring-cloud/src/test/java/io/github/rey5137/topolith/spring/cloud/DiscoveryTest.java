@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import com.sun.net.httpserver.HttpServer;
+import io.github.rey5137.topolith.contract.ModuleUnavailableException;
 import io.github.rey5137.topolith.core.ApiDescriptor;
 import io.github.rey5137.topolith.core.Descriptors;
 import io.github.rey5137.topolith.core.ModuleDescriptor;
@@ -27,8 +28,10 @@ import org.springframework.boot.test.context.assertj.AssertableApplicationContex
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** M2.2 acceptance tests: a service id resolves through Spring Cloud LoadBalancer and a DiscoveryClient. */
@@ -98,6 +101,20 @@ class DiscoveryTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void ac_ext_10_zero_loadbalancer_instances_is_module_unavailable() throws Exception {
+        run(context -> {
+            assertNull(context.getStartupFailure());
+            ModuleUnavailableException e = assertThrows(ModuleUnavailableException.class,
+                    () -> context.getBean(UserContract.class).ping());
+            assertEquals("user", e.moduleId());
+            // pins LoadBalancer's no-instance failure that the caller maps (D-43)
+            assertInstanceOf(IllegalStateException.class, e.getCause());
+            assertTrue(e.getCause().getMessage().startsWith("No instances available for users-service"),
+                    e.getCause().getMessage());
+        }, "topolith.modules.user.mode=external", "topolith.modules.user.remote.service-id=users-service");
     }
 
     @Test

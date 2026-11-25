@@ -5,11 +5,11 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition;
 import com.tngtech.archunit.library.freeze.FreezingArchRule;
-import io.github.rey5137.topolith.architecture.fixtures.billing.BillingImpl;
-import io.github.rey5137.topolith.architecture.fixtures.shop.ShopArray;
-import io.github.rey5137.topolith.architecture.fixtures.shop.ShopHack;
-import io.github.rey5137.topolith.architecture.fixtures.shop.ShopService;
-import io.github.rey5137.topolith.architecture.fixtures.shop.ShopSneak;
+import fixture.architecture.billing.BillingImpl;
+import fixture.architecture.shop.ShopArray;
+import fixture.architecture.shop.ShopHack;
+import fixture.architecture.shop.ShopService;
+import fixture.architecture.shop.ShopSneak;
 import io.github.rey5137.topolith.core.BoundaryBaseline;
 import io.github.rey5137.topolith.core.ModuleDescriptor;
 import io.github.rey5137.topolith.spring.test.TopolithArchitecture;
@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TopolithBaselineTest {
-    private static final String F = "io.github.rey5137.topolith.architecture.fixtures.";
+    private static final String F = "fixture.architecture.";
     private static final String STORE = "freeze.store.default.";
 
     @TempDir

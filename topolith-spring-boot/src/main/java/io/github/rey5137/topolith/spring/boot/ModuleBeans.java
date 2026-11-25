@@ -1,5 +1,6 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -54,19 +55,46 @@ final class ModuleBeans {
 
     /** The module that owns the definition: its factory method's declaring class, otherwise its bean class. */
     static Optional<String> owner(BeanDefinition definition, Resolution resolution) {
-        String className = null;
-        if (definition instanceof AnnotatedBeanDefinition annotated && annotated.getFactoryMethodMetadata() != null) {
-            className = annotated.getFactoryMethodMetadata().getDeclaringClassName();
+        if (definition instanceof AnnotatedBeanDefinition annotated) {
+            String className = annotated.getFactoryMethodMetadata() == null ? definition.getBeanClassName()
+                    : annotated.getFactoryMethodMetadata().getDeclaringClassName();
+            Optional<String> owner = ownerOfClass(className, resolution);
+            if (owner.isPresent()) {
+                return owner;
+            }
         }
-        if (className == null) {
-            className = definition.getBeanClassName();
+        Optional<String> classOwner = ownerOfClass(definition.getBeanClassName(), resolution);
+        if (classOwner.isPresent()) {
+            return classOwner;
         }
-        return ownerOfClass(className, resolution);
+        if (definition instanceof AbstractBeanDefinition concrete && concrete.getResource() != null) {
+            try {
+                var url = concrete.getResource().getURL();
+                String path = url.getPath();
+                Optional<String> packageOwner = resolution.topology().graph().modules().stream()
+                        .filter(module -> path.contains("/" + module.packageName().replace('.', '/') + "/"))
+                        .map(module -> module.id()).findFirst();
+                if (packageOwner.isPresent() || !"jar".equals(url.getProtocol())) {
+                    return packageOwner;
+                }
+                String source = url.toExternalForm();
+                return resolution.rootOwners().entrySet().stream().filter(entry -> source.startsWith(entry.getKey()))
+                        .map(Map.Entry::getValue).findFirst();
+            } catch (IOException ignored) {
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
     }
 
     /** The module that owns the class: by package, otherwise by the imports file that lists it. */
     static Optional<String> ownerOfClass(String className, Resolution resolution) {
         if (className == null) {
+            return Optional.empty();
+        }
+        boolean api = resolution.topology().graph().modules().stream().flatMap(module -> module.apiPackages().stream())
+                .anyMatch(pkg -> className.startsWith(pkg + "."));
+        if (api) {
             return Optional.empty();
         }
         Optional<String> owner = resolution.topology().ownerOfClass(className);

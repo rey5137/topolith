@@ -21,6 +21,11 @@ import org.springframework.core.Ordered;
         ModuleClientsCheckConfiguration.class})
 public class TopolithAutoConfiguration {
 
+    @Bean
+    static TopolithBoundaryCheck topolithBoundaryCheck() {
+        return new TopolithBoundaryCheck();
+    }
+
     /** The persistence checks that need no persistence library (D-32). */
     @Bean
     static TopolithPersistenceCheck topolithPersistenceCheck() {

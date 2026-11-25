@@ -227,7 +227,11 @@ class UnregisteredRepositoryTest {
     @Test
     void ac_mode_30_a_standalone_module_with_mode_none_is_not_reported_as_the_host() throws Exception {
         run(MartApplication.class, List.of(martRoot), registry -> { }, List.of("topolith.standalone=mart",
-                "topolith.modules.mart.mode=none", NO_JPA), context -> assertNull(context.getStartupFailure()));
+                "topolith.modules.mart.mode=none", NO_JPA), context -> {
+                    assertEquals(List.of(TopolithCode.TL0007), codes(context));
+                    assertTrue(failure(context).getMessage().contains(MartApplication.class.getName()));
+                    assertFalse(failure(context).getMessage().contains("TL0024"));
+                });
     }
 
     @Test

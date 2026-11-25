@@ -95,19 +95,22 @@ public final class Descriptors {
 
     /** Writes the module descriptor as ASCII with every key, in a fixed order and without a timestamp. */
     public static void write(ModuleDescriptor module, Writer out) throws IOException {
-        writeCommon(module.api(), out);
+        writeCommon(module.api(), out, module.packageName());
         entry(out, "requires", String.join(",", module.requires()));
         entry(out, "optional", String.join(",", module.optional()));
     }
 
     /** Writes the API descriptor as ASCII with every key, in a fixed order and without a timestamp. */
     public static void write(ApiDescriptor api, Writer out) throws IOException {
-        writeCommon(api, out);
+        writeCommon(api, out, null);
     }
 
-    private static void writeCommon(ApiDescriptor api, Writer out) throws IOException {
+    private static void writeCommon(ApiDescriptor api, Writer out, String packageName) throws IOException {
         entry(out, "format-version", Integer.toString(api.formatVersion()));
         entry(out, "id", api.id());
+        if (packageName != null) {
+            entry(out, "package", packageName);
+        }
         entry(out, "api-packages", String.join(",", api.apiPackages()));
         entry(out, "api-version", api.apiVersion());
         entry(out, "provides", String.join(",", api.provides()));

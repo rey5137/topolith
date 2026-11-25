@@ -21,12 +21,17 @@ class DescriptorsTest {
     private static final String VALID = """
             format-version=1
             id=orders
+            package=com.acme.orders.impl
             api-packages=com.acme.orders
             api-version=1.2.0
             provides=com.acme.orders.OrderApi
             requires=billing
             optional=search
             """;
+
+    private static ModuleDescriptor.Builder withPackage(String id) {
+        return ModuleDescriptor.builder(id).packageName("impl");
+    }
 
     private static InputStream stream(String text) {
         return new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8));
@@ -94,6 +99,7 @@ class DescriptorsTest {
         ModuleDescriptor module = parse("""
                 format-version=1
                 id=orders
+                package=com.acme.orders.impl
                 api-packages=com.acme.orders
                 api-version=1.0
                 requires=
@@ -105,7 +111,7 @@ class DescriptorsTest {
 
     @Test
     void round_trip_write_then_parse_is_equal() throws IOException {
-        ModuleDescriptor module = ModuleDescriptor.builder("order-history")
+        ModuleDescriptor module = ModuleDescriptor.builder("order-history").packageName("com.acme.history.impl")
                 .apiPackages(List.of("com.acme.history", "com.acme.history.events"))
                 .provides(List.of("com.acme.history.HistoryApi")).requires(List.of("orders", "billing"))
                 .optional(List.of("search")).apiVersion("2.0.0-SNAPSHOT: x=y #zé\\")
@@ -114,7 +120,7 @@ class DescriptorsTest {
         Descriptors.write(module, out);
         String text = out.toString();
         assertTrue(text.chars().allMatch(c -> c < 0x7f), text);
-        assertTrue(text.startsWith("format-version=1\nid=order-history\n"), text);
+        assertTrue(text.startsWith("format-version=1\nid=order-history\npackage=com.acme.history.impl\n"), text);
         assertTrue(!text.contains("#") || text.contains("\\#"), text);
         assertEquals(module, Descriptors.parseModule("x/order-history.properties", stream(text)));
     }
@@ -126,7 +132,8 @@ class DescriptorsTest {
         StringWriter out = new StringWriter();
         Descriptors.write(api, out);
         assertEquals(api, Descriptors.parseApi("orders.properties", stream(out.toString())));
-        ModuleDescriptor bare = ModuleDescriptor.builder("a").apiPackages(List.of("a")).apiVersion("0").build();
+        ModuleDescriptor bare = ModuleDescriptor.builder("a").packageName("bare").apiPackages(List.of("a"))
+                .apiVersion("0").build();
         StringWriter bareOut = new StringWriter();
         Descriptors.write(bare, bareOut);
         assertTrue(bareOut.toString().contains("requires=\n"));
@@ -200,7 +207,7 @@ class DescriptorsTest {
 
     private static void assertBadId(String id) {
         TopolithException failure = assertThrows(TopolithException.class,
-                () -> ModuleDescriptor.builder(id).apiPackages(List.of("a")).apiVersion("1").build(),
+                () -> withPackage(id).apiPackages(List.of("a")).apiVersion("1").build(),
                 "id '" + id + "'");
         assertEquals(TopolithCode.TL0013, failure.code(), "id '" + id + "'");
         assertTrue(failure.getMessage().contains("'id'"), failure.getMessage());
@@ -212,13 +219,42 @@ class DescriptorsTest {
             assertBadId(id);
         }
         assertBadId("a".repeat(64));
-        ModuleDescriptor.builder("a".repeat(63)).apiPackages(List.of("a")).apiVersion("1").build();
-        ModuleDescriptor.builder("order-history2").apiPackages(List.of("a")).apiVersion("1").build();
+        withPackage("a".repeat(63)).apiPackages(List.of("a")).apiVersion("1").build();
+        withPackage("order-history2").apiPackages(List.of("a")).apiVersion("1").build();
     }
 
     @Test
     void rejects_an_id_that_differs_from_the_file_name() {
         assertFails(VALID.replace("id=orders", "id=billing"), "'billing'", "file name 'orders.properties'");
+    }
+
+    @Test
+    void ac_desc_02_a_module_descriptor_has_a_required_valid_package_outside_its_api() {
+        assertEquals("com.acme.orders.impl", parse(VALID).packageName());
+        assertFails(VALID.replace("package=com.acme.orders.impl\n", ""), "'package'", "missing");
+        assertFails(VALID.replace("package=com.acme.orders.impl", "package=com.acme..impl"), "'package'",
+                "not a Java package name");
+        assertFails(VALID.replace("package=com.acme.orders.impl", "package=com.acme.orders"), "'package'",
+                "api-packages");
+        assertFails(VALID + "package=other\n", "'package'", "more than once");
+    }
+
+    @Test
+    void ac_desc_02_an_api_descriptor_has_no_package_key() {
+        TopolithException failure = assertThrows(TopolithException.class, () -> Descriptors.parseApi(SOURCE,
+                stream("format-version=1\nid=orders\npackage=com.acme\napi-packages=com.acme.orders\n"
+                        + "api-version=1\n")));
+        assertTrue(failure.getMessage().contains("'package' is unknown"), failure.getMessage());
+    }
+
+    @Test
+    void ac_desc_02_the_builder_requires_a_package() {
+        TopolithException failure = assertThrows(TopolithException.class, () -> ModuleDescriptor.builder("a")
+                .apiPackages(List.of("a")).apiVersion("1").build());
+        assertEquals(TopolithCode.TL0013, failure.code());
+        assertTrue(failure.getMessage().contains("'package' is missing"), failure.getMessage());
+        assertTrue(ModuleDescriptor.builder("a").packageName("a.impl").apiPackages(List.of("a")).apiVersion("1")
+                .build().toString().contains("package=a.impl"));
     }
 
     @Test
@@ -241,7 +277,7 @@ class DescriptorsTest {
     @Test
     void a_null_list_entry_is_tl0013() {
         for (String key : List.of("api-packages", "provides", "requires", "optional")) {
-            ModuleDescriptor.Builder builder = ModuleDescriptor.builder("a").apiPackages(List.of("p")).apiVersion("1");
+            ModuleDescriptor.Builder builder = withPackage("a").apiPackages(List.of("p")).apiVersion("1");
             List<String> entries = java.util.Arrays.asList("p.A", null);
             switch (key) {
                 case "api-packages" -> builder.apiPackages(entries);
@@ -314,7 +350,7 @@ class DescriptorsTest {
         inputs.put("jar:/b.jar!/b.properties", stream("id=b\n"));
         inputs.put("jar:/a.jar!/a.properties", stream("id=a\nformat-version=9\n"));
         inputs.put("jar:/ok.jar!/ok.properties",
-                stream("format-version=1\nid=ok\napi-packages=p\napi-version=1\n"));
+                stream("format-version=1\nid=ok\npackage=impl.ok\napi-packages=p\napi-version=1\n"));
         TopolithException failure = assertThrows(TopolithException.class, () -> Descriptors.parseModules(inputs));
         String message = failure.getMessage();
         assertTrue(message.contains("a.jar") && message.contains("b.jar") && !message.contains("ok.jar"), message);
@@ -324,8 +360,10 @@ class DescriptorsTest {
     @Test
     void parse_modules_and_apis_return_descriptors_ordered_by_source() {
         Map<String, InputStream> modules = new LinkedHashMap<>();
-        modules.put("z/b.properties", stream("format-version=1\nid=b\napi-packages=p\napi-version=1\n"));
-        modules.put("z/a.properties", stream("format-version=1\nid=a\napi-packages=p\napi-version=1\n"));
+        modules.put("z/b.properties",
+                stream("format-version=1\nid=b\npackage=impl.b\napi-packages=p\napi-version=1\n"));
+        modules.put("z/a.properties",
+                stream("format-version=1\nid=a\npackage=impl.a\napi-packages=p\napi-version=1\n"));
         assertEquals(List.of("a", "b"), Descriptors.parseModules(modules).stream().map(ModuleDescriptor::id).toList());
         Map<String, InputStream> apis = new LinkedHashMap<>();
         apis.put("z/b.properties", stream("format-version=1\nid=b\napi-packages=p\napi-version=1\n"));
@@ -338,7 +376,7 @@ class DescriptorsTest {
     @Test
     void the_builder_throws_tl0013_on_a_violation() {
         TopolithException failure = assertThrows(TopolithException.class,
-                () -> ModuleDescriptor.builder("a").apiPackages(List.of("p")).apiVersion("1").requires(List.of("a"))
+                () -> withPackage("a").apiPackages(List.of("p")).apiVersion("1").requires(List.of("a"))
                         .build());
         assertEquals(TopolithCode.TL0013, failure.code());
     }

@@ -12,8 +12,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ModuleGraphTest {
     private static ModuleDescriptor module(String id, List<String> requires, List<String> optional, String source) {
-        return ModuleDescriptor.builder(id).apiPackages(List.of("com.acme." + id)).apiVersion("1.0.0")
-                .requires(requires).optional(optional).source(source).build();
+        return ModuleDescriptor.builder(id).packageName("com.acme." + id + ".impl")
+                .apiPackages(List.of("com.acme." + id)).apiVersion("1.0.0").requires(requires).optional(optional)
+                .source(source).build();
     }
 
     private static ModuleDescriptor module(String id, String... requires) {

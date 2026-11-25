@@ -7,30 +7,47 @@ It applies to every host and to each module it knows.
 
 ### R-MODE-01 — Explicit modes
 
-A host declares `internal`, `external` or `none` for each known module. Only a standalone `*-service` may default
-its own module to `internal`; other missing modes fail with TL0001. Resolution is deterministic from configuration.
-Implements INV-3, INV-4, INV-9, P-3, D-5 and D-8.
+A host declares `internal`, `external` or `none` (trimmed, case-insensitive) in `topolith.modules.<id>.mode` for each
+known module. A module is known when a module descriptor or an API descriptor carries its id (D-31). Only a standalone
+`*-service` may default its own module to `internal`, by setting `topolith.standalone=<id>`; other missing modes, and
+invalid values, fail with TL0001. A mode for an id with no descriptor fails with TL0016, or with TL0002 when it is
+`internal`. Resolution is deterministic from configuration and cached as the `topolithTopology` bean. Implements INV-3,
+INV-4, INV-9, P-3, D-5, D-8 and D-31.
 
 - AC-MODE-01 (M1.3): Each explicit mode resolves to its declared value regardless of an implementation JAR's presence.
 - AC-MODE-02 (M1.3): A host missing a known module's mode fails with TL0001 rather than activating it implicitly.
 - AC-MODE-03 (M1.3): A standalone service defaults only its own module to `internal`.
+- AC-MODE-21 (M1.3): A mode for an id with no module or API descriptor fails with TL0016, or with TL0002 when it is
+  `internal`.
+- AC-MODE-22 (M1.3): An invalid mode value fails with TL0001.
 
 ### R-MODE-02 — Inclusion-based activation
 
-The host scans only its own package. `TopolithImportRegistrar` imports internal modules, and an
-`AutoConfigurationImportFilter` removes auto-configurations owned by non-internal modules. An internal module needs
-its implementation JAR; otherwise startup fails with TL0002. Implements INV-2, INV-8, P-3 and D-7.
+The host scans only its own package. `TopolithAutoConfiguration`, ordered first, imports a non-deferred
+`TopolithModuleImportSelector` that returns the component-scan candidates under each internal module's `package`,
+less every known api package and with Boot's `TypeExcludeFilter` and `AutoConfigurationExcludeFilter` applied, so
+module beans exist before Boot's conditions of later auto-configurations are evaluated. Imported classes get
+fully qualified default bean names. An `AutoConfigurationImportFilter` removes auto-configurations owned by
+non-internal modules: a class under the module's `package`, or one listed by an `AutoConfiguration.imports` file when
+the imports file or the class is in the classpath root that holds exactly that module's descriptor (conflicting roots
+own nothing). A host component scan that covers a non-internal
+module's package fails with TL0007. An internal module needs its implementation JAR (its module descriptor);
+otherwise startup fails with TL0002. Implements INV-2, INV-8, P-3, D-7 and D-30.
 
 - AC-MODE-04 (M1.3): An internal module's configuration and packages are imported when its implementation is present.
 - AC-MODE-05 (M1.3): A missing internal implementation fails with TL0002 and a fix-it message.
 - AC-MODE-06 (M1.3): A non-internal module contributes no component or owned auto-configuration, even if its JAR
   is present.
+- AC-MODE-23 (M1.3): A non-internal module's auto-configuration outside its package, listed by an
+  `AutoConfiguration.imports` file, is removed, also when the imports file and the class sit in separate roots.
+- AC-MODE-24 (M1.3): A host component scan covering a non-internal module's package fails with TL0007.
 
 ### R-MODE-03 — Non-internal isolation and dependencies
 
 Neither `external` nor `none` imports the module's implementation. External registers contract clients as specified
-in R-EXT-01; `none` registers none. Only `internal` is active for `requires` checks: an internal module's unmet
-`requires` fails with TL0004. External modules' dependencies are met remotely. Implements INV-2, INV-4 and D-21.
+in R-EXT-01; `none` registers none. Only `internal` is checked for `requires`: an internal module's unmet
+`requires` fails with TL0004. A required module is available when it is `internal` or `external`; `none` and unknown
+are not. External modules' own dependencies are met remotely and are not checked. Implements INV-2, INV-4 and D-21.
 
 - AC-MODE-07 (M1.3): A `none` module contributes no beans, routes, listeners or scheduled tasks.
 - AC-MODE-08 (M1.3): An active module requiring a `none` module fails with TL0004 and names the missing requirement.

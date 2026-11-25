@@ -9,7 +9,8 @@ It routes work on `@TopolithModule`, contract inference and API descriptors.
 
 An optional `@TopolithModule` (`io.github.rey5137.topolith.annotation`, in `topolith-core`, CLASS retention,
 String-only members `id`, `api` (required, exact packages), `requires` and `optional`) on `package-info.java` declares
-the module id, API packages, required and optional dependencies. Adopters add `topolith-core` with `provided` scope.
+the module id, API packages, required and optional dependencies; the module's root is the declaring package, recorded
+as the descriptor's required `package` key (D-27, D-30). Adopters add `topolith-core` with `provided` scope.
 Business code needs no Topolith base class or other Topolith type, and the annotation appears only in
 `package-info.class`. A compilation holds at most one declaration (D-29). Implements INV-1, P-1, D-9 and D-29.
 
@@ -17,7 +18,8 @@ On a package outside its own `api` list the annotation is a module declaration. 
 classpath or in the compilation.
 
 - AC-DESC-01 (M1.2): Processing an annotated package emits `META-INF/topolith/modules/<id>.properties`.
-- AC-DESC-02 (M1.2): The emitted descriptor records the id, API packages, `requires` and `optional` declarations.
+- AC-DESC-02 (M1.2): The emitted descriptor records the id, the declaring `package` (M1.3), API packages, `requires`
+  and `optional` declarations.
 - AC-DESC-03 (M1.2): A module's business classes work without importing a Topolith type.
 
 ### R-DESC-02 — Provided contracts and version
@@ -60,11 +62,14 @@ and D-29.
 ### R-DESC-04 — Graph and identity
 
 The core model parses descriptors and resolves required and optional edges. Duplicate module ids fail with TL0006;
-cycles in `requires` fail with TL0008. An absent optional dependency is not an unmet requirement. Descriptors follow
-D-27 and failures are `TopolithException`s (D-28). A required edge to a module with no descriptor is allowed: unmet
+cycles in `requires` fail with TL0008. An absent optional dependency is not an unmet requirement. Module packages never nest, and no
+other module's api package lies in or under a module's package; either fails with TL0017 in the identity stage (D-30).
+Descriptors follow D-27 and failures are `TopolithException`s (D-28). A required edge to a module with no descriptor is allowed: unmet
 requirements are a query, and M1.3 raises TL0004 with mode context. Cycles are checked over every descriptor present,
 whatever the modes. Discovery of descriptors on the classpath is not core's (M1.3). Implements INV-4.
 
 - AC-DESC-07 (M1.1): Parsing preserves module identity, API metadata, required and optional dependency edges.
 - AC-DESC-08 (M1.1): Duplicate ids fail with TL0006, and a required-edge cycle fails with TL0008.
 - AC-DESC-09 (M1.1): An absent optional dependency does not make the graph fail an unmet-requirement check.
+- AC-DESC-10 (M1.3): Two module packages that are equal or nested, or another module's api package equal to or under a
+  module's package, fail with TL0017 naming both modules; a module's own api package under its own package is allowed.

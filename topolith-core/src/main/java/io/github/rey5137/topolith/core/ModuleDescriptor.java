@@ -14,11 +14,13 @@ import java.util.Set;
 @Incubating
 public final class ModuleDescriptor {
     private final ApiDescriptor api;
+    private final String packageName;
     private final Set<String> requires;
     private final Set<String> optional;
 
     ModuleDescriptor(DescriptorData data) {
         this.api = new ApiDescriptor(data);
+        this.packageName = data.packageName;
         this.requires = Collections.unmodifiableSet(new LinkedHashSet<>(data.requires));
         this.optional = Collections.unmodifiableSet(new LinkedHashSet<>(data.optional));
     }
@@ -29,6 +31,11 @@ public final class ModuleDescriptor {
 
     public String id() {
         return api.id();
+    }
+
+    /** The module's root package: the implementation the host scans when the module is internal. */
+    public String packageName() {
+        return packageName;
     }
 
     /** The API part of this descriptor. */
@@ -64,18 +71,19 @@ public final class ModuleDescriptor {
 
     @Override
     public boolean equals(Object other) {
-        return other instanceof ModuleDescriptor that && api.equals(that.api) && requires.equals(that.requires)
-                && optional.equals(that.optional);
+        return other instanceof ModuleDescriptor that && api.equals(that.api) && packageName.equals(that.packageName)
+                && requires.equals(that.requires) && optional.equals(that.optional);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(api, requires, optional);
+        return Objects.hash(api, packageName, requires, optional);
     }
 
     @Override
     public String toString() {
-        return "ModuleDescriptor[" + id() + ", requires=" + requires + ", optional=" + optional + "]";
+        return "ModuleDescriptor[" + id() + ", package=" + packageName + ", requires=" + requires + ", optional="
+                + optional + "]";
     }
 
     /** Validating builder; {@link #build()} throws a TL0013 {@link TopolithException} on any D-27 violation. */
@@ -85,6 +93,12 @@ public final class ModuleDescriptor {
 
         private Builder(String id) {
             this.data = new DescriptorData(true, id);
+        }
+
+        /** The module's root package (the declaring package); required, and not one of its own api packages. */
+        public Builder packageName(String packageName) {
+            data.packageName = packageName;
+            return this;
         }
 
         public Builder apiPackages(Collection<String> packages) {

@@ -19,6 +19,7 @@ final class DescriptorData {
     String source;
     int formatVersion = FORMAT_VERSION;
     String apiVersion;
+    String packageName;
     final List<String> apiPackages = new ArrayList<>();
     final List<String> provides = new ArrayList<>();
     final List<String> requires = new ArrayList<>();
@@ -94,6 +95,7 @@ final class DescriptorData {
             }
         }
         if (module) {
+            checkPackage(found, where);
             checkList(found, where, "requires", requires, DescriptorData::validId, "a module id");
             checkList(found, where, "optional", optional, DescriptorData::validId, "a module id");
             if (id != null && (requires.contains(id) || optional.contains(id))) {
@@ -108,6 +110,18 @@ final class DescriptorData {
             }
         }
         return found;
+    }
+
+    private void checkPackage(List<Diagnostic> found, String where) {
+        if (packageName == null || packageName.isEmpty()) {
+            found.add(bad(where, "package", "is missing", "Add package=<the module's root package>."));
+        } else if (!validPackage(packageName)) {
+            found.add(bad(where, "package", "'" + packageName + "' is not a Java package name",
+                    "Use the package that holds the module's implementation, for example 'com.acme.order'."));
+        } else if (apiPackages.contains(packageName)) {
+            found.add(bad(where, "package", "'" + packageName + "' is also one of the module's api-packages",
+                    "The module's root package holds its implementation; keep the API in its own package."));
+        }
     }
 
     private static boolean validFqcn(String value) {

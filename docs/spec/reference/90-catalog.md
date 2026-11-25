@@ -12,7 +12,7 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 
 | Code | Meaning | Severity | Owning slice |
 |---|---|---|---|
-| TL0001 | A host has not declared a known module's mode | failure | M1.3 |
+| TL0001 | A host has not declared a valid mode for a known module | failure | M1.3 |
 | TL0002 | An internal module has no implementation JAR | failure | M1.3 |
 | TL0003 | An external module has neither or both URL and service id | failure | M1.5 |
 | TL0004 | An internal module's required module is unavailable | failure | M1.3 |
@@ -27,12 +27,17 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0013 | A module or API descriptor is malformed | failure | M1.5 |
 | TL0014 | Cloud context classes are present without Topolith refresh integration | warning | M2.6 |
 | TL0015 | The remote API-version endpoint is unavailable or inaccessible | warning | M2.4 |
+| TL0016 | A mode is declared for a module that is not on the classpath | failure | M1.3 |
+| TL0017 | Module packages nest, or another module's API package lies under a module's package | failure | M1.3 |
 
-The owning slice names the slice that owns the code's acceptance criterion, not the first slice that raises it.
+The owning slice names the slice that owns the code's acceptance criterion, not the first slice that raises it. M1.3
+raises TL0007 early, only when a host's component scan covers a non-internal module's package (AC-MODE-24); M3.3
+generalises the check. A known module is one with a module or API descriptor. TL0002 also covers an `internal` mode for
+an id with no module descriptor.
 
-Diagnostic criteria are AC-MODE-02, AC-MODE-05, AC-MODE-08, AC-DESC-08, AC-VAL-01 through AC-VAL-04,
-AC-ARCH-09, AC-ARCH-11, AC-EXT-06, AC-MODE-13, AC-MODE-18, AC-EXT-22 through AC-EXT-24 and AC-VAL-10 through
-AC-VAL-12.
+Diagnostic criteria are AC-MODE-02, AC-MODE-05, AC-MODE-08, AC-MODE-21 through AC-MODE-24, AC-DESC-08,
+AC-DESC-10, AC-VAL-01 through AC-VAL-04, AC-ARCH-09, AC-ARCH-11, AC-EXT-06, AC-MODE-13, AC-MODE-18, AC-EXT-22 through
+AC-EXT-24 and AC-VAL-10 through AC-VAL-12.
 
 ### R-CAT-02 — Exception catalog
 

@@ -116,10 +116,24 @@ class StartupValidationTest {
         run(context -> assertNull(context.getStartupFailure()), "topolith.modules.alpha.mode=internal");
     }
 
+    @Test
+    void ac_val_14_internal_contract_disagreement_names_the_contracts_unique_to_each_side() throws Exception {
+        descriptor("modules", "alpha", module("alpha", "fixture.api.One,fixture.api.Shared", ""));
+        descriptor("apis", "alpha", "format-version=1\nid=alpha\napi-packages=fixture.api\napi-version=1.0\n"
+                + "provides=fixture.api.Two,fixture.api.Shared\n");
+        run(context -> {
+            String message = failure(context, TopolithCode.TL0022).getMessage();
+            assertTrue(message.contains("alpha") && message.contains("fixture.api.One")
+                    && message.contains("fixture.api.Two"), message);
+            assertFalse(message.contains("fixture.api.Shared"), message);
+        }, "topolith.modules.alpha.mode=internal");
+        run(context -> assertNull(context.getStartupFailure()), "topolith.modules.alpha.mode=none");
+    }
+
     @ParameterizedTest
     @EnumSource(value = TopolithCode.class, names = {"TL0001", "TL0002", "TL0003", "TL0004", "TL0005", "TL0006",
             "TL0007", "TL0008", "TL0013", "TL0016", "TL0017", "TL0018", "TL0019", "TL0020", "TL0021",
-            "TL0022"})
+            "TL0022", "TL0024", "TL0025"})
     void ac_ci_01_each_startup_failure_asserts_code_and_fix(TopolithCode code) throws Exception {
         List<Path> roots = new ArrayList<>();
         roots.add(root);
@@ -190,6 +204,18 @@ class StartupValidationTest {
                 descriptor("apis", "alpha", "format-version=1\nid=alpha\napi-packages=fixture.api\n"
                         + "api-version=1.0\nprovides=fixture.api.Two\n");
                 properties.add("topolith.modules.alpha.mode=internal");
+            }
+            case TL0024 -> {
+                Fixtures.module(root, "catalog", Fixtures.BASE + ".catalog", List.of(Fixtures.BASE + ".catalog.api"));
+                host = io.github.rey5137.topolith.spring.boot.fixture.quiet.QuietHost.class;
+                properties.addAll(List.of("topolith.modules.catalog.mode=internal",
+                        "spring.data.jpa.repositories.enabled=false"));
+            }
+            case TL0025 -> {
+                Fixtures.module(root, "ledger", Fixtures.LEDGER, List.of(Fixtures.LEDGER + ".api"));
+                Fixtures.module(root, "catalog", Fixtures.BASE + ".catalog", List.of(Fixtures.BASE + ".catalog.api"));
+                properties.addAll(List.of("topolith.standalone=ledger", "topolith.modules.ledger.mode=internal",
+                        "topolith.modules.catalog.mode=internal"));
             }
             default -> throw new AssertionError(code);
         }

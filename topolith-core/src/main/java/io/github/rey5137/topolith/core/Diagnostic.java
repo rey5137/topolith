@@ -11,15 +11,28 @@ public final class Diagnostic implements Serializable {
     private final TopolithCode code;
     private final String description;
     private final String action;
+    private final TopolithCode.Severity severity;
 
+    /** A diagnostic at its code's default severity. */
     public Diagnostic(TopolithCode code, String description, String action) {
+        this(code, description, action, Objects.requireNonNull(code, "code").defaultSeverity());
+    }
+
+    /** A diagnostic at an effective severity that a later layer resolved (D-38). */
+    public Diagnostic(TopolithCode code, String description, String action, TopolithCode.Severity severity) {
         this.code = Objects.requireNonNull(code, "code");
         this.description = Objects.requireNonNull(description, "description");
         this.action = Objects.requireNonNull(action, "action");
+        this.severity = Objects.requireNonNull(severity, "severity");
     }
 
     public TopolithCode code() {
         return code;
+    }
+
+    /** The effective severity: the code's default unless a later layer overrode it (D-38). */
+    public TopolithCode.Severity severity() {
+        return severity;
     }
 
     /** What is wrong. */
@@ -35,12 +48,13 @@ public final class Diagnostic implements Serializable {
     @Override
     public boolean equals(Object other) {
         return other instanceof Diagnostic that
-                && code == that.code && description.equals(that.description) && action.equals(that.action);
+                && code == that.code && description.equals(that.description) && action.equals(that.action)
+                && severity == that.severity;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(code, description, action);
+        return Objects.hash(code, description, action, severity);
     }
 
     @Override

@@ -29,9 +29,9 @@ class TopolithCodeCatalogTest {
         }
         Map<String, String> enumerated = new LinkedHashMap<>();
         for (TopolithCode code : TopolithCode.values()) {
-            enumerated.put(code.id(), code.severity().name().toLowerCase(java.util.Locale.ROOT));
+            enumerated.put(code.id(), code.defaultSeverity().name().toLowerCase(java.util.Locale.ROOT));
         }
-        assertEquals(23, table.size());
+        assertEquals(25, table.size());
         assertEquals(table, enumerated);
     }
 }

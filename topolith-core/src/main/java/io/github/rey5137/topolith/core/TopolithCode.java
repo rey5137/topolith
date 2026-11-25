@@ -25,7 +25,9 @@ public enum TopolithCode {
     TL0020(Severity.FAILURE),
     TL0021(Severity.FAILURE),
     TL0022(Severity.FAILURE),
-    TL0023(Severity.WARNING);
+    TL0023(Severity.WARNING),
+    TL0024(Severity.FAILURE),
+    TL0025(Severity.FAILURE);
 
     /** Whether a diagnostic fails startup or is only reported. */
     @Incubating
@@ -45,7 +47,11 @@ public enum TopolithCode {
         return name();
     }
 
-    public Severity severity() {
+    /**
+     * The severity of the code unless a later layer overrides it (D-38); {@link Diagnostic#severity()} carries the
+     * effective one.
+     */
+    public Severity defaultSeverity() {
         return severity;
     }
 }

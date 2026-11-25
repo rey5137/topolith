@@ -55,7 +55,7 @@ public final class Hosts {
             @ComponentScan.Filter(type = FilterType.CUSTOM, classes = AutoConfigurationExcludeFilter.class),
             @ComponentScan.Filter(type = FilterType.REGEX,
                     pattern = "io\\.github\\.rey5137\\.topolith\\.spring\\.boot\\.fixture\\."
-                            + "(host|service|ledger|billing|audit|inventory|rogue|shop|depot)\\..*")})
+                            + "(host|service|ledger|billing|audit|inventory|rogue|shop|depot|catalog|mart|quiet|shelf)\\..*")})
     public static class ParentScanningHost {
     }
 

@@ -57,4 +57,27 @@ class TopolithExceptionTest {
         assertEquals(FIRST.hashCode(), new Diagnostic(TopolithCode.TL0006, "two orders", "remove one").hashCode());
         assertTrue(FIRST.toString().startsWith("TL0006: "));
     }
+
+    @Test
+    void a_diagnostic_carries_its_effective_severity() throws Exception {
+        assertEquals(TopolithCode.Severity.FAILURE, FIRST.severity());
+        assertEquals(TopolithCode.Severity.WARNING, new Diagnostic(TopolithCode.TL0010, "r", "a").severity());
+        Diagnostic relaxed = new Diagnostic(TopolithCode.TL0006, "two orders", "remove one",
+                TopolithCode.Severity.WARNING);
+        assertEquals(TopolithCode.Severity.WARNING, relaxed.severity());
+        assertTrue(!relaxed.equals(FIRST));
+        assertThrows(IllegalArgumentException.class, () -> new TopolithException(relaxed));
+        Diagnostic escalated = new Diagnostic(TopolithCode.TL0010, "r", "a", TopolithCode.Severity.FAILURE);
+        assertEquals(TopolithCode.TL0010, new TopolithException(escalated).code());
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try (java.io.ObjectOutputStream out = new java.io.ObjectOutputStream(bytes)) {
+            out.writeObject(escalated);
+        }
+        try (java.io.ObjectInputStream in = new java.io.ObjectInputStream(
+                new java.io.ByteArrayInputStream(bytes.toByteArray()))) {
+            Diagnostic copy = (Diagnostic) in.readObject();
+            assertEquals(escalated, copy);
+            assertEquals(TopolithCode.Severity.FAILURE, copy.severity());
+        }
+    }
 }

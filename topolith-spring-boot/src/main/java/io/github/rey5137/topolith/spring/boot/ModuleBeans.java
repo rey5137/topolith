@@ -10,7 +10,9 @@ import java.util.TreeSet;
 
 import io.github.rey5137.topolith.spring.boot.TopologyResolver.Resolution;
 
+import org.springframework.beans.PropertyValue;
 import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.support.AbstractBeanDefinition;
@@ -33,6 +35,12 @@ final class ModuleBeans {
     /** The factory bean of any Spring Data store. */
     static final String REPOSITORY_FACTORY_BEAN =
             "org.springframework.data.repository.core.support.RepositoryFactoryBeanSupport";
+    /** The marker types named by TL0024, as strings: no store library is a dependency (D-36). */
+    static final String REPOSITORY = "org.springframework.data.repository.Repository";
+    static final String REPOSITORY_DEFINITION = "org.springframework.data.repository.RepositoryDefinition";
+    static final String NO_REPOSITORY_BEAN = "org.springframework.data.repository.NoRepositoryBean";
+    static final String MAPPER = "org.apache.ibatis.annotations.Mapper";
+    static final String MAPPER_FACTORY_BEAN = "org.mybatis.spring.mapper.MapperFactoryBean";
     static final String JPA_REPOSITORY_FACTORY_BEAN =
             "org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean";
 
@@ -209,5 +217,44 @@ final class ModuleBeans {
             }
         }
         return interfaces;
+    }
+
+    /**
+     * Every interface a definition of the factory bean type is registered for, however the registrar recorded it:
+     * indexed constructor argument 0 (Spring Data), a generic constructor argument (MyBatis's scanner), or the
+     * {@code factoryBeanObjectType} attribute, each as a {@code Class} or a name (TL0024). Unlike
+     * {@link #repositoryInterfaceNames} this is for coverage only; TL0007 and the JPA registrars keep argument 0.
+     */
+    static Set<String> registeredInterfaceNames(BeanFactory beanFactory, ClassLoader loader, String factoryBeanType) {
+        Set<String> interfaces = new TreeSet<>(repositoryInterfaceNames(beanFactory, loader, factoryBeanType));
+        Class<?> type = load(factoryBeanType, loader);
+        if (type == null || !(beanFactory instanceof ConfigurableListableBeanFactory factory)) {
+            return interfaces;
+        }
+        for (String factoryName : factory.getBeanNamesForType(type, true, false)) {
+            String name = BeanFactoryUtils.transformedBeanName(factoryName);
+            if (!factory.containsBeanDefinition(name)) {
+                continue;
+            }
+            BeanDefinition definition = factory.getBeanDefinition(name);
+            for (ValueHolder holder : definition.getConstructorArgumentValues().getGenericArgumentValues()) {
+                addName(interfaces, holder.getValue());
+            }
+            addName(interfaces, definition.getAttribute(FactoryBean.OBJECT_TYPE_ATTRIBUTE));
+            // a hand-built definition (setMapperInterface, setRepositoryInterface) records it as a property
+            for (String property : List.of("repositoryInterface", "mapperInterface")) {
+                PropertyValue value = definition.getPropertyValues().getPropertyValue(property);
+                addName(interfaces, value == null ? null : value.getValue());
+            }
+        }
+        return interfaces;
+    }
+
+    private static void addName(Set<String> names, Object value) {
+        if (value instanceof Class<?> clazz) {
+            names.add(clazz.getName());
+        } else if (value instanceof String text && !text.isBlank()) {
+            names.add(text);
+        }
     }
 }

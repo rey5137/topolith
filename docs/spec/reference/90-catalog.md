@@ -35,6 +35,8 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0021 | An internal module's entity is managed by no entity-manager factory, or by several | failure | M1.4 |
 | TL0022 | An internal module and its host API descriptor declare different contracts | failure | M1.5 |
 | TL0023 | A host API descriptor's `api-version` major differs from its module's descriptor or remote provider | warning | M1.5 |
+| TL0024 | A Spring Data repository or MyBatis mapper interface in an internal module's or the host's package has no registration. Fix: register it (use Spring Data JPA, or `@Enable<Store>Repositories` or `@MapperScan` on the package), or mark an interface left unregistered on purpose `@NoRepositoryBean` | failure | M1 gate (AC-MODE-30) |
+| TL0025 | `topolith.standalone` is set while another module with a descriptor is `internal` | failure | M1 gate (AC-MODE-31) |
 
 The owning slice names the slice that owns the code's acceptance criterion, not the first slice that raises it. M1.3
 raises TL0007 early, only when a host's component scan covers a non-internal module's package (AC-MODE-24); M1.4 also
@@ -42,8 +44,8 @@ raises it for a non-internal module's entity or repository that a host registers
 check. A host migration location or changelog that reaches a non-internal module's scripts is TL0020 in every mode (AC-MODE-27). A known module is one with a module or API descriptor. TL0002 also covers an `internal` mode for
 an id with no module descriptor.
 
-Diagnostic criteria are AC-MODE-02, AC-MODE-05, AC-MODE-08, AC-MODE-21 through AC-MODE-24, AC-MODE-11, AC-MODE-25 through AC-MODE-28, AC-DESC-08,
-AC-DESC-10, AC-VAL-01 through AC-VAL-04, AC-ARCH-09, AC-ARCH-11, AC-EXT-06, AC-MODE-13, AC-MODE-18, AC-EXT-22 through
+Diagnostic criteria are AC-MODE-02, AC-MODE-05, AC-MODE-08, AC-MODE-21 through AC-MODE-24, AC-MODE-11, AC-MODE-25 through AC-MODE-28, AC-MODE-30, AC-MODE-31, AC-DESC-08,
+AC-DESC-10, AC-VAL-01 through AC-VAL-05, AC-VAL-14, AC-ARCH-09, AC-ARCH-11, AC-EXT-06, AC-MODE-13, AC-MODE-18, AC-EXT-22 through
 AC-EXT-24 and AC-VAL-10 through AC-VAL-12.
 
 ### R-CAT-02 — Exception catalog

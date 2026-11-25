@@ -20,6 +20,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
+import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
@@ -110,10 +112,23 @@ class ModeActivationTest {
         }
     }
 
+    /** The class that declares a definition: its own class, or for a {@code @Bean} method its configuration class. */
+    private static String declaringClassName(AssertableApplicationContext context, BeanDefinition definition) {
+        if (definition instanceof AnnotatedBeanDefinition annotated && annotated.getFactoryMethodMetadata() != null) {
+            return annotated.getFactoryMethodMetadata().getDeclaringClassName();
+        }
+        String factoryBean = definition.getFactoryBeanName();
+        if (definition.getBeanClassName() == null && factoryBean != null && context.containsBeanDefinition(factoryBean)) {
+            return context.getBeanFactory().getBeanDefinition(factoryBean).getBeanClassName();
+        }
+        return definition.getBeanClassName();
+    }
+
     private static Footprint footprint(AssertableApplicationContext context, String packagePrefix) {
         List<String> beans = new ArrayList<>();
         for (String name : context.getBeanDefinitionNames()) {
-            String className = context.getBeanFactory().getBeanDefinition(name).getBeanClassName();
+            BeanDefinition definition = context.getBeanFactory().getBeanDefinition(name);
+            String className = declaringClassName(context, definition);
             if (name.startsWith(packagePrefix) || className != null && className.startsWith(packagePrefix)) {
                 beans.add(name);
             }
@@ -197,6 +212,34 @@ class ModeActivationTest {
                     assertEquals(Mode.NONE, context.getBean(Topology.class).mode("user"));
                     assertFalse(has(context, USER + ".UserComponent"));
                 });
+    }
+
+    @Test
+    void ac_mode_31_a_standalone_service_with_another_internal_module_fails_with_tl0025() throws Exception {
+        run(Host.class, List.of(userRoot, paymentRoot, hostRoot), List.of("topolith.standalone=user",
+                "topolith.modules.payment.mode=internal"), (context, loader) -> {
+            assertEquals(List.of(TopolithCode.TL0025), codes(context));
+            String message = failure(context).getMessage();
+            assertTrue(message.contains("'user'") && message.contains("'payment'"), message);
+        });
+    }
+
+    @Test
+    void ac_mode_31_a_standalone_service_with_other_modules_external_or_none_starts() throws Exception {
+        for (String mode : List.of("external", "none")) {
+            run(Host.class, List.of(userRoot, paymentRoot, hostRoot), List.of("topolith.standalone=user",
+                    "topolith.modules.payment.mode=" + mode), (context, loader) -> {
+                assertNull(context.getStartupFailure());
+                assertEquals(Mode.INTERNAL, context.getBean(Topology.class).mode("user"));
+            });
+        }
+    }
+
+    @Test
+    void ac_mode_31_an_internal_mode_without_a_descriptor_is_tl0002_not_tl0025() throws Exception {
+        run(Host.class, List.of(userRoot, hostRoot), List.of("topolith.standalone=user",
+                "topolith.modules.payment.mode=internal"), (context, loader) ->
+                assertEquals(List.of(TopolithCode.TL0002), codes(context)));
     }
 
     @Test

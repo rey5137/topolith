@@ -14,7 +14,6 @@ import io.github.rey5137.topolith.core.Topology;
 
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
-import org.springframework.core.env.Environment;
 
 /**
  * Where a module's migrations live, which tool runs them and what its tracking tables are called (D-32). No optional
@@ -112,16 +111,6 @@ final class ModuleMigrations {
         return tool == Tool.FLYWAY ? table(id).length() : lockTable(id).length();
     }
 
-    /** {@code spring.flyway.enabled=false} switches off the host's own Flyway only (D-32). */
-    static boolean flywayDisabled(Environment environment) {
-        return environment != null && "false".equalsIgnoreCase(environment.getProperty("spring.flyway.enabled"));
-    }
-
-    /** {@code spring.liquibase.enabled=false} switches off the host's own Liquibase only (D-32). */
-    static boolean liquibaseDisabled(Environment environment) {
-        return environment != null && "false".equalsIgnoreCase(environment.getProperty("spring.liquibase.enabled"));
-    }
-
     /** What the module ships under {@code db/modules/<id>}. */
     static Migrations migrations(ClassLoader loader, String id) {
         PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver(loader);
@@ -195,6 +184,15 @@ final class ModuleMigrations {
             }
         }
         return found;
+    }
+
+    /** What a module's runner waits for: every host runner, then the runners of the modules it requires. */
+    static String[] dependsOn(Topology topology, String id, Map<String, Tool> runners, List<String> hostRunners) {
+        List<String> dependsOn = new ArrayList<>(hostRunners);
+        for (String required : runnersRequiredBy(topology, id, runners.keySet())) {
+            dependsOn.add(runners.get(required).runnerName(required));
+        }
+        return dependsOn.toArray(String[]::new);
     }
 
     /** Whether the location root of a host's Flyway is, or lies above, {@code db/modules/<id>}. */

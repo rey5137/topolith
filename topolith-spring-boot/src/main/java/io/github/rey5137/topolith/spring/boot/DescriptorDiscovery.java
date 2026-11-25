@@ -59,11 +59,11 @@ final class DescriptorDiscovery {
         }
         List<ModuleDescriptor> modules = Descriptors.parseModules(moduleFiles);
         List<ApiDescriptor> apis = Descriptors.parseApis(apiFiles);
-        return new Found(modules, apis, importOwners(loader, modules), rootOwners(modules));
+        Map<String, List<String>> idsByRoot = idsByRoot(modules);
+        return new Found(modules, apis, importOwners(loader, idsByRoot), rootOwners(idsByRoot));
     }
 
-    private static Map<String, String> rootOwners(List<ModuleDescriptor> modules) {
-        Map<String, List<String>> idsByRoot = idsByRoot(modules);
+    private static Map<String, String> rootOwners(Map<String, List<String>> idsByRoot) {
         Map<String, String> owners = new TreeMap<>();
         idsByRoot.forEach((root, ids) -> {
             if (ids.size() == 1) {
@@ -111,8 +111,7 @@ final class DescriptorDiscovery {
      * loaded). Split output directories put the descriptor and the class in one root and the imports file in another.
      * When the two roots name different modules, or a root holds several module descriptors, nobody owns the entry.
      */
-    private static Map<String, String> importOwners(ClassLoader loader, List<ModuleDescriptor> modules) {
-        Map<String, List<String>> idsByRoot = idsByRoot(modules);
+    private static Map<String, String> importOwners(ClassLoader loader, Map<String, List<String>> idsByRoot) {
         Map<String, String> owners = new TreeMap<>();
         if (idsByRoot.isEmpty()) {
             return owners;
@@ -133,9 +132,7 @@ final class DescriptorDiscovery {
                 }
             }
         } catch (IOException e) {
-            throw new TopolithException(new Diagnostic(TopolithCode.TL0013,
-                    AUTO_CONFIGURATION_IMPORTS + ": the file cannot be read (" + e.getMessage() + ").",
-                    "Check that the JAR or directory is readable."));
+            throw new TopolithException(unreadable(AUTO_CONFIGURATION_IMPORTS, e));
         }
         return owners;
     }

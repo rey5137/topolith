@@ -3,6 +3,7 @@ package io.github.rey5137.topolith.spring.boot;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -185,7 +186,7 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                 // the most specific package that holds the interface decides its label, or leaves it alone
                 String owner = name == null ? "" : where.entrySet().stream()
                         .filter(entry -> name.startsWith(entry.getKey() + "."))
-                        .max(java.util.Comparator.comparingInt(entry -> entry.getKey().length()))
+                        .max(Comparator.comparingInt(entry -> entry.getKey().length()))
                         .map(Map.Entry::getValue).orElse("");
                 if (!owner.isEmpty() && !covered.contains(name)) {
                     found.putIfAbsent(name, new Diagnostic(TopolithCode.TL0024, "the interface " + name + " in "

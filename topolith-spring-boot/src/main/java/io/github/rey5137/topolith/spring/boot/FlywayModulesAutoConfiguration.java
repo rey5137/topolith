@@ -1,6 +1,9 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import java.io.IOException;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -107,14 +110,10 @@ class FlywayModulesAutoConfiguration {
                 if (tool != Tool.FLYWAY) {
                     return;
                 }
-                List<String> dependsOn = new ArrayList<>(host);
-                for (String required : ModuleMigrations.runnersRequiredBy(topology, id, runners.keySet())) {
-                    dependsOn.add(runners.get(required).runnerName(required));
-                }
                 RootBeanDefinition definition = new RootBeanDefinition(ModuleFlyway.class,
                         () -> new ModuleFlyway(moduleFlyway(factory, environment, loader, id, hostFlyway)));
                 definition.setDefaultCandidate(false);
-                definition.setDependsOn(dependsOn.toArray(String[]::new));
+                definition.setDependsOn(ModuleMigrations.dependsOn(topology, id, runners, host));
                 registry.registerBeanDefinition(Tool.FLYWAY.runnerName(id), definition);
             });
         }
@@ -224,7 +223,7 @@ class FlywayModulesAutoConfiguration {
                 return;
             }
             try {
-                for (java.net.URL url : java.util.Collections.list(classLoader.getResources(root))) {
+                for (URL url : Collections.list(classLoader.getResources(root))) {
                     String owner = resolution.rootOwners().get(DescriptorDiscovery.root(url.toString(), root));
                     if (owner != null && !reported.contains(owner)) {
                         found.add(new Diagnostic(TopolithCode.TL0020, "the host's Flyway location 'classpath:" + root
@@ -233,7 +232,7 @@ class FlywayModulesAutoConfiguration {
                                 + ", or narrow the host's spring.flyway.locations."));
                     }
                 }
-            } catch (java.io.IOException e) {
+            } catch (IOException e) {
                 throw new TopolithException(new Diagnostic(TopolithCode.TL0020, "the Flyway location 'classpath:"
                         + root + "' cannot be read (" + e.getMessage() + ").", "Check that the JAR or directory "
                         + "is readable."));

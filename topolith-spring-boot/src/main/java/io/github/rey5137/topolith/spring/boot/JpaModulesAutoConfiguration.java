@@ -38,6 +38,7 @@ import org.springframework.boot.persistence.autoconfigure.EntityScanPackages;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.core.env.Environment;
+import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
@@ -265,7 +266,7 @@ class JpaModulesAutoConfiguration {
                 return true;
             }
         };
-        scanner.setResourceLoader(new org.springframework.core.io.DefaultResourceLoader(classLoader));
+        scanner.setResourceLoader(new DefaultResourceLoader(classLoader));
         scanner.addIncludeFilter(new AnnotationTypeFilter(Entity.class, false));
         Set<String> names = new TreeSet<>();
         scanner.findCandidateComponents(topology.modulePackages().get(id)).forEach(candidate -> {

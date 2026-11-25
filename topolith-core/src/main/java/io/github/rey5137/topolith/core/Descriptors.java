@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.Function;
 
 /**
  * Parses and writes descriptor files (D-27). Discovery is not core's: callers pass {@code (source, stream)} pairs,
@@ -25,22 +26,12 @@ public final class Descriptors {
 
     /** Parses one module descriptor; throws a TL0013 {@link TopolithException} listing every problem. */
     public static ModuleDescriptor parseModule(String source, InputStream in) {
-        List<Diagnostic> problems = new ArrayList<>();
-        DescriptorData data = DescriptorReader.read(source, in, true, problems);
-        if (!problems.isEmpty()) {
-            throw new TopolithException(problems);
-        }
-        return new ModuleDescriptor(data);
+        return parseOne(source, in, true, ModuleDescriptor::new);
     }
 
     /** Parses one API descriptor; throws a TL0013 {@link TopolithException} listing every problem. */
     public static ApiDescriptor parseApi(String source, InputStream in) {
-        List<Diagnostic> problems = new ArrayList<>();
-        DescriptorData data = DescriptorReader.read(source, in, false, problems);
-        if (!problems.isEmpty()) {
-            throw new TopolithException(problems);
-        }
-        return new ApiDescriptor(data);
+        return parseOne(source, in, false, ApiDescriptor::new);
     }
 
     /**
@@ -48,28 +39,31 @@ public final class Descriptors {
      * exception (stage 1).
      */
     public static List<ModuleDescriptor> parseModules(Map<String, InputStream> inputs) {
-        List<Diagnostic> problems = new ArrayList<>();
-        List<ModuleDescriptor> parsed = new ArrayList<>();
-        for (Map.Entry<String, InputStream> input : new TreeMap<>(inputs).entrySet()) {
-            DescriptorData data = DescriptorReader.read(input.getKey(), input.getValue(), true, problems);
-            if (problems.isEmpty()) {
-                parsed.add(new ModuleDescriptor(data));
-            }
-        }
-        if (!problems.isEmpty()) {
-            throw new TopolithException(problems);
-        }
-        return Collections.unmodifiableList(parsed);
+        return parseAll(inputs, true, ModuleDescriptor::new);
     }
 
     /** Like {@link #parseModules} for API descriptors. */
     public static List<ApiDescriptor> parseApis(Map<String, InputStream> inputs) {
+        return parseAll(inputs, false, ApiDescriptor::new);
+    }
+
+    private static <T> T parseOne(String source, InputStream in, boolean module, Function<DescriptorData, T> factory) {
         List<Diagnostic> problems = new ArrayList<>();
-        List<ApiDescriptor> parsed = new ArrayList<>();
+        DescriptorData data = DescriptorReader.read(source, in, module, problems);
+        if (!problems.isEmpty()) {
+            throw new TopolithException(problems);
+        }
+        return factory.apply(data);
+    }
+
+    private static <T> List<T> parseAll(Map<String, InputStream> inputs, boolean module,
+            Function<DescriptorData, T> factory) {
+        List<Diagnostic> problems = new ArrayList<>();
+        List<T> parsed = new ArrayList<>();
         for (Map.Entry<String, InputStream> input : new TreeMap<>(inputs).entrySet()) {
-            DescriptorData data = DescriptorReader.read(input.getKey(), input.getValue(), false, problems);
+            DescriptorData data = DescriptorReader.read(input.getKey(), input.getValue(), module, problems);
             if (problems.isEmpty()) {
-                parsed.add(new ApiDescriptor(data));
+                parsed.add(factory.apply(data));
             }
         }
         if (!problems.isEmpty()) {

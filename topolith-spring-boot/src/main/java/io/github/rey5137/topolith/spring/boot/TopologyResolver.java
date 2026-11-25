@@ -86,19 +86,18 @@ final class TopologyResolver {
         } catch (BindException e) {
             throw new TopolithException(notAMode(e));
         }
-        String standalone = env.getProperty(STANDALONE);
-        Topology topology = Topology.resolve(found.modules(), found.apis(), declared,
-                standalone == null || standalone.isBlank() ? null : standalone.trim());
+        Topology topology = Topology.resolve(found.modules(), found.apis(), declared, standalone(env));
         List<Diagnostic> problems = new ArrayList<>();
+        Binder binder = Binder.get(env);
         topology.idsOf(Mode.EXTERNAL).forEach(id -> {
-                String prefix = MODES + "." + id + ".remote.";
-                String url = Binder.get(env).bind(prefix + "url", String.class).orElse("");
-                String service = Binder.get(env).bind(prefix + "service-id", String.class).orElse("");
-                if (url.isBlank() == service.isBlank()) {
-                    problems.add(new Diagnostic(TopolithCode.TL0003, "external module '" + id
-                            + "' must set exactly one of " + prefix + "url and " + prefix + "service-id.",
-                            "Set exactly one of " + prefix + "url and " + prefix + "service-id."));
-                }
+            String prefix = MODES + "." + id + ".remote.";
+            String url = binder.bind(prefix + "url", String.class).orElse("");
+            String service = binder.bind(prefix + "service-id", String.class).orElse("");
+            if (url.isBlank() == service.isBlank()) {
+                problems.add(new Diagnostic(TopolithCode.TL0003, "external module '" + id
+                        + "' must set exactly one of " + prefix + "url and " + prefix + "service-id.",
+                        "Set exactly one of " + prefix + "url and " + prefix + "service-id."));
+            }
         });
         if (!problems.isEmpty()) {
             throw new TopolithException(problems);

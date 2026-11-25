@@ -31,7 +31,7 @@ public final class ModuleClients {
      * translation.
      * Declare the returned configurer as a Spring bean.
      */
-    public static RestClientHttpServiceGroupConfigurer restClientBuilder(String moduleId,
+    public static RestClientHttpServiceGroupConfigurer configure(String moduleId,
             Consumer<RestClient.Builder> customizer) {
         return new ModuleClientConfigurer(Objects.requireNonNull(moduleId), Objects.requireNonNull(customizer));
     }

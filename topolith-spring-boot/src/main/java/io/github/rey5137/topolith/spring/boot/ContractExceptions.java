@@ -146,7 +146,6 @@ final class ContractExceptions {
         return names;
     }
 
-    /** What TL0027 needs from a class file, read with ASM so the class is not loaded. */
     /** Whether a {@code HttpStatus} constant name is a 4xx or 5xx status; the empty name is the default, 500. */
     private static boolean errorStatus(String status, ClassLoader loader) {
         return status.isEmpty() || !ClassUtils.isPresent(WebStatus.HTTP_STATUS, loader) || WebStatus.error(status);

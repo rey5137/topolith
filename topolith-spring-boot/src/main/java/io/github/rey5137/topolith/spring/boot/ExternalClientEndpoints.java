@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 
 import io.github.rey5137.topolith.core.Diagnostic;
 import io.github.rey5137.topolith.core.TopolithCode;
@@ -43,6 +44,9 @@ import org.springframework.web.util.UriComponentsBuilder;
  */
 final class ExternalClientEndpoints {
     private static final Logger LOG = LoggerFactory.getLogger(ExternalClientEndpoints.class);
+    /** Userinfo up to the last {@code @} of the authority, with or without a scheme. */
+    private static final Pattern USER_INFO = Pattern.compile(
+            "(?i)(?:\\b([a-z][a-z0-9+.-]*://)[^/\\s'\"]*@|(?<![\\w/@.:-])[\\w.~%!$&*+;=-]+:[^/\\s'\"]*@(?=[\\w.-]+(?::\\d+)?(?:[/\\s'\"]|$)))");
 
     private record Client(AtomicReference<UriBuilderFactory> uri, AtomicReference<ClientHttpRequestFactory> request,
             boolean balanced, HttpClientSettings settings, ClientHttpRequestFactoryBuilder<?> factories) {
@@ -102,7 +106,7 @@ final class ExternalClientEndpoints {
             Map<String, Object> mapped = new LinkedHashMap<>();
             if (old != null && old.getSource() instanceof Map<?, ?> previous) {
                 previous.forEach((key, value) -> {
-                    if (!key.toString().startsWith("spring.http.serviceclient." + id + ".")) {
+                    if (!key.toString().startsWith(ExternalClientProperties.groupPrefix(id))) {
                         mapped.put(key.toString(), value);
                     }
                 });
@@ -119,7 +123,7 @@ final class ExternalClientEndpoints {
             if (!balanced && (uri.getHost() == null || !Set.of("http", "https").contains(uri.getScheme()))) {
                 throw new IllegalArgumentException("'" + base + "' is not an http(s) URL");
             }
-            String prefix = "spring.http.serviceclient." + id + ".";
+            String prefix = ExternalClientProperties.groupPrefix(id);
             Duration connect = timeout(binder, prefix, "connect-timeout",
                     ExternalClientProperties.CONNECT_TIMEOUT_DEFAULT);
             Duration read = timeout(binder, prefix, "read-timeout", ExternalClientProperties.READ_TIMEOUT_DEFAULT);
@@ -130,7 +134,7 @@ final class ExternalClientEndpoints {
             if (old != null) {
                 sources.replace(ExternalClientProperties.SOURCE_NAME, old);
             }
-            String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            String reason = e.getMessage() == null ? e.getClass().getSimpleName() : stripUserInfo(e.getMessage());
             status.fail(id, reason);
             LOG.warn(new Diagnostic(TopolithCode.TL0011, "the refreshed client settings of external module '" + id
                     + "' were not applied: " + reason, "Fix the topolith.modules." + id + ".remote.* settings; the "
@@ -156,7 +160,7 @@ final class ExternalClientEndpoints {
     }
 
     private static String baseUrlKey(String id) {
-        return "spring.http.serviceclient." + id + ".base-url";
+        return ExternalClientProperties.groupPrefix(id) + "base-url";
     }
 
     /** What the group's client uses: Cloud LoadBalancer's configurer turns {@code lb://} into {@code http://}. */
@@ -196,5 +200,10 @@ final class ExternalClientEndpoints {
         public ClientHttpRequest createRequest(URI uri, HttpMethod httpMethod) throws IOException {
             return target.get().createRequest(uri, httpMethod);
         }
+    }
+
+    /** Drops {@code user:password@} from any URL in a message that reaches the endpoint or the log. */
+    static String stripUserInfo(String message) {
+        return USER_INFO.matcher(message).replaceAll("$1");
     }
 }

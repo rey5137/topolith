@@ -5,6 +5,7 @@ import java.lang.reflect.Modifier;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.util.Set;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 
 import io.github.rey5137.topolith.contract.ModuleUnavailableException;
@@ -48,16 +49,49 @@ final class ContractCallTranslator implements MethodInterceptor {
     public Object invoke(MethodInvocation invocation) throws Throwable {
         try {
             return invocation.proceed();
-        } catch (RestClientResponseException e) {
-            throw translate(e);
-        } catch (ResourceAccessException e) {
-            throw unavailable(module, timeout(e) ? "timeout" : "connection failure", e);
-        } catch (IllegalStateException e) {
-            if (e.getMessage() != null && e.getMessage().startsWith(NO_INSTANCES)) {
-                throw unavailable(module, "no instance", e);
+        } catch (RuntimeException e) {
+            RuntimeException translated = translateOne(e);
+            // Spring Cloud CircuitBreaker wraps what the call threw (NoFallbackAvailableException(cause)): look one level down
+            if (translated == e && noFallback(e)) {
+                Throwable cause = e.getCause();
+                if (cause instanceof RuntimeException runtime) {
+                    RuntimeException inner = translateOne(runtime);
+                    if (inner != runtime) {
+                        translated = inner;
+                    }
+                } else if (cause instanceof TimeoutException) {
+                    translated = unavailable(module, "timeout", e);
+                }
             }
-            throw e;
+            if (translated == e && (circuitOpen(e) || circuitOpen(e.getCause()))) {
+                translated = unavailable(module, "circuit open", e);
+            }
+            throw translated;
         }
+    }
+
+    /** The translation of one exception, or the exception itself when it is not one this advice maps. */
+    private RuntimeException translateOne(RuntimeException e) {
+        if (e instanceof RestClientResponseException response) {
+            return translate(response);
+        }
+        if (e instanceof ResourceAccessException access) {
+            return unavailable(module, timeout(access) ? "timeout" : "connection failure", access);
+        }
+        if (e instanceof IllegalStateException && e.getMessage() != null && e.getMessage().startsWith(NO_INSTANCES)) {
+            return unavailable(module, "no instance", e);
+        }
+        return e;
+    }
+
+    /** Spring Cloud CircuitBreaker's wrapper for a failed call without a fallback, found by class name. */
+    private static boolean noFallback(Throwable e) {
+        return e.getClass().getSimpleName().equals("NoFallbackAvailableException");
+    }
+
+    /** A circuit breaker's open-circuit rejection, found by class name so no breaker library is a dependency. */
+    private static boolean circuitOpen(Throwable e) {
+        return e != null && e.getClass().getSimpleName().equals("CallNotPermittedException");
     }
 
     private RuntimeException translate(RestClientResponseException e) {

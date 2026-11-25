@@ -1,8 +1,15 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import io.github.rey5137.topolith.core.Diagnostic;
+import io.github.rey5137.topolith.core.TopolithCode;
+import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.Topology;
 import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.HttpClientSettings;
@@ -35,9 +42,11 @@ class ExternalClientSwapConfiguration {
             ObjectProvider<HttpClientSettings> defaults, ObjectProvider<ClientHttpRequestFactoryBuilder<?>> factories,
             BeanFactory beanFactory) {
         String[] externals = topology.idsOf(Mode.EXTERNAL).toArray(String[]::new);
-        ClassLoader loader = beanFactory instanceof org.springframework.beans.factory.config.ConfigurableBeanFactory c
+        ClassLoader loader = beanFactory instanceof ConfigurableBeanFactory c
                 && c.getBeanClassLoader() != null ? c.getBeanClassLoader() : getClass().getClassLoader();
         return groups -> groups.filterByName(externals).forEachClient((group, builder) -> {
+            checkOwnTypes(beanFactory.getBean(TopologyResolver.RESOLUTION_BEAN, TopologyResolver.Resolution.class),
+                    group.name(), group.httpServiceTypes());
             HttpServiceClientProperties all = properties.getIfAvailable();
             HttpClientProperties own = all == null ? null : all.get(group.name());
             HttpClientSettings settings = new HttpClientSettingsPropertyMapper(sslBundles.getIfAvailable(),
@@ -46,5 +55,21 @@ class ExternalClientSwapConfiguration {
             endpoints.install(group.name(), builder, settings,
                     factories.getIfAvailable(() -> ClientHttpRequestFactoryBuilder.detect(loader)));
         });
+    }
+
+    /** TL0003 when a host group is named like an external module and holds an interface that is not the module's. */
+    private static void checkOwnTypes(TopologyResolver.Resolution resolution, String id, Set<Class<?>> types) {
+        Map<String, String> mapped = resolution.httpInterfaces().getOrDefault(id, Map.of());
+        Set<String> own = new HashSet<>();
+        for (String contract : resolution.contracts().getOrDefault(id, Set.of())) {
+            own.add(mapped.getOrDefault(contract, contract));
+        }
+        for (Class<?> type : types) {
+            if (!own.contains(type.getName())) {
+                throw new TopolithException(new Diagnostic(TopolithCode.TL0003, "HTTP service group '" + id
+                        + "' holds " + type.getName() + ", which is not a contract of external module '" + id + "'.",
+                        "Rename the host's group: a group named like an external module is Topolith's."));
+            }
+        }
     }
 }

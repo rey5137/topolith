@@ -134,7 +134,7 @@ class RefreshTest {
 
         @org.springframework.context.annotation.Bean
         RestClientHttpServiceGroupConfigurer custom() {
-            return ModuleClients.restClientBuilder("separate", builder -> builder.defaultHeader("X-Custom", "yes")
+            return ModuleClients.configure("separate", builder -> builder.defaultHeader("X-Custom", "yes")
                     .requestInterceptor((request, body, execution) -> {
                         PORTS.add(request.getURI().getPort());
                         HEADER.set(request.getHeaders().getFirst("X-Custom") + request.getURI().getPath());

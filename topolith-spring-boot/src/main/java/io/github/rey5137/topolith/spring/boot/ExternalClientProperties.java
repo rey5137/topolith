@@ -30,6 +30,11 @@ final class ExternalClientProperties {
         return url.trim().replaceAll("/+$", "") + "/" + id;
     }
 
+    /** The key prefix of module {@code id}'s group in Boot's HTTP service-client properties. */
+    static String groupPrefix(String id) {
+        return "spring.http.serviceclient." + id + ".";
+    }
+
     /** The load-balanced URL of a service id, without the module prefix. */
     static String serviceUrl(String serviceId) {
         return LB_SCHEME + serviceId.trim();
@@ -51,7 +56,7 @@ final class ExternalClientProperties {
     static Map<String, Object> properties(Environment environment, Collection<String> ids) {
         Map<String, Object> values = new LinkedHashMap<>();
         for (String id : ids) {
-            String target = "spring.http.serviceclient." + id + ".";
+            String target = groupPrefix(id);
             String source = TopologyResolver.MODES + "." + id + ".remote.";
             String url = environment.getProperty(source + "url");
             if (url != null && !url.isBlank()) {

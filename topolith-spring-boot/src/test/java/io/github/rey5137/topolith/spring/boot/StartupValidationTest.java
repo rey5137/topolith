@@ -55,6 +55,39 @@ class StartupValidationTest {
     }
 
     @Test
+    void ac_ext_11_settings_of_an_unknown_module_fail_with_tl0003() throws Exception {
+        descriptor("modules", "alpha", module("alpha", "", ""));
+        for (String key : List.of("expose.enabled=true", "expose.path=x")) {
+            run(context -> assertTrue(failure(context, TopolithCode.TL0003).getMessage()
+                            .contains("topolith.modules.unknown.")), "topolith.modules.alpha.mode=none",
+                    "topolith.modules.unknown." + key);
+        }
+        // other settings of a module that is not on the classpath stay allowed (a shared configuration)
+        run(context -> assertNull(context.getStartupFailure()), "topolith.modules.alpha.mode=none",
+                "topolith.modules.unknown.remote.url=http://localhost");
+        // a mode alone for a module that is not on the classpath keeps its own code
+        run(context -> failure(context, TopolithCode.TL0016), "topolith.modules.alpha.mode=none",
+                "topolith.modules.unknown.mode=none");
+        run(context -> failure(context, TopolithCode.TL0016), "topolith.modules.alpha.mode=none",
+                "topolith.modules.unknown.mode=none", "topolith.modules.unknown.expose.enabled=true");
+    }
+
+    @Test
+    void ac_ext_11_an_environment_key_without_the_dashes_of_a_known_id_is_known() throws Exception {
+        descriptor("modules", "order-service", "format-version=1\nid=order-service\npackage=fixture.orderservice\n"
+                + "api-packages=fixture.api\napi-version=1.0\nprovides=\nrequires=\n");
+        run(context -> assertNull(context.getStartupFailure()), "topolith.standalone=order-service",
+                "topolith.modules.orderservice.expose.enabled=false");
+    }
+
+    @Test
+    void ac_ext_11_an_unknown_module_with_only_an_http_interface_mapping_is_reported_once() throws Exception {
+        descriptor("modules", "alpha", module("alpha", "", ""));
+        run(context -> failure(context, TopolithCode.TL0003), "topolith.modules.alpha.mode=none",
+                "topolith.modules.unknown.remote.http-interface.fixture.api.Contract=fixture.api.ContractHttp");
+    }
+
+    @Test
     void ac_val_01_endpoint_selection() throws Exception {
         descriptor("modules", "alpha", module("alpha", "", ""));
         for (String[] settings : List.of(new String[] {}, new String[] {"topolith.modules.alpha.remote.url= ",

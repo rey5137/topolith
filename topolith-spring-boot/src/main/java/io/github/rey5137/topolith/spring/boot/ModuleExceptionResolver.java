@@ -1,6 +1,7 @@
 package io.github.rey5137.topolith.spring.boot;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -77,7 +78,53 @@ final class ModuleExceptionResolver implements HandlerExceptionResolver, Ordered
         problem.setType(URI.create(TYPE));
         problem.setProperty(EXCEPTION, declared.getName());
         problem.setProperty(MODULE, module);
-        return write(problem, response) ? new ModelAndView() : null;
+        if (!write(problem, response)) {
+            // no converter writes problem+json (a host without Jackson): never fall through to the host's error page
+            writeJson(problem, response);
+        }
+        return new ModelAndView();
+    }
+
+    /** Writes the problem as JSON by hand; only the string and integer members Topolith sets are present. */
+    static void writeJson(ProblemDetail problem, HttpServletResponse response) {
+        Map<String, Object> members = new LinkedHashMap<>();
+        members.put("type", problem.getType() == null ? null : problem.getType().toString());
+        members.put("title", problem.getTitle());
+        members.put("status", problem.getStatus());
+        members.put("detail", problem.getDetail());
+        if (problem.getProperties() != null) {
+            members.putAll(problem.getProperties());
+        }
+        StringBuilder json = new StringBuilder("{");
+        members.forEach((name, value) -> {
+            if (value != null) {
+                json.append(json.length() > 1 ? "," : "").append(quote(name)).append(':')
+                        .append(value instanceof Number ? value.toString() : quote(value.toString()));
+            }
+        });
+        byte[] body = json.append('}').toString().getBytes(StandardCharsets.UTF_8);
+        reset(response);
+        response.setStatus(problem.getStatus());
+        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        response.setContentLength(body.length);
+        try {
+            response.getOutputStream().write(body);
+            response.flushBuffer();
+        } catch (IOException e) {
+            throw new IllegalStateException("cannot write the contract problem", e);
+        }
+    }
+
+    private static String quote(String text) {
+        StringBuilder out = new StringBuilder("\"");
+        for (char c : text.toCharArray()) {
+            switch (c) {
+                case '"' -> out.append("\\\"");
+                case '\\' -> out.append("\\\\");
+                default -> out.append(c < 0x20 ? String.format("\\u%04x", (int) c) : String.valueOf(c));
+            }
+        }
+        return out.append('"').toString();
     }
 
     @SuppressWarnings("unchecked")

@@ -7,18 +7,22 @@ It also specifies the internal transaction boundary required by the 0.1 plan.
 
 ### R-EXT-01 — Contract and HTTP service group
 
-By default the `*-api` contract uses `@HttpExchange`, a service implements it, and a thin `@RestController`
-exposes it. External mode registers one HTTP service group per module for its provided contracts. A separate HTTP
-interface remains supported. Its case-sensitive contract FQN mapping key requires a case-preserving property source;
-environment variables are unsupported for these mappings. Implements INV-5, INV-8 and D-3.
+By default the `*-api` contract uses `@HttpExchange` and the module's `@RestController` implements it (it may delegate
+to a non-contract service); a service-only implementation is exposed through a separate HTTP interface (D-53).
+External mode registers one HTTP service group per module for its provided contracts. A separate HTTP
+interface remains supported (D-49). Its case-sensitive contract FQN mapping key requires a case-preserving property source;
+environment variables are unsupported for these mappings. Implements INV-5, INV-8, D-3 and D-53.
 
 - AC-EXT-01 (M2.1): An external contract call uses the HTTP service group named for its module.
-- AC-EXT-02 (M2.4): An annotated contract implemented by a service is exposed through a thin controller.
+- AC-EXT-02 (M2.4): An annotated contract implemented by the module's `@RestController` is served under the module prefix.
 - AC-EXT-03 (M2.5): A separate HTTP interface can serve a contract without `spring-web` in the contract API.
 
 ### R-EXT-02 — Endpoint and discovery
 
 Exactly one of `remote.url` and `remote.service-id` is required for an external module; otherwise fail with TL0003.
+An `expose.*` key under `topolith.modules.<id>` for an id that no descriptor names fails with TL0003; other settings
+of an absent module stay allowed for a shared configuration (a `mode` stays TL0016 or TL0002), and a host HTTP service group named like an external module that holds an interface that is not
+that module's fails with TL0003.
 Map `remote.url` plus the provider's fixed `/<id>` prefix to `spring.http.serviceclient.<id>.base-url` (D-45): a
 contract's `@HttpExchange` paths are relative to that prefixed URL. Service ids use `lb://<service-id>/<id>` and
 Spring Cloud LoadBalancer
@@ -62,13 +66,19 @@ failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6
   `ModuleUnavailableException` the fixed message below), and the
   properties `exception` (the declared class name) and `module`. On those handlers this takes precedence over the
   host's `@ControllerAdvice`s and the module's own `@ExceptionHandler`s, which would run only in external mode; any
-  other exception, and any other handler, is left to the host and Boot, and an undeclared exception's message is never
-  sent.
+  other exception, and any other handler, is left to the host and Boot, and an undeclared exception's message is not sent by Topolith (it is
+  left to the host's error handling, so a host setting `server.error.include-message=always` sends it, and the caller's
+  HTTP exception then carries it). If no message converter writes `application/problem+json`, the problem is written
+  directly as JSON.
 - **Caller.** A Topolith problem naming a declared class the caller can load is rebuilt through its public `(String)`
   or no-arg constructor, carrying the HTTP exception as suppressed. A connection failure, a timeout, a 502, 503 or 504
   without a Topolith problem, no LoadBalancer instance, or a problem naming `ModuleUnavailableException` raise
   `ModuleUnavailableException` with the original exception as cause and the fixed message `module '<id>' could not
-  be reached (<kind>)`, so no URL or downstream body travels on; after a read timeout the call may have run.
+  be reached (<kind>)`, so no URL or downstream body travels on; after a read timeout the call may have run. With Spring Cloud
+  CircuitBreaker on the group (`spring.cloud.circuitbreaker.http-services.enabled=true`) the translation sees through
+  the breaker's no-fallback wrapper (D-51), a time-limiter timeout raises `ModuleUnavailableException` with kind
+  `timeout`, and a call rejected by an open circuit raises it with kind `circuit open`; a host's own wrapper exception
+  propagates as thrown.
 - **Unspecified.** Any other failure (an undeclared exception, a 4xx or 500 without a Topolith problem) raises an
   unchecked exception that is neither a declared type nor `ModuleUnavailableException`; its type is unspecified.
 
@@ -76,16 +86,18 @@ failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6
   subclass outside the api packages is rebuilt as its declared ancestor, and an exception from another module's api
   package passing through the provider is rebuilt too, as is one thrown after the handler started its answer.
 - AC-EXT-10 (M2.3): A transport failure raises `ModuleUnavailableException` at the caller: connection refused, a read
-  timeout, a 503 without a Topolith problem, zero LoadBalancer instances, and a provider's own
+  timeout (including a Spring Cloud CircuitBreaker time-limiter timeout), a 503 without a Topolith problem, zero LoadBalancer instances, an open circuit, and a provider's own
   `ModuleUnavailableException` (transitive); its message names only the module and the kind of failure, never a URL
   or a downstream body.
-- AC-EXT-29 (M2.3): An undeclared exception is not rebuilt, and its message does not reach the caller.
+- AC-EXT-29 (M2.3): An undeclared exception is not rebuilt, and Topolith does not send its message (the host's
+  `server.error.include-message` setting still applies).
 - AC-EXT-30 (M2.3): A contract method declaring a checked exception, or a concrete exception class in an api package
   that a caller cannot rebuild or whose `@ResponseStatus` is not 4xx or 5xx, fails startup with TL0027 for an internal or external module, in a monolith too; a
   `none` module is not checked.
 - AC-EXT-31 (M2.3): The provider resolver exists only with an internal module, and the caller advice only with an
   external one; a `none` module leaves neither; a host's own service groups and a host controller's advices are
-  untouched.
+  untouched, except that a group named like an external module is Topolith's and fails with TL0003 if it holds another
+  interface.
 - AC-EXT-32 (M2.3): A host `@ControllerAdvice` does not change what a module route sends for a declared exception.
 
 ### R-EXT-05 — Exposure
@@ -104,7 +116,7 @@ has one discovery registration. Implements INV-8 and P-2.
 
 ### R-EXT-06 — Client customization
 
-The host can configure a module client with `ModuleClients.restClientBuilder(<id>, <customizer>)`. A host status
+The host can configure a module client with `ModuleClients.configure(<id>, <customizer>)`. A host status
 handler throwing its own exception bypasses Topolith's error translation. The customizer cannot replace the base
 URL, URI factory, default URI variables, request factory, interceptors or message converters (D-48, D-50). Implements P-2.
 
@@ -115,9 +127,12 @@ URL, URI factory, default URI variables, request factory, interceptors or messag
 An internal contract call suspends the caller's transaction with `NOT_SUPPORTED`, for every caller and in front of the
 callee's own transaction interceptor; the callee's own transaction annotation decides whether it starts one. An active
 caller transaction increments the counter `topolith.contract.calls.in.transaction` (tags `module`, `contract`). Implements
-INV-6, D-2, D-47.
+INV-6, D-2, D-47. A `final` handler class (a `@Controller`, `@RestController` or `@RequestMapping` type) that is a provider of an
+internal module implementing a provided contract fails startup with TL0029 when a transaction manager exists; a
+`final` provider that is not a handler takes an interface proxy.
 
-- AC-EXT-16 (M2.4): A caller transaction is suspended during an internal contract call and resumes afterward.
+- AC-EXT-16 (M2.4): A caller transaction is suspended during an internal contract call and resumes afterward; a final
+  handler provider class fails startup with TL0029, while a final provider that is not a handler takes the boundary.
 - AC-EXT-17 (M2.4): The callee's own transaction policy applies and an active caller transaction emits a warning metric.
 
 ### R-EXT-08 — Endpoint refresh
@@ -126,7 +141,10 @@ With `topolith-spring-cloud`, an `EnvironmentChangeEvent` changing an external m
 service id, or timeouts rebuilds its client. Validate settings before swapping; in-flight calls finish on the old
 client. On invalid settings or rebuild failure keep the old client, log TL0011 and report the failure on the actuator.
 A URL-to-service-id or service-id-to-URL switch instead uses TL0010 and restart-pending behavior in R-MODE-05.
-Without Spring Cloud on the classpath there is no refresh handling. Implements INV-4, INV-9, D-11 through D-16, D-20.
+Without Spring Cloud on the classpath there is no refresh handling. A host's own unguarded
+`RestClientHttpServiceGroupConfigurer` setting `requestFactory` for all groups may win over the swap (same lowest order),
+so refreshed timeouts would not apply; a refresh changing only Boot keys (`spring.http.serviceclient.<id>.*`,
+`spring.http.clients.*`) is restart-only and unchecked until the next start (D-50). Implements INV-4, INV-9, D-11 through D-16, D-20.
 
 - AC-EXT-18 (M2.6): Changing the URL rebuilds the client.
 - AC-EXT-19 (M2.6): Changing timeout settings rebuilds the client.

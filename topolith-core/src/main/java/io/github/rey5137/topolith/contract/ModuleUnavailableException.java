@@ -1,5 +1,6 @@
 package io.github.rey5137.topolith.contract;
 
+import io.github.rey5137.topolith.core.Incubating;
 import java.util.Objects;
 
 /**
@@ -9,6 +10,7 @@ import java.util.Objects;
  * (R-EXT-04). After a read timeout the call may have run. It is not a {@code TopolithException}: it reports a call,
  * not the topology (D-28).
  */
+@Incubating
 public final class ModuleUnavailableException extends RuntimeException {
     private static final long serialVersionUID = 1L;
 

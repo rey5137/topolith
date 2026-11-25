@@ -95,7 +95,7 @@ class ExposureTest {
     }
 
     @Test
-    void ac_ext_02_a_contract_implementation_is_served_by_a_thin_controller() throws Exception {
+    void ac_ext_02_a_contract_implemented_by_a_controller_is_served_under_the_module_prefix() throws Exception {
         serve(context -> {
             // AccountController implements AccountContract and holds no mapping of its own: the contract's
             // @GetExchange paths map it, under the module prefix

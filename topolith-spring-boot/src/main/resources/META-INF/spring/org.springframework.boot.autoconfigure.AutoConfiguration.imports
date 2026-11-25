@@ -1,1 +1,5 @@
 io.github.rey5137.topolith.spring.boot.TopolithAutoConfiguration
+io.github.rey5137.topolith.spring.boot.JpaModulesAutoConfiguration
+io.github.rey5137.topolith.spring.boot.JpaRepositoriesModulesAutoConfiguration
+io.github.rey5137.topolith.spring.boot.FlywayModulesAutoConfiguration
+io.github.rey5137.topolith.spring.boot.LiquibaseModulesAutoConfiguration

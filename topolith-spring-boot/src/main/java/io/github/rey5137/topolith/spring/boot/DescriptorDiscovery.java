@@ -39,8 +39,11 @@ final class DescriptorDiscovery {
      *
      * @param importOwners auto-configuration class name to the id of the module that lists it in an
      *                     {@code AutoConfiguration.imports} file in the root of its own artifact (R-MODE-02)
+     * @param rootOwners   the URL string of a classpath root that holds exactly one module descriptor to that module's
+     *                     id (D-32 uses it to see a host migration location reach into a module's artifact)
      */
-    record Found(List<ModuleDescriptor> modules, List<ApiDescriptor> apis, Map<String, String> importOwners) {
+    record Found(List<ModuleDescriptor> modules, List<ApiDescriptor> apis, Map<String, String> importOwners,
+            Map<String, String> rootOwners) {
     }
 
     private DescriptorDiscovery() {
@@ -56,7 +59,26 @@ final class DescriptorDiscovery {
         }
         List<ModuleDescriptor> modules = Descriptors.parseModules(moduleFiles);
         List<ApiDescriptor> apis = Descriptors.parseApis(apiFiles);
-        return new Found(modules, apis, importOwners(loader, modules));
+        return new Found(modules, apis, importOwners(loader, modules), rootOwners(modules));
+    }
+
+    private static Map<String, String> rootOwners(List<ModuleDescriptor> modules) {
+        Map<String, List<String>> idsByRoot = idsByRoot(modules);
+        Map<String, String> owners = new TreeMap<>();
+        idsByRoot.forEach((root, ids) -> {
+            if (ids.size() == 1) {
+                owners.put(root, ids.get(0));
+            }
+        });
+        return owners;
+    }
+
+    private static Map<String, List<String>> idsByRoot(List<ModuleDescriptor> modules) {
+        Map<String, List<String>> idsByRoot = new HashMap<>();
+        for (ModuleDescriptor module : modules) {
+            idsByRoot.computeIfAbsent(root(module.source(), MODULES), key -> new ArrayList<>()).add(module.id());
+        }
+        return idsByRoot;
     }
 
     /** The files by URL string; a URL reached twice is one file. */
@@ -90,10 +112,7 @@ final class DescriptorDiscovery {
      * When the two roots name different modules, or a root holds several module descriptors, nobody owns the entry.
      */
     private static Map<String, String> importOwners(ClassLoader loader, List<ModuleDescriptor> modules) {
-        Map<String, List<String>> idsByRoot = new HashMap<>();
-        for (ModuleDescriptor module : modules) {
-            idsByRoot.computeIfAbsent(root(module.source(), MODULES), key -> new ArrayList<>()).add(module.id());
-        }
+        Map<String, List<String>> idsByRoot = idsByRoot(modules);
         Map<String, String> owners = new TreeMap<>();
         if (idsByRoot.isEmpty()) {
             return owners;
@@ -127,7 +146,7 @@ final class DescriptorDiscovery {
     }
 
     /** The URL string up to the resource path: the root of the JAR or directory that holds the resource. */
-    private static String root(String url, String path) {
+    static String root(String url, String path) {
         int at = url.lastIndexOf(path);
         return at < 0 ? url : url.substring(0, at);
     }

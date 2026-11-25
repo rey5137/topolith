@@ -1,2 +1,5 @@
 org.springframework.boot.autoconfigure.AutoConfigurationImportFilter=\
 io.github.rey5137.topolith.spring.boot.TopolithAutoConfigurationFilter
+# Boot runs every Liquibase before every Flyway initializer; Topolith's module runners come last
+org.springframework.boot.sql.init.dependency.DatabaseInitializerDetector=\
+io.github.rey5137.topolith.spring.boot.ModuleRunnerDetector

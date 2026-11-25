@@ -10,6 +10,9 @@ import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.core.Topology;
 import io.github.rey5137.topolith.spring.boot.Fixtures.RecordingLoader;
+import io.github.rey5137.topolith.spring.boot.fixture.host.Hosts.Host;
+import io.github.rey5137.topolith.spring.boot.fixture.host.Hosts.ParentScanningHost;
+import io.github.rey5137.topolith.spring.boot.fixture.host.Hosts.UserScanningHost;
 import io.github.rey5137.topolith.spring.boot.fixture.shared.FixtureEvent;
 import io.github.rey5137.topolith.spring.boot.fixture.user.UserComponent;
 
@@ -17,15 +20,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import org.springframework.boot.autoconfigure.AutoConfigurationExcludeFilter;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.context.TypeExcludeFilter;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.context.annotation.ComponentScan;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.FilterType;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
 
 import static io.github.rey5137.topolith.spring.boot.Fixtures.BASE;
@@ -43,30 +39,6 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 /** M1.3 acceptance tests: mode resolution and inclusion-based activation, end to end on a real Boot context. */
 class ModeActivationTest {
-    @Configuration(proxyBeanMethods = false)
-    @EnableAutoConfiguration
-    @EnableScheduling
-    static class Host {
-    }
-
-    @Configuration(proxyBeanMethods = false)
-    @EnableAutoConfiguration
-    @EnableScheduling
-    @ComponentScan(basePackages = USER, excludeFilters = {
-            @ComponentScan.Filter(type = FilterType.CUSTOM, classes = TypeExcludeFilter.class),
-            @ComponentScan.Filter(type = FilterType.CUSTOM, classes = AutoConfigurationExcludeFilter.class)})
-    static class UserScanningHost {
-    }
-
-    @Configuration(proxyBeanMethods = false)
-    @EnableAutoConfiguration
-    @EnableScheduling
-    @ComponentScan(basePackages = BASE, excludeFilters = {
-            @ComponentScan.Filter(type = FilterType.CUSTOM, classes = TypeExcludeFilter.class),
-            @ComponentScan.Filter(type = FilterType.CUSTOM, classes = AutoConfigurationExcludeFilter.class)})
-    static class ParentScanningHost {
-    }
-
     private interface Assertions {
         void check(AssertableApplicationContext context, RecordingLoader loader) throws Exception;
     }
@@ -93,6 +65,7 @@ class ModeActivationTest {
             throws Exception {
         try (RecordingLoader loader = new RecordingLoader(roots.toArray(Path[]::new))) {
             new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(host)
+                    .withPropertyValues("spring.liquibase.enabled=false")
                     .withPropertyValues(properties.toArray(String[]::new)).run(context -> {
                         try {
                             assertions.check(context, loader);

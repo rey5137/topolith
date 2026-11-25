@@ -31,11 +31,17 @@ final class TopologyResolver {
     record ModeOnly(String mode) {
     }
 
-    /** The topology with the discovery facts the filter needs. */
-    record Resolution(Topology topology, Map<String, String> importOwners) {
+    /** The topology with the discovery facts the filter and the persistence checks need. */
+    record Resolution(Topology topology, Map<String, String> importOwners, Map<String, String> rootOwners) {
     }
 
     private TopologyResolver() {
+    }
+
+    /** The id named by {@code topolith.standalone}, trimmed, or null. */
+    static String standalone(Environment environment) {
+        String value = environment == null ? null : environment.getProperty(STANDALONE);
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     static Resolution resolve(BeanFactory beanFactory, Environment environment, ClassLoader loader) {
@@ -76,6 +82,6 @@ final class TopologyResolver {
         String standalone = env.getProperty(STANDALONE);
         Topology topology = Topology.resolve(found.modules(), found.apis(), declared,
                 standalone == null || standalone.isBlank() ? null : standalone.trim());
-        return new Resolution(topology, found.importOwners());
+        return new Resolution(topology, found.importOwners(), found.rootOwners());
     }
 }

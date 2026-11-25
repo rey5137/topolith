@@ -1,0 +1,206 @@
+package io.github.rey5137.topolith.spring.boot;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.regex.Pattern;
+
+import io.github.rey5137.topolith.core.Topology;
+
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.core.env.Environment;
+
+/**
+ * Where a module's migrations live, which tool runs them and what its tracking tables are called (D-32). No optional
+ * types: Flyway and Liquibase are named by string.
+ */
+final class ModuleMigrations {
+    static final String ROOT = "db/modules/";
+    static final String TABLE_PREFIX = "flyway_schema_history_";
+    static final String CHANGELOG_PREFIX = "databasechangelog_";
+    static final String LOCK_PREFIX = "databasechangeloglock_";
+    /** Liquibase's default file name, so an adopter moves {@code db/changelog} here without renaming anything. */
+    static final String MASTER = "db.changelog-master.";
+    /** The formats {@code liquibase-core} reads. */
+    static final List<String> MASTER_EXTENSIONS = List.of("yaml", "yml", "xml", "json", "sql");
+    /** PostgreSQL silently truncates longer identifiers. */
+    static final int MAX_TABLE_NAME = 63;
+    /** Flyway's versioned, undo and repeatable script names. */
+    private static final Pattern FLYWAY_SCRIPT = Pattern.compile("([VU]\\d.*__.+|R__.+)\\.sql");
+
+    /** The tool that migrates a module. */
+    enum Tool {
+        FLYWAY("topolith.flyway."), LIQUIBASE("topolith.liquibase.");
+
+        private final String prefix;
+
+        Tool(String prefix) {
+            this.prefix = prefix;
+        }
+
+        String runnerName(String id) {
+            return prefix + id;
+        }
+    }
+
+    /** Whether the bean name is one of Topolith's own module runners. */
+    static boolean isModuleRunner(String beanName) {
+        for (Tool tool : Tool.values()) {
+            if (beanName.startsWith(tool.prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * What a module ships under {@code db/modules/<id>}: whether any file has a Flyway name or is a Java migration
+     * class, and the Liquibase master files (names found on the class path, one per class-path root that has it).
+     */
+    record Migrations(String id, boolean flyway, List<String> masters) {
+        /** The module's tool, or null when it has none or both (a TL0020 case). */
+        Tool tool() {
+            if (flyway && masters.isEmpty()) {
+                return Tool.FLYWAY;
+            }
+            return !flyway && masters.size() == 1 ? Tool.LIQUIBASE : null;
+        }
+
+        boolean any() {
+            return flyway || !masters.isEmpty();
+        }
+
+        /** The master file name, such as {@code db.changelog-master.yaml}. */
+        String master() {
+            String url = masters.get(0);
+            return url.substring(url.lastIndexOf('/') + 1);
+        }
+    }
+
+    private ModuleMigrations() {
+    }
+
+    static String path(String id) {
+        return ROOT + id;
+    }
+
+    static String location(String id) {
+        return "classpath:" + path(id);
+    }
+
+    /** The Flyway history table: hyphens become underscores, which keeps the mapping injective (D-27). */
+    static String table(String id) {
+        return TABLE_PREFIX + id.replace('-', '_');
+    }
+
+    static String changelogTable(String id) {
+        return CHANGELOG_PREFIX + id.replace('-', '_');
+    }
+
+    static String lockTable(String id) {
+        return LOCK_PREFIX + id.replace('-', '_');
+    }
+
+    /** The longest tracking table name of the module's tool. */
+    static int longestTable(Tool tool, String id) {
+        return tool == Tool.FLYWAY ? table(id).length() : lockTable(id).length();
+    }
+
+    /** {@code spring.flyway.enabled=false} switches off the host's own Flyway only (D-32). */
+    static boolean flywayDisabled(Environment environment) {
+        return environment != null && "false".equalsIgnoreCase(environment.getProperty("spring.flyway.enabled"));
+    }
+
+    /** {@code spring.liquibase.enabled=false} switches off the host's own Liquibase only (D-32). */
+    static boolean liquibaseDisabled(Environment environment) {
+        return environment != null && "false".equalsIgnoreCase(environment.getProperty("spring.liquibase.enabled"));
+    }
+
+    /** What the module ships under {@code db/modules/<id>}. */
+    static Migrations migrations(ClassLoader loader, String id) {
+        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver(loader);
+        boolean flyway = false;
+        List<String> masters = new ArrayList<>();
+        try {
+            for (Resource resource : resolver.getResources("classpath*:" + path(id) + "/**")) {
+                String name = resource.getFilename();
+                if (resource.isReadable() && name != null && (name.endsWith(".class")
+                        || FLYWAY_SCRIPT.matcher(name).matches())) {
+                    flyway = true;
+                    break;
+                }
+            }
+            for (String extension : MASTER_EXTENSIONS) {
+                for (Resource resource : resolver.getResources("classpath*:" + path(id) + "/" + MASTER + extension)) {
+                    masters.add(resource.getURL().toString());
+                }
+            }
+        } catch (IOException e) {
+            return new Migrations(id, flyway, masters);
+        }
+        return new Migrations(id, flyway, masters);
+    }
+
+    /** Whether the module has Flyway-named scripts: what a host Flyway location would run. */
+    static boolean hasFlywayScripts(ClassLoader loader, String id) {
+        return migrations(loader, id).flyway();
+    }
+
+    /** The internal modules that ship migrations, by id. */
+    static Map<String, Migrations> withMigrations(Topology topology, ClassLoader loader) {
+        Map<String, Migrations> found = new TreeMap<>();
+        for (String id : new TreeSet<>(topology.internal())) {
+            Migrations migrations = migrations(loader, id);
+            if (migrations.any()) {
+                found.put(id, migrations);
+            }
+        }
+        return found;
+    }
+
+    /**
+     * The modules Topolith runs migrations for: internal, with exactly one tool, and no DataSource of their own (a
+     * module that has one owns its migrations). Sorted by id.
+     */
+    static Map<String, Tool> runners(Topology topology, ClassLoader loader, Set<String> ownDataSources) {
+        Map<String, Tool> runners = new TreeMap<>();
+        withMigrations(topology, loader).forEach((id, migrations) -> {
+            if (migrations.tool() != null && !ownDataSources.contains(id)) {
+                runners.put(id, migrations.tool());
+            }
+        });
+        return runners;
+    }
+
+    /** The modules of {@code runners} that {@code id} requires, directly or through modules that run nothing. */
+    static Set<String> runnersRequiredBy(Topology topology, String id, Set<String> runners) {
+        Set<String> found = new LinkedHashSet<>();
+        Set<String> seen = new TreeSet<>();
+        List<String> pending = new ArrayList<>(new TreeSet<>(topology.graph().requires(id)));
+        while (!pending.isEmpty()) {
+            String next = pending.remove(0);
+            if (!seen.add(next)) {
+                continue;
+            }
+            if (runners.contains(next)) {
+                found.add(next);
+            } else {
+                pending.addAll(new TreeSet<>(topology.graph().requires(next)));
+            }
+        }
+        return found;
+    }
+
+    /** Whether the location root of a host's Flyway is, or lies above, {@code db/modules/<id>}. */
+    static boolean reaches(String rootPath, String id) {
+        String root = rootPath.endsWith("/") ? rootPath.substring(0, rootPath.length() - 1) : rootPath;
+        String module = path(id);
+        return root.isEmpty() || module.equals(root) || module.startsWith(root + "/");
+    }
+}

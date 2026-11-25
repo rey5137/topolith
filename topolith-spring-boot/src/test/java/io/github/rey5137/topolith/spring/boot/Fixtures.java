@@ -22,6 +22,12 @@ final class Fixtures {
     static final String USER_API = BASE + ".user.api";
     static final String PAYMENT = BASE + ".payment";
     static final String OUTSIDE = BASE + ".outside";
+    static final String HOST = BASE + ".host";
+    static final String LEDGER = BASE + ".ledger";
+    static final String BILLING = BASE + ".billing";
+    static final String AUDIT = BASE + ".audit";
+    static final String INVENTORY = BASE + ".inventory";
+    static final String ROGUE = BASE + ".rogue";
     static final String IMPORTS = "META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports";
 
     private Fixtures() {
@@ -32,7 +38,12 @@ final class Fixtures {
         private final List<String> requested = Collections.synchronizedList(new ArrayList<>());
 
         RecordingLoader(Path... roots) {
-            super(urls(roots), Fixtures.class.getClassLoader());
+            this(Fixtures.class.getClassLoader(), roots);
+        }
+
+        /** With a parent that hides classes, such as a {@code FilteredClassLoader}. */
+        RecordingLoader(ClassLoader parent, Path... roots) {
+            super(urls(roots), parent);
         }
 
         @Override
@@ -96,6 +107,13 @@ final class Fixtures {
         Path file = root.resolve(IMPORTS);
         Files.createDirectories(file.getParent());
         Files.writeString(file, "# fixture\n" + String.join("\n", classes) + "\n", StandardCharsets.UTF_8);
+    }
+
+    /** A text file in {@code root}, such as a migration script. */
+    static void resource(Path root, String path, String text) throws IOException {
+        Path file = root.resolve(path);
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, text, StandardCharsets.UTF_8);
     }
 
     static Path dir(Path parent, String name) throws IOException {

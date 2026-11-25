@@ -40,6 +40,7 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-29 | An API declaration on the api package, verified by the module build; see below | External hosts see only the API descriptor, so it must match the implementation | M1.2 architect review; owner |
 | D-30 | Module activation by a non-deferred import selector; see below | Module beans must exist before Boot's conditions run | M1.3 architect pre-read; owner |
 | D-31 | Mode resolution from known descriptors and explicit configuration; see below | Typos and silent activation fail loudly | M1.3 architect pre-read; owner |
+| D-32 | Module persistence; see below | Flyway scans `db/migration` recursively and module beans make Boot's conditions back off | M1.4 architect pre-read; owner |
 
 ### D-13 — Computed restart status (Q-3)
 
@@ -189,6 +190,65 @@ Rejected: inferring the standalone service from the classpath or the artifact na
 ignoring unknown ids. Known limit: an environment variable drops the hyphens of a map key, so a hyphenated module id
 set only by environment variable fails loudly (TL0001 and TL0016).
 
+### D-32 — Module persistence (M1.4)
+
+Internal modules use the host's JPA by default.
+- **Entities.** Topolith declares `persistenceManagedTypes` from the host's entity-scan or auto-configuration packages
+  plus each internal shared-persistence module's `package`, less api packages. It backs off for a host-declared one.
+- **Repositories.** A registrar ordered after Boot's repository auto-configuration registers repositories per internal
+  module, with fully qualified names. It restores Boot's scan of the host's packages when only module registrations
+  made Boot back off.
+- **Migrations.** They live at `classpath:db/modules/<id>`. A module uses Flyway (scripts named by Flyway's rules, or
+  a Java migration in that package) or Liquibase (one master `db.changelog-master.<yaml|yml|xml|json|sql>`), never
+  both. Each internal shared-persistence module gets its own non-default runner: a Flyway run with history
+  table `flyway_schema_history_<id>`, or a Liquibase run with tables `databasechangelog_<id>` and
+  `databasechangeloglock_<id>` (hyphens become underscores; a table name longer than 63 characters is TL0020). Each
+  copies only an allow-list of the host's settings for its tool and not the version-selecting ones: for Flyway the
+  connection, schema, encoding, placeholder, validation, retry and transaction settings, never target, cherry pick,
+  skip, out of order, ignore patterns, callbacks, Java migrations, providers or file naming; for Liquibase the
+  DataSource, schemas, tablespace, contexts, label filter and licence settings, never drop, clear checksums, tag,
+  rollback testing, parameters or the customizer. The settings come from the host's default runner bean, and from
+  `spring.flyway.*` or `spring.liquibase.*` when the host switched its own off. `spring.flyway.enabled=false` and
+  `spring.liquibase.enabled=false` switch off only the host's own runner (owner decision, 2026-11-25): module runners
+  still run on the default DataSource; a module whose tool is not on the class path, or that has no DataSource, is
+  TL0020. Every module runner, of either tool, waits for every host runner (Flyway's, Liquibase's and Boot's SQL-script
+  initializers: `spring.sql.init` schema and data scripts, and the Batch, Quartz and Session schemas) and for the
+  runners of the modules it requires, whichever their tool, then runs by id. Boot runs every Liquibase before every
+  Flyway initializer, so a module run is neither a `SpringLiquibase` nor a `FlywayMigrationInitializer` but a Topolith
+  runner that a `DatabaseInitializerDetector` (after Boot's script initializers, before the beans that need the
+  database) places after all of them, which also makes JPA wait for it. A module's own Flyway needs a
+  `FlywayMigrationInitializer`, or a `Flyway` with `initMethod = "migrate"`; a bare `Flyway` bean is TL0020. When no
+  host runner exists, the module runner uses the host's DataSource: a single default candidate, or exactly one
+  `@Primary`; several without a primary are TL0020. The
+  schema already holds the host's tables, so each Flyway module's history table is baselined at version 0
+  and every module script still runs. Flyway needs `flyway-core`, Liquibase needs `liquibase-core`; a module whose tool's
+  classes are missing is TL0020. A host that has `liquibase-core` but no
+  changelog of its own must give one or set `spring.liquibase.enabled=false`, or Boot's own check stops startup. The
+  host's Flyway locations and Liquibase changelog must not reach a module's files (TL0020): the host's changelog is
+  parsed without a database, and a change set under `db/modules/` or from a module artifact, or the host's master file
+  found twice or in a module artifact, fails startup. A module that contributes a DataSource runs its own migrations.
+- **Pattern A.** A module that contributes an EntityManagerFactory owns its entities and repositories. A module that
+  contributes a DataSource owns its migrations (a Flyway, `FlywayMigrationInitializer` or `SpringLiquibase` of its own,
+  or TL0020). Its persistence beans, `SpringLiquibase` included, must not be default candidates (TL0019) unless
+  the module is the standalone module (the module is then the application).
+- **Host packages.** Host auto-configuration and entity-scan packages must not overlap a module package (TL0018),
+  whatever the modes, so a host that starts in one topology starts in all of them. The standalone module is exempt
+  (owner decision, 2026-11-25): its package may lie under, equal to or above the host's, and Topolith then adds the
+  parts the host's scans do not cover (component import deduplicates, managed-type packages are deduplicated and
+  repository interfaces that already have a definition are skipped); its migrations still run from
+  `db/modules/<id>`. Overlap with any other module still fails.
+
+Rationale: Flyway scans `db/migration` recursively, and Liquibase's `includeAll` does too, so a host with default
+settings would run every module JAR's scripts, `none` modules included; a host clean or `dropFirst` must not wipe
+module tables, and a host that switches off its own tool must not silently drop module migrations; one shared history table breaks independent versioning and switching a module from
+`none` to `internal`; a non-deferred selector lets module beans make Boot's conditions back off. Rejected:
+`AutoConfigurationPackages` or `EntityScanPackages` registration, a `ManagedClassNameFilter` alone, one
+entity-manager factory per module, module locations added to the host's Flyway, a descriptor key for Pattern A, and
+removing leaked repository definitions. This replaces `db/migration/<id>` in R-MODE-04 and RFC 0001 §3.2 and §4.3
+step 5. Known limits: Envers repositories in the host are not restored; a module `JavaMigration` bean joins the host's
+Flyway history; with lazy initialization the TL0021 check forces entity-manager factories to be created. A host
+component scan that covers an internal module registers its beans twice; M3.3 owns that (Q-14).
+
 ## Open questions
 
 | Id | Status | Question |
@@ -204,3 +264,6 @@ set only by environment variable fails loudly (TL0001 and TL0016).
 | Q-11 | Open | Should `@TopolithModule` gain an explicit `provides` attribute for consumer-implemented SPI interfaces and lambda-only contracts, which D-29 rejects? |
 | Q-12 | Open | Should startup fail when a host's API JAR `provides` differs from the module descriptor (M1.5)? A new TL code needs reference/90 first. |
 | Q-13 | Open | Who owns the `META-INF/spring.factories` and `*ManagementContextConfiguration.imports` entries of a non-internal module's JAR (M3.3), which no `AutoConfigurationImportFilter` sees, and the guard for Topolith's auto-configuration being excluded while a module is internal? |
+| Q-14 | Open | Should Topolith handle general bean replacement (a module's default-candidate `JdbcTemplate`, `ObjectMapper`) and a host scan that covers an internal module, which registers its beans twice (M3.3)? |
+| Q-15 | Answered (D-32) | Should Liquibase be supported for module migrations (it has one master changelog with explicit includes)? |
+| Q-16 | Open | Should Topolith run a Pattern A module's migrations on the module's own DataSource? |

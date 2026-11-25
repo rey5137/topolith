@@ -17,16 +17,18 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0003 | An external module has neither or both URL and service id | failure | M1.5 |
 | TL0004 | An internal module's required module is unavailable | failure | M1.3 |
 | TL0005 | More than one provider supplies the same contract | failure | M1.5 |
-| TL0006 | More than one module descriptor declares the same id | failure | M1.1 |
+| TL0006 | Two module descriptors, or two API descriptors, declare the same id | failure | M1.1 |
 | TL0007 | A non-internal module owns a registered bean or auto-configuration | failure | M3.3 |
 | TL0008 | Required module dependencies contain a cycle | failure | M1.1 |
 | TL0009 | Service-id discovery needs a missing Cloud integration | failure | M2.2 |
 | TL0010 | A refreshed mode or URL/service-id wiring change needs a restart | warning | M2.6 |
 | TL0011 | Refreshed endpoint settings are invalid or the client rebuild failed | warning | M2.6 |
 | TL0012 | An internal class references another module's non-API class | failure | M3.3 |
-| TL0013 | A module descriptor is malformed at startup | failure | M1.5 |
+| TL0013 | A module or API descriptor is malformed | failure | M1.5 |
 | TL0014 | Cloud context classes are present without Topolith refresh integration | warning | M2.6 |
 | TL0015 | The remote API-version endpoint is unavailable or inaccessible | warning | M2.4 |
+
+The owning slice names the slice that owns the code's acceptance criterion, not the first slice that raises it.
 
 Diagnostic criteria are AC-MODE-02, AC-MODE-05, AC-MODE-08, AC-DESC-08, AC-VAL-01 through AC-VAL-04,
 AC-ARCH-09, AC-ARCH-11, AC-EXT-06, AC-MODE-13, AC-MODE-18, AC-EXT-22 through AC-EXT-24 and AC-VAL-10 through
@@ -35,7 +37,8 @@ AC-VAL-12.
 ### R-CAT-02 — Exception catalog
 
 `ModuleUnavailableException` represents external transport failure. API-declared exceptions preserve their type
-across HTTP, per R-EXT-04. Implements INV-6.
+across HTTP, per R-EXT-04. `TopolithException` carries `TLnnnn`-coded topology and configuration failures (D-28);
+it is outside INV-6's contract exceptions, and `ModuleUnavailableException` does not extend it. Implements INV-6.
 
 Exception criteria are AC-EXT-09 and AC-EXT-10.
 

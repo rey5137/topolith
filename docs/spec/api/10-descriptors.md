@@ -32,7 +32,10 @@ Implements INV-5 and P-6.
 ### R-DESC-04 — Graph and identity
 
 The core model parses descriptors and resolves required and optional edges. Duplicate module ids fail with TL0006;
-cycles in `requires` fail with TL0008. An absent optional dependency is not an unmet requirement. Implements INV-4.
+cycles in `requires` fail with TL0008. An absent optional dependency is not an unmet requirement. Descriptors follow
+D-27 and failures are `TopolithException`s (D-28). A required edge to a module with no descriptor is allowed: unmet
+requirements are a query, and M1.3 raises TL0004 with mode context. Cycles are checked over every descriptor present,
+whatever the modes. Discovery of descriptors on the classpath is not core's (M1.3). Implements INV-4.
 
 - AC-DESC-07 (M1.1): Parsing preserves module identity, API metadata, required and optional dependency edges.
 - AC-DESC-08 (M1.1): Duplicate ids fail with TL0006, and a required-edge cycle fails with TL0008.

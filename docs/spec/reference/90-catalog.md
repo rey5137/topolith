@@ -30,12 +30,12 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0016 | A mode is declared for a module that is not on the classpath | failure | M1.3 |
 | TL0017 | Module packages nest, or another module's API package lies under a module's package | failure | M1.3 |
 | TL0018 | The host's auto-configuration or entity-scan packages overlap a module's package, except the standalone module's own | failure | M1.4 |
-| TL0019 | An internal module's own DataSource, entity-manager, transaction-manager, Flyway or Liquibase bean is a default candidate and would replace the host's | failure | M1.4 |
+| TL0019 | An internal module's own DataSource, entity-manager, transaction-manager, Flyway, Liquibase or `AbstractJdbcConfiguration` bean is a default candidate and would replace the host's | failure | M1.4 |
 | TL0020 | A module's migrations would not run exactly once: no runner or DataSource for its tool, both tools or several changelogs, a host migration location or changelog reaches them, or a tracking table name is too long | failure | M1.4 |
 | TL0021 | An internal module's entity is managed by no entity-manager factory, or by several | failure | M1.4 |
 | TL0022 | An internal module and its host API descriptor declare different contracts | failure | M1.5 |
 | TL0023 | A host API descriptor's `api-version` major differs from its module's descriptor or remote provider | warning | M1.5 |
-| TL0024 | A Spring Data repository or MyBatis mapper interface in an internal module's or the host's package has no registration. Fix: register it (use Spring Data JPA, or `@Enable<Store>Repositories` or `@MapperScan` on the package), or mark an interface left unregistered on purpose `@NoRepositoryBean` | failure | M1 gate (AC-MODE-30) |
+| TL0024 | A Spring Data repository or MyBatis mapper interface in an internal module's or the host's package has no registration. Fix: register it (use Spring Data JPA or JDBC, or `@Enable<Store>Repositories` or `@MapperScan` on the package), or mark an interface left unregistered on purpose `@NoRepositoryBean`. With multiple Spring Data stores, annotate the aggregate for its store (for JDBC, `@Table`) or extend a store-specific repository interface so strict mode can assign it | failure | M1 gate (AC-MODE-30) |
 | TL0025 | `topolith.standalone` is set while another module with a descriptor is `internal` | failure | M1 gate (AC-MODE-31) |
 
 The owning slice names the slice that owns the code's acceptance criterion, not the first slice that raises it. M1.3

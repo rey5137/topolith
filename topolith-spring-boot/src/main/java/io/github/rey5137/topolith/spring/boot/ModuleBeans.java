@@ -27,6 +27,8 @@ import org.springframework.util.ClassUtils;
  */
 final class ModuleBeans {
     static final String DATA_SOURCE = "javax.sql.DataSource";
+    static final String JDBC_CONFIGURATION =
+            "org.springframework.data.jdbc.repository.config.AbstractJdbcConfiguration";
     static final String ENTITY_MANAGER_FACTORY = "jakarta.persistence.EntityManagerFactory";
     static final String TRANSACTION_MANAGER = "org.springframework.transaction.TransactionManager";
     static final String FLYWAY = "org.flywaydb.core.Flyway";
@@ -43,6 +45,9 @@ final class ModuleBeans {
     static final String MAPPER_FACTORY_BEAN = "org.mybatis.spring.mapper.MapperFactoryBean";
     static final String JPA_REPOSITORY_FACTORY_BEAN =
             "org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean";
+
+    static final String JDBC_REPOSITORY_FACTORY_BEAN =
+            "org.springframework.data.jdbc.repository.support.JdbcRepositoryFactoryBean";
 
     private ModuleBeans() {
     }

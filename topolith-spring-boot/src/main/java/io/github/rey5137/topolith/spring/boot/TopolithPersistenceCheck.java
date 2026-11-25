@@ -43,7 +43,7 @@ import org.springframework.core.env.Environment;
 final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, EnvironmentAware {
     private static final List<String> OWN_TYPES = List.of(ModuleBeans.DATA_SOURCE, ModuleBeans.ENTITY_MANAGER_FACTORY,
             ModuleBeans.TRANSACTION_MANAGER, ModuleBeans.FLYWAY, ModuleBeans.FLYWAY_INITIALIZER,
-            ModuleBeans.LIQUIBASE);
+            ModuleBeans.LIQUIBASE, ModuleBeans.JDBC_CONFIGURATION);
 
     private Environment environment;
 
@@ -190,10 +190,13 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                 if (!owner.isEmpty() && !covered.contains(name)) {
                     found.putIfAbsent(name, new Diagnostic(TopolithCode.TL0024, "the interface " + name + " in "
                             + owner + " is a repository or mapper that no registration covers.",
-                            "0.1 registers JPA repositories for modules: use Spring Data JPA, or have the module "
-                            + "register its own (@Enable<Store>Repositories or @MapperScan on its package) and the "
+                            "0.1 registers JPA and JDBC repositories for modules: use Spring Data JPA or JDBC, "
+                            + "or have the module register its own (@Enable<Store>Repositories or @MapperScan on "
+                            + "its package) and the "
                             + "host declare its own @Enable<Store>Repositories for the host's package. An interface "
-                            + "that is unregistered on purpose: annotate it @NoRepositoryBean."));
+                            + "that is unregistered on purpose: annotate it @NoRepositoryBean. With multiple Spring Data stores, "
+                            + "annotate the aggregate for its store (for JDBC, @Table), or extend a store-specific "
+                            + "repository interface so strict mode can assign it."));
                 }
             });
         });

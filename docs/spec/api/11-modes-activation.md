@@ -57,17 +57,18 @@ are not. External modules' own dependencies are met remotely and are not checked
 
 ### R-MODE-04 — Persistence and migrations
 
-Internal modules use the host's JPA by default. Topolith declares the `persistenceManagedTypes` bean from the host's
-entity-scan or auto-configuration packages plus each internal shared-persistence module's `package`, less api packages,
+Internal modules use the host's JPA and Spring Data JDBC by default. Topolith declares the
+`persistenceManagedTypes` bean from the host's entity-scan or auto-configuration packages plus each internal shared-persistence module's `package`, less api packages,
 and backs off for a host-declared one. A registrar ordered after Boot's repository auto-configuration registers each
-internal module's repositories under fully qualified bean names, and restores Boot's scan of the host's packages when
-only module registrations made Boot back off. Migrations live at `classpath:db/modules/<id>`. Each internal module migrates its own `db/modules/<id>` with Flyway
+internal module's JPA and JDBC repositories under fully qualified bean names, and restores Boot's scan of the host's
+packages when only module registrations made Boot back off. With multiple stores, Spring Data's strict store selection
+applies and an unassigned repository fails with TL0024. JDBC registration requires Boot's JDBC repository infrastructure; when it is unavailable, an uncovered repository fails with TL0024. Migrations live at `classpath:db/modules/<id>`. Each internal module migrates its own `db/modules/<id>` with Flyway
 or Liquibase and its own tracking tables, after the host's migrations (its Flyway, its Liquibase and Boot's SQL-script initializers) and those of the modules
 it requires. The host's
 migration locations and changelog never reach a module's files.
 
-A module that contributes an `EntityManagerFactory` owns its entities and repositories; one that contributes a
-`DataSource` owns its migrations. Such beans, `SpringLiquibase` included, must not be default candidates (`@Bean(defaultCandidate = false)` with
+A module that contributes an `EntityManagerFactory` owns its JPA entities and repositories; one that contributes a
+`DataSource` owns its JDBC repositories and migrations. Such beans, `SpringLiquibase` included, must not be default candidates (`@Bean(defaultCandidate = false)` with
 `@Qualifier`), unless the module is the `topolith.standalone` module. Host auto-configuration and entity-scan packages
 must not overlap a module package, except that the `topolith.standalone` module's own package may (the module is the
 application, and Topolith then adds nothing the host's scans already cover). JPA, Spring Data, Flyway and Liquibase support is guarded by `@ConditionalOnClass`, so a host
@@ -79,7 +80,7 @@ without those libraries starts unchanged. Implements INV-2, INV-4, INV-9, D-7, D
 - AC-MODE-25 (M1.4): Host auto-configuration or entity-scan packages that overlap a module's package fail with TL0018,
   except the standalone module's own, which then registers once.
 - AC-MODE-26 (M1.4): An internal module's default-candidate DataSource, entity-manager factory, transaction manager,
-  Flyway or Liquibase bean fails with TL0019, except in the `topolith.standalone` module.
+  Flyway, Liquibase or `AbstractJdbcConfiguration` bean fails with TL0019, except in the `topolith.standalone` module.
 - AC-MODE-27 (M1.4): A module migration that would not run exactly once fails with TL0020.
 - AC-MODE-28 (M1.4): An internal module's entity managed by no entity-manager factory, or by several, fails with TL0021.
 - AC-MODE-29 (M1.4): A module's migrations run once across topologies: the second run, standalone after composed or
@@ -89,6 +90,17 @@ without those libraries starts unchanged. Implements INV-2, INV-4, INV-9, D-7, D
   with TL0024. A registered one, one of a `none` or `external` module, and a module-less topology do not.
 - AC-MODE-31 (M1 gate, D-37): `topolith.standalone` with another module that has a descriptor and is `internal` fails
   with TL0025; with the others `external` or `none` it starts.
+
+- AC-MODE-32 (M1.6): An internal module's JDBC repository is registered once under its fully qualified name and works
+  against H2; if Boot's JDBC repository infrastructure is unavailable, it remains unregistered and fails with TL0024.
+- AC-MODE-33 (M1.6): A `none` or `external` module leaves no JDBC repository definition and no module class loaded.
+- AC-MODE-34 (M1.6): A host JDBC repository scan that registers a `none` module's repository fails with TL0007.
+- AC-MODE-35 (M1.6): A Pattern A module's own JDBC repositories are not registered again, and the host's JDBC
+  repositories remain registered.
+- AC-MODE-36 (M1.6): A standalone module's JDBC repository is registered once when the host scan overlaps it.
+- AC-MODE-37 (M1.6): An internal module's default-candidate `AbstractJdbcConfiguration` fails with TL0019.
+- AC-MODE-38 (M1.6): With JPA and JDBC present, repositories assignable to each store register with that store;
+  an interface neither store can assign fails with TL0024, and a JDBC factory-bean registration covers its interface.
 
 ### R-MODE-05 — Refresh does not change topology
 

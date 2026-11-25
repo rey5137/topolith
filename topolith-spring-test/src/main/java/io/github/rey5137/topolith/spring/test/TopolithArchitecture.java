@@ -1,5 +1,6 @@
 package io.github.rey5137.topolith.spring.test;
 
+import com.tngtech.archunit.ArchConfiguration;
 import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -12,6 +13,8 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import com.tngtech.archunit.library.freeze.FreezingArchRule;
+import com.tngtech.archunit.library.freeze.TextFileBasedViolationStore;
 import io.github.rey5137.topolith.core.ApiDescriptor;
 import io.github.rey5137.topolith.core.Descriptors;
 import io.github.rey5137.topolith.core.Incubating;
@@ -26,6 +29,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -46,6 +51,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
  */
 @Incubating
 public final class TopolithArchitecture {
+    private static final String STORE = "freeze.store.default.";
     private static final String MODULES = "META-INF/topolith/modules/";
     private static final String APIS = "META-INF/topolith/apis/";
     private static final String CONTRACT = "io.github.rey5137.topolith.contract";
@@ -53,6 +59,8 @@ public final class TopolithArchitecture {
     private static final List<String> PROHIBITED_SUPERTYPES = List.of("org.springframework.data.domain.Slice",
             "java.util.stream.BaseStream", "java.io.InputStream", "org.hibernate.proxy.HibernateProxy",
             "org.hibernate.collection.spi.PersistentCollection", "java.lang.reflect.Proxy");
+    /** Separates the two class names that start a non-API access message; the baseline tooling parses them. */
+    static final String BASELINE_SEPARATOR = " -> ";
     private static final String ENTITY = "jakarta.persistence.Entity";
 
     private TopolithArchitecture() {
@@ -65,20 +73,85 @@ public final class TopolithArchitecture {
 
     /** Verifies the descriptors found on {@code loader}. */
     public static void verify(ClassLoader loader) {
+        verify(loader, false);
+    }
+
+    /**
+     * Like {@link #verify()}, but each rule is frozen (R-ARCH-03): violations in the ArchUnit store pass, new ones
+     * fail. With no store at all nothing is frozen and this behaves as {@link #verify()}. See
+     * {@link #verifyFrozen(Collection, Collection, JavaClasses)}.
+     */
+    public static void verifyFrozen() {
+        verify(contextLoader(), true);
+    }
+
+    /** Like {@link #verifyFrozen()}, finding the descriptors and classes through {@code loader}. */
+    public static void verifyFrozen(ClassLoader loader) {
+        verify(loader, true);
+    }
+
+    /**
+     * Like {@link #verify(Collection, Collection, JavaClasses)}, with every rule frozen in the ArchUnit store
+     * ({@code freeze.store.default.path}, default {@code archunit_store}). With no {@code stored.rules} there, nothing
+     * is frozen and the rules run unfrozen, so a clean codebase passes and a violation fails. If the store exists but
+     * lacks one of the Topolith rules (first use next to an adopter's own frozen rules, or a changed rule text), this
+     * fails naming the rule instead of recording its violations; set
+     * {@code freeze.store.default.allowStoreCreation=true} for one run to record them. A custom
+     * {@code freeze.store} class is used as configured, without that check.
+     */
+    public static void verifyFrozen(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis,
+            JavaClasses classes) {
+        ArchConfiguration config = ArchConfiguration.get();
+        boolean optedIn = Boolean.parseBoolean(config.getPropertyOrDefault(STORE + "allowStoreCreation", "false"))
+                || Boolean.parseBoolean(config.getPropertyOrDefault("freeze.refreeze", "false"));
+        boolean custom = config.containsProperty("freeze.store");
+        Path stored = Path.of(config.getPropertyOrDefault(STORE + "path", "archunit_store"))
+                .resolve("stored.rules");
+        boolean exists = Files.exists(stored);
+        boolean allowCreation = Boolean.parseBoolean(config.getPropertyOrDefault(STORE + "allowStoreCreation",
+                "false"));
+        if (!custom && !exists && !allowCreation) {
+            verify(modules, apis, classes);
+            return;
+        }
+        if (!custom && exists && !optedIn) {
+            TextFileBasedViolationStore store = new TextFileBasedViolationStore();
+            store.initialize(config.getSubProperties("freeze.store"));
+            for (ArchRule rule : rules(modules, apis)) {
+                if (!store.contains(rule)) {
+                    throw new AssertionError("The violation store " + stored + " has no entry for the rule '"
+                            + rule.getDescription() + "'. Set " + STORE + "allowStoreCreation=true for one run to "
+                            + "record its current violations as the baseline.");
+                }
+            }
+        }
+        frozenRules(modules, apis).forEach(rule -> rule.check(classes));
+    }
+
+    private static void verify(ClassLoader loader, boolean frozen) {
         List<ModuleDescriptor> modules = readModules(loader);
         List<ApiDescriptor> apis = readApis(loader);
-        if (modules.isEmpty()) {
-            throw new AssertionError("No module descriptor under " + MODULES + " was found on the class path, so "
-                    + "nothing can be checked. Check that the annotation processor ran and that the JARs carry "
-                    + "directory entries.");
+        requireModules(modules);
+        JavaClasses classes = importPackages(modules, apis, loader);
+        if (frozen) {
+            verifyFrozen(modules, apis, classes);
+        } else {
+            verify(modules, apis, classes);
         }
-        verify(modules, apis, importPackages(modules, apis, loader));
     }
 
     /** Verifies the given descriptors against {@code classes}; no classpath resource is read. */
     public static void verify(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis,
             JavaClasses classes) {
         rules(modules, apis).forEach(rule -> rule.check(classes));
+    }
+
+    static void requireModules(Collection<ModuleDescriptor> modules) {
+        if (modules.isEmpty()) {
+            throw new AssertionError("No module descriptor under " + MODULES + " was found on the class path, so "
+                    + "nothing can be checked. Check that the annotation processor ran and that the JARs carry "
+                    + "directory entries.");
+        }
     }
 
     /** Imports the classes of every module and api package of the descriptors from the class path. */
@@ -103,7 +176,7 @@ public final class TopolithArchitecture {
 
     /**
      * The rules, in order: non-API access, undeclared dependency, {@code requires} cycles, descriptor consistency,
-     * contract types. M3.2 wraps each one in its own frozen baseline.
+     * contract types. {@link #frozenRules} wraps each one in its own frozen baseline.
      */
     public static List<ArchRule> rules(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis) {
         Ownership ownership = new Ownership(modules, apis);
@@ -123,13 +196,28 @@ public final class TopolithArchitecture {
                         .as("contract methods expose only value types (AC-ARCH-05)").allowEmptyShould(true));
     }
 
+    /**
+     * The {@link #rules} each wrapped in ArchUnit's {@code FreezingArchRule} with its own store entry, keyed by the
+     * rule text. The store is ArchUnit's: {@code freeze.store.default.path} in {@code archunit.properties}. A new
+     * violation of a stored rule fails and is not recorded, and a violation that is gone is dropped
+     * ({@code allowStoreUpdate} defaults to true). Recording a first baseline is the explicit opt-in
+     * {@code freeze.store.default.allowStoreCreation=true} for one run; {@code freeze.refreeze=true} only re-records
+     * an existing store. Prefer {@link #verifyFrozen(Collection, Collection, JavaClasses)}, which also handles a
+     * missing store and a store lacking these rules. The descriptor rules (cycles, consistency) report from
+     * {@code finish} and freeze like the others, by message text.
+     */
+    public static List<ArchRule> frozenRules(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis) {
+        return rules(modules, apis).stream().map(rule -> (ArchRule) FreezingArchRule.freeze(rule)).toList();
+    }
+
     private static ArchCondition<JavaClass> nonApiAccess(Ownership ownership) {
         return crossModule("not depend on a non-API class of another module", ownership, (owner, target, dep) -> {
             if (ownership.isApi(dep.getTargetClass().getPackageName())) {
                 return null;
             }
-            return "module '" + owner + "' depends on '" + dep.getTargetClass().getName() + "' of module '" + target
-                    + "', which is not in an API package: " + dep.getDescription();
+            return dep.getOriginClass().getName() + BASELINE_SEPARATOR + dep.getTargetClass().getName()
+                    + ": module '" + owner + "' depends on '" + dep.getTargetClass().getName() + "' of module '"
+                    + target + "', which is not in an API package: " + dep.getDescription();
         });
     }
 
@@ -162,7 +250,7 @@ public final class TopolithArchitecture {
                 for (Dependency dependency : type.getDirectDependenciesFromSelf()) {
                     String targetPackage = dependency.getTargetClass().getPackageName();
                     String target = isShared(targetPackage) ? null : ownership.owner(targetPackage);
-                    if (target == null || target.equals(owner)) {
+                    if (target == null || target.equals(owner) || dependency.getTargetClass().isArray()) {
                         continue;
                     }
                     String message = check.violation(owner, target, dependency);
@@ -281,16 +369,16 @@ public final class TopolithArchitecture {
         return null;
     }
 
-    private static ClassLoader contextLoader() {
+    static ClassLoader contextLoader() {
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
         return loader != null ? loader : TopolithArchitecture.class.getClassLoader();
     }
 
-    private static List<ModuleDescriptor> readModules(ClassLoader loader) {
+    static List<ModuleDescriptor> readModules(ClassLoader loader) {
         return Descriptors.parseModules(read(loader, MODULES));
     }
 
-    private static List<ApiDescriptor> readApis(ClassLoader loader) {
+    static List<ApiDescriptor> readApis(ClassLoader loader) {
         return Descriptors.parseApis(read(loader, APIS));
     }
 

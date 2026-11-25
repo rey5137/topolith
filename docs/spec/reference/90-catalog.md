@@ -37,6 +37,7 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0023 | A host API descriptor's `api-version` major differs from its module's descriptor or remote provider | warning | M1.5 |
 | TL0024 | A Spring Data repository or MyBatis mapper interface in an internal module's or the host's package has no registration. Fix: register it (use Spring Data JPA or JDBC, or `@Enable<Store>Repositories` or `@MapperScan` on the package), or mark an interface left unregistered on purpose `@NoRepositoryBean`. With multiple Spring Data stores, annotate the aggregate for its store (for JDBC, `@Table`) or extend a store-specific repository interface so strict mode can assign it | failure | M1 gate (AC-MODE-30) |
 | TL0025 | `topolith.standalone` is set while another module with a descriptor is `internal` | failure | M1 gate (AC-MODE-31) |
+| TL0026 | An external module has no usable client: spring-web or Boot's HTTP service-client auto-configuration (`spring-boot-starter-restclient`) is missing, a provided contract cannot be loaded, or it carries no `@HttpExchange` | failure | M2.1 (AC-EXT-26..28) |
 
 The owning slice names the slice that owns the code's acceptance criterion, not the first slice that raises it. M1.3
 raises TL0007 early, only when a host's component scan covers a non-internal module's package (AC-MODE-24); M1.4 also

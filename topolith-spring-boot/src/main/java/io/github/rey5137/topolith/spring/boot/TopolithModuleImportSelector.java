@@ -28,6 +28,7 @@ import org.springframework.context.annotation.ClassPathScanningCandidateComponen
 import org.springframework.context.annotation.ScannedGenericBeanDefinition;
 import org.springframework.core.env.Environment;
 import org.springframework.core.io.ResourceLoader;
+import org.springframework.util.ClassUtils;
 import org.springframework.core.type.AnnotationMetadata;
 import org.springframework.core.type.filter.TypeFilter;
 
@@ -48,10 +49,15 @@ final class TopolithModuleImportSelector
     @Override
     public String[] selectImports(AnnotationMetadata importingClassMetadata) {
         Topology topology = TopologyResolver.resolve(beanFactory, environment, classLoader).topology();
+        ExternalClientProperties.register(environment, topology);
         checkHostScan(topology);
         List<String> imports = new ArrayList<>();
         for (String id : topology.internal()) {
             imports.addAll(scan(topology, id));
+        }
+        if (!topology.idsOf(Mode.EXTERNAL).isEmpty() && ClassUtils.isPresent(
+                "org.springframework.web.service.registry.AbstractHttpServiceRegistrar", classLoader)) {
+            imports.add("io.github.rey5137.topolith.spring.boot.ExternalHttpServicesRegistrar");
         }
         return imports.toArray(String[]::new);
     }

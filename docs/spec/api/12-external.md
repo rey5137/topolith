@@ -23,6 +23,13 @@ with a `DiscoveryClient`; if the integration is absent, fail with TL0009 and nam
 Implements INV-4, INV-8 and P-3.
 
 - AC-EXT-04 (M2.1): A fixed URL configures the corresponding service group's base URL and handles a contract call.
+- AC-EXT-25 (M2.1): Differing explicitly configured Topolith and Boot client properties fail with TL0003 naming
+  both keys; an equal URL (case-insensitive scheme and host, trailing `/` ignored) is not a conflict, and an
+  unparsable value fails with TL0003 naming the key and value.
+- AC-EXT-26 (M2.1): An external module with no HTTP client stack (spring-web, or Boot's service-client
+  auto-configuration) fails with TL0026 naming `spring-boot-starter-restclient`.
+- AC-EXT-27 (M2.1): A provided contract that cannot be loaded fails with TL0026 naming the module and contract.
+- AC-EXT-28 (M2.1): A provided contract with no `@HttpExchange` (type or method) fails with TL0026 (D-41).
 - The endpoint-selection startup criterion is AC-VAL-01.
 - AC-EXT-05 (M2.2): A service id resolves through LoadBalancer and a configured `DiscoveryClient`.
 - AC-EXT-06 (M2.2): Service-id configuration without the required Cloud integration fails with TL0009 and a
@@ -31,7 +38,8 @@ Implements INV-4, INV-8 and P-3.
 ### R-EXT-03 — Timeouts
 
 Every group has connect and read timeouts, defaulting to two and five seconds respectively; each group can override
-both. Implements INV-4 and P-2.
+both. Set `topolith.modules.<id>.remote.connect-timeout` and `remote.read-timeout`, or the corresponding Boot
+group properties; Boot-only values, including the global `spring.http.clients.*` timeouts, replace the defaults. Implements INV-4, P-2 and D-40.
 
 - AC-EXT-07 (M2.1): An unconfigured client uses a two-second connect timeout and a five-second read timeout.
 - AC-EXT-08 (M2.1): Group timeout overrides apply to that group's client.

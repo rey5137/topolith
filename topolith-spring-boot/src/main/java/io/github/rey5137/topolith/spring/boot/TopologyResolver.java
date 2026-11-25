@@ -2,9 +2,17 @@ package io.github.rey5137.topolith.spring.boot;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 import java.math.BigInteger;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.time.Duration;
+import java.util.Locale;
+import java.util.function.Function;
 
 import io.github.rey5137.topolith.core.ApiDescriptor;
 import io.github.rey5137.topolith.core.Diagnostic;
@@ -39,7 +47,7 @@ final class TopologyResolver {
 
     /** The topology with the discovery facts the filter and the persistence checks need. */
     record Resolution(Topology topology, Map<String, String> importOwners, Map<String, String> rootOwners,
-            List<String> versionWarnings) {
+            List<String> versionWarnings, Map<String, Set<String>> contracts) {
     }
 
     private TopologyResolver() {
@@ -98,7 +106,19 @@ final class TopologyResolver {
                         + "' must set exactly one of " + prefix + "url and " + prefix + "service-id.",
                         "Set exactly one of " + prefix + "url and " + prefix + "service-id."));
             }
+            conflict(env, binder, prefix + "url", "spring.http.serviceclient." + id + ".base-url", String.class,
+                    TopologyResolver::normalizeUrl, problems);
+            for (String key : List.of("connect-timeout", "read-timeout")) {
+                conflict(env, binder, prefix + key, "spring.http.serviceclient." + id + "." + key, Duration.class,
+                        value -> value, problems);
+            }
         });
+        Map<String, Set<String>> contracts = new TreeMap<>();
+        found.apis().forEach(api -> contracts.computeIfAbsent(api.id(), key -> new LinkedHashSet<>())
+                .addAll(api.provides()));
+        found.modules().forEach(module -> contracts.computeIfAbsent(module.id(), key -> new LinkedHashSet<>())
+                .addAll(module.provides()));
+        ExternalContracts.check(topology.idsOf(Mode.EXTERNAL), contracts, classLoader, problems);
         if (!problems.isEmpty()) {
             throw new TopolithException(problems);
         }
@@ -115,7 +135,45 @@ final class TopologyResolver {
                 }
             }
         }
-        return new Resolution(topology, found.importOwners(), found.rootOwners(), List.copyOf(warnings));
+        return new Resolution(topology, found.importOwners(), found.rootOwners(), List.copyOf(warnings), contracts);
+    }
+
+    private static <T> void conflict(Environment env, Binder binder, String source, String target, Class<T> type,
+            Function<T, Object> normal, List<Diagnostic> problems) {
+        T left;
+        T right;
+        String key = source;
+        try {
+            left = binder.bind(source, type).orElse(null);
+            key = target;
+            right = binder.bind(target, type).orElse(null);
+        } catch (BindException e) {
+            problems.add(new Diagnostic(TopolithCode.TL0003, "invalid value '" + env.getProperty(key) + "' for " + key
+                    + ".", "Set " + key + " to a valid " + (type == Duration.class ? "duration, such as 5s" : "value")
+                    + "."));
+            return;
+        }
+        if (left != null && right != null && !normal.apply(left).equals(normal.apply(right))) {
+            problems.add(new Diagnostic(TopolithCode.TL0003, "conflicting properties " + source + " and " + target
+                    + ".", "Set both properties to the same value or remove one."));
+        }
+    }
+
+    /** A URL with a lower-case scheme and host and no trailing slash, so equal endpoints compare equal. */
+    static Object normalizeUrl(String url) {
+        String trimmed = url.trim();
+        try {
+            URI uri = new URI(trimmed);
+            if (uri.getScheme() == null || uri.getHost() == null) {
+                return trimmed;
+            }
+            String path = uri.getRawPath() == null ? "" : uri.getRawPath().replaceAll("/+$", "");
+            return uri.getScheme().toLowerCase(Locale.ROOT) + "://" + uri.getHost().toLowerCase(Locale.ROOT)
+                    + (uri.getPort() >= 0 ? ":" + uri.getPort() : "") + path
+                    + (uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery());
+        } catch (URISyntaxException e) {
+            return trimmed;
+        }
     }
 
     private static BigInteger major(String version) {

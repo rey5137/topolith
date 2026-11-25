@@ -1,0 +1,43 @@
+package io.github.rey5137.topolith.core;
+
+/** The 0.1 diagnostic codes of the catalog (reference/90-catalog.md), each with its severity. */
+@Incubating
+public enum TopolithCode {
+    TL0001(Severity.FAILURE),
+    TL0002(Severity.FAILURE),
+    TL0003(Severity.FAILURE),
+    TL0004(Severity.FAILURE),
+    TL0005(Severity.FAILURE),
+    TL0006(Severity.FAILURE),
+    TL0007(Severity.FAILURE),
+    TL0008(Severity.FAILURE),
+    TL0009(Severity.FAILURE),
+    TL0010(Severity.WARNING),
+    TL0011(Severity.WARNING),
+    TL0012(Severity.FAILURE),
+    TL0013(Severity.FAILURE),
+    TL0014(Severity.WARNING),
+    TL0015(Severity.WARNING);
+
+    /** Whether a diagnostic fails startup or is only reported. */
+    @Incubating
+    public enum Severity {
+        FAILURE,
+        WARNING
+    }
+
+    private final Severity severity;
+
+    TopolithCode(Severity severity) {
+        this.severity = severity;
+    }
+
+    /** The stable code, such as {@code TL0006}. */
+    public String id() {
+        return name();
+    }
+
+    public Severity severity() {
+        return severity;
+    }
+}

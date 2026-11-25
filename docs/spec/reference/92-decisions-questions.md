@@ -35,6 +35,8 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-23 | Warn when Cloud refresh integration is missing | Avoid silently ignored refreshes | Review 4; owner |
 | D-24 | Warn on unreachable, non-2xx or unreadable versions; keep readiness up | Availability | Owner |
 | D-25 | `<referencing class FQN> -> <referenced class FQN>`; see below | Runtime baseline | Owner |
+| D-27 | Strict descriptor format with `format-version`; see below | Typos and drift fail loudly; relaxing later stays compatible | M1.1 architect review; owner |
+| D-28 | One unchecked `TopolithException` carrying coded diagnostics; see below | One failure-analyzer path; exact codes in tests; warnings are values | M1.1 architect review; owner |
 
 ### D-13 — Computed restart status (Q-3)
 
@@ -107,6 +109,24 @@ so CI checks out full history; the audit fails on a shallow clone or unreadable 
 commits has no committed slices. A subject that names a slice before it is built fails that slice's untested criteria,
 so planning commits name slices outside parentheses. A squash merge whose subject names no slice leaves its criteria
 pending.
+
+### D-27 — Descriptor format (M1.1)
+
+Descriptors are UTF-8 `.properties` files. Duplicate keys, unknown keys, a missing required key or a malformed value
+fail with TL0013. Lists are comma-separated, with entries trimmed, blank entries dropped and duplicates rejected. A
+missing or empty `requires`, `optional` or `provides` means none. Required in both kinds: `format-version=1`, `id`
+(must match the file name, `[a-z][a-z0-9]*(-[a-z0-9]+)*`, at most 63 characters), a non-empty `api-packages`, and an
+`api-version` with a numeric major. `api-packages` lists exact packages, not their subpackages. `provides` entries lie
+in an api package. A module may not list itself, or list one id in both `requires` and `optional`. An API descriptor
+has no `requires` or `optional` key. The core parser raises TL0013; M1.5 makes startup fail with it. Starting strict
+is deliberate: relaxing a rule before 1.0 stays compatible, tightening one breaks hand-written descriptors.
+
+### D-28 — Core failure reporting (M1.1)
+
+`topolith-core` throws the unchecked `TopolithException`, carrying one or more diagnostics (each with a `TopolithCode`
+enum value, a description and an action). Validation reports every problem in a stage (parse, then identity, then
+graph) and stops after the first stage that fails. Warnings are returned as values and never thrown, and core never
+logs. `ModuleUnavailableException` does not extend `TopolithException`.
 
 ## Open questions
 

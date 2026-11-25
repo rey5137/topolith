@@ -44,6 +44,10 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-33 | Internal contract agreement; see below | API and implementation contracts must agree | Owner |
 | D-34 | Version mismatch warning; see below | Warn at readiness without changing availability | Owner |
 | D-35 | Running topology endpoint; see below | Expose sorted running modes through optional actuator | Owner |
+| D-36 | Unregistered repositories fail startup (TL0024); see below | TL0018 turns off Boot's default scan of module packages, and only JPA is compensated | M1 gate architect review; owner |
+| D-37 | A standalone host hosts only its own module (TL0025); see below | `topolith.standalone` exempts a module from TL0001, TL0018 and TL0019 and must not let a composed host use that | M1 gate architect review; owner |
+| D-38 | `TopolithCode.defaultSeverity()`; see below | The code fixes only a default severity; the effective one is resolved later (P-2, R-VAL-04) | M1 gate architect review; owner |
+| D-39 | The processor writes the lowest format-version that expresses the descriptor; see below | A format bump reaches consumers only when a provider uses a new feature | M1 gate architect review; owner |
 
 ### D-13 — Computed restart status (Q-3)
 
@@ -186,7 +190,8 @@ A module is known when a module descriptor or an API descriptor carries its id. 
 A mode for an id that is not on the classpath is TL0016, or TL0002 when it is `internal`; `internal` for a module known
 only through its API descriptor is TL0002. `topolith.standalone=<id>` defaults only that module to `internal` and needs
 its module descriptor (TL0002). Topology is resolved once, in the order parse (TL0013), identity (TL0006, TL0017), graph
-(TL0008), modes (TL0001, TL0016, TL0002), requirements (TL0004), and cached as the `topolithTopology` bean. TL0004
+(TL0008), modes (TL0001, TL0016, TL0002, TL0025), requirements (TL0004), providers (TL0005, TL0022), endpoints
+(TL0003, checked by the host after `Topology.resolve`), and cached as the `topolithTopology` bean. TL0004
 checks internal modules against `internal` plus `external` modules (D-21).
 
 Rejected: inferring the standalone service from the classpath or the artifact name, binding straight to an enum, and
@@ -251,12 +256,17 @@ removing leaked repository definitions. This replaces `db/migration/<id>` in R-M
 step 5. Known limits: Envers repositories in the host are not restored; a module `JavaMigration` bean joins the host's
 Flyway history; with lazy initialization the TL0021 check forces entity-manager factories to be created. A host
 component scan that covers an internal module registers its beans twice; M3.3 owns that (Q-14).
+TL0019 is checked only for an internal module, so a host can start with the module `none` or `external` and fail once
+it is `internal`: check a module in internal mode (TL0018 holds in every topology; TL0019 does not).
 
 ### D-33 — Internal contract agreement (M1.5)
 
 An internal module whose host API descriptor and module descriptor declare different `provides` sets fails with
 TL0022. The diagnostic identifies the module and contracts unique to each side and directs the host to align its API
 and implementation JAR versions. This answers Q-12.
+Like TL0019 (D-32), it is checked only for an internal module, so a host can start with the module `none` or
+`external` and fail once it is `internal`: check a module in internal mode before relying on another topology. It is not
+a parity bug for the mode-combination matrix; TL0023 is the external analogue at M2.4.
 
 ### D-34 — Version mismatch warning (M1.5)
 
@@ -267,6 +277,45 @@ internal module descriptor or remote provider. It neither fails startup nor chan
 
 The optional, read-only `topolith` actuator endpoint reads the cached topology and returns a `modules` object keyed
 by module id, sorted by id, each containing a `mode` field. It is conditional on actuator and endpoint availability.
+
+### D-36 — Unregistered repositories fail startup (M1 gate)
+
+A Spring Data repository interface or MyBatis `@Mapper` interface in an internal module's package, or in the host's
+auto-configuration packages of a topology with at least one module, that no repository or mapper registration covers
+fails startup with TL0024. Registrations are covered however their scanner recorded the interface: constructor argument 0,
+a generic constructor argument, or the `factoryBeanObjectType` attribute, as a `Class` or a name. The JPA registration
+Topolith makes per module covers JPA repositories. Spring Data enters strict mode with several stores on the class path and
+silently skips an interface it cannot assign, and a module's own `@Enable<Store>Repositories` makes Boot's host scan back off, so
+without the check an interface can go missing without a message (INV-4). Detection is by class-file metadata and marker
+names (`Repository`, `@RepositoryDefinition`, `@NoRepositoryBean`, `@Mapper`); no store library is a dependency, and a host
+without Spring Data or MyBatis is unchanged. Interfaces of `none` and `external` modules, and the api packages outside an
+internal module, are not scanned, even where the host's auto-configuration package contains them (the standalone module
+with mode `none`). An interface is attributed to the most specific package that holds it, so a module under the host's
+package is labelled with the module. Member interfaces are skipped, as Spring Data's `considerNestedRepositories=false`
+does, and `@Profile` and `@Conditional` on an interface are judged against the application's environment. A hand-built
+`MapperFactoryBean` or repository factory bean covers its interface through the `mapperInterface` or
+`repositoryInterface` property. There is no setting to silence the check: an interface that is unregistered on purpose
+(excluded through `excludeFilters`, or built by hand) is marked with Spring Data's own `@NoRepositoryBean`, which the
+scan already skips.
+
+### D-37 — A standalone host hosts only its own module (M1 gate)
+
+When `topolith.standalone=<id>` is set, every other module with a module descriptor must be `external` or `none`; an
+`internal` one fails with TL0025 naming both ids. Rejected: inferring the service from the main class or artifact name
+(D-31), requiring the application class inside the module's package, and a TL0019-only guard (leaves the TL0018
+exemption open).
+
+### D-38 — Default severity per code (M1 gate)
+
+`TopolithCode.defaultSeverity()` is the severity a code has unless a later layer overrides it (P-2 parity relaxed to
+`warn`, R-VAL-04 version mismatch warning). `Diagnostic` carries the effective severity. Renamed from `severity()`
+before 0.1, because a rename after release breaks callers.
+
+### D-39 — Lowest sufficient format-version (M1 gate)
+
+The processor writes the lowest `format-version` that can express the descriptor. In 0.1 that is always 1. A format bump
+then reaches a consumer only when a provider uses a feature of the new format, so consumers need not upgrade before
+providers (D-27).
 
 ## Open questions
 
@@ -286,3 +335,7 @@ by module id, sorted by id, each containing a `mode` field. It is conditional on
 | Q-14 | Open | Should Topolith handle general bean replacement (a module's default-candidate `JdbcTemplate`, `ObjectMapper`) and a host scan that covers an internal module, which registers its beans twice (M3.3)? |
 | Q-15 | Answered (D-32) | Should Liquibase be supported for module migrations (it has one master changelog with explicit includes)? |
 | Q-16 | Open | Should Topolith run a Pattern A module's migrations on the module's own DataSource? |
+| Q-17 | Open | Should Topolith register non-JPA stores per module? Spring Data JDBC is planned as slice M1.6 before m1-verified; R2DBC, MongoDB and MyBatis stay at TL0024 for 0.1. |
+| Q-18 | Open | A host's `mybatis.mapper-locations` (for example `classpath*:mapper/**/*.xml`) can load a `none` module's mappers (INV-2); should it be a check like TL0020's host-location check? |
+| Q-19 | Open | A module with no contracts (listener-only, jobs) still has to declare an api package (`@TopolithModule.api()` is required and `api-packages` is non-empty); should that be relaxed (compatible later, D-27)? |
+| Q-20 | Open (M3.3) | `Topology` is an injectable public bean, so business code could branch on a module's mode (INV-1, INV-6); should M3.3 add an ArchUnit rule forbidding module code from depending on `topolith-core` (only the annotation package allowed)? |

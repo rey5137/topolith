@@ -28,7 +28,7 @@ public class TopolithException extends RuntimeException {
             throw new IllegalArgumentException("a TopolithException needs at least one diagnostic");
         }
         for (Diagnostic diagnostic : diagnostics) {
-            if (diagnostic.code().severity() != TopolithCode.Severity.FAILURE) {
+            if (diagnostic.severity() != TopolithCode.Severity.FAILURE) {
                 throw new IllegalArgumentException("warning " + diagnostic.code().id() + " is returned, not thrown");
             }
         }

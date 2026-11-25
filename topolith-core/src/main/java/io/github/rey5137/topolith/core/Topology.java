@@ -15,7 +15,8 @@ import java.util.TreeSet;
 /**
  * The resolved topology of a host: every known module with its mode (D-31). A module is known when a module descriptor
  * or an API descriptor carries its id. Resolution reports each stage completely and stops after the first stage that
- * fails (D-28): identity (TL0006, TL0017), graph (TL0008), modes (TL0001, TL0016, TL0002), requirements (TL0004).
+ * fails (D-28): identity (TL0006, TL0017), graph (TL0008), modes (TL0001, TL0016, TL0002, TL0025), requirements
+ * (TL0004), providers (TL0005, TL0022). The host then checks external endpoints (TL0003).
  */
 @Incubating
 public final class Topology {
@@ -143,6 +144,12 @@ public final class Topology {
             }
             if (mode == Mode.INTERNAL && graph.module(id).isEmpty() && !id.equals(standalone)) {
                 found.add(missingImplementation(id));
+            }
+            if (mode == Mode.INTERNAL && standalone != null && !id.equals(standalone) && graph.module(id).isPresent()) {
+                found.add(new Diagnostic(TopolithCode.TL0025, "topolith.standalone is '" + standalone
+                        + "' but module '" + id + "' is also internal: a standalone service hosts only its own module.",
+                        "Remove topolith.standalone and declare every mode, or set topolith.modules." + id
+                                + ".mode to external or none."));
             }
             modes.put(id, mode);
         }

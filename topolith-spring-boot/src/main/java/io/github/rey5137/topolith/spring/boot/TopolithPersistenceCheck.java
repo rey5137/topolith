@@ -1,9 +1,12 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -23,7 +26,12 @@ import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.support.AbstractBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
+import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.context.EnvironmentAware;
+import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
+import org.springframework.core.io.DefaultResourceLoader;
+import org.springframework.core.type.filter.AnnotationTypeFilter;
+import org.springframework.core.type.filter.AssignableTypeFilter;
 import org.springframework.core.env.Environment;
 
 /**
@@ -57,6 +65,7 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
         }
         found.addAll(defaultCandidates(factory, loader, resolution));
         found.addAll(repositories(factory, loader, resolution));
+        found.addAll(unregistered(factory, loader, resolution));
         found.addAll(migrations(factory, loader, resolution));
         if (!found.isEmpty()) {
             throw new TopolithException(found);
@@ -131,6 +140,111 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                 "Narrow the host's repository scan to its own package, or set topolith.modules." + owner
                 + ".mode to internal.")));
         return found;
+    }
+
+    /**
+     * TL0024: a Spring Data repository or MyBatis mapper interface, in an internal module's package or in the host's
+     * auto-configuration packages, that no repository or mapper registration covers (D-36). Topolith registers JPA
+     * repositories per module only, and TL0018 keeps the host's scan away from module packages, so any other store
+     * would lose the interface silently. Found by class-file metadata, without loading the interfaces; a store whose
+     * library is not on the class path has no interfaces to find.
+     */
+    private List<Diagnostic> unregistered(ConfigurableListableBeanFactory factory, ClassLoader loader,
+            Resolution resolution) {
+        Topology topology = resolution.topology();
+        // package -> label; an empty label marks a package the check leaves alone (a non-internal module, an api)
+        Map<String, String> where = new TreeMap<>();
+        if (AutoConfigurationPackages.has(factory)) {
+            AutoConfigurationPackages.get(factory).forEach(hostPackage -> where.put(hostPackage, "the host"));
+        }
+        topology.modulePackages().forEach((id, modulePackage) -> {
+            if (modulePackage != null) {
+                where.put(modulePackage, topology.internal().contains(id) ? "module '" + id + "'" : "");
+            }
+        });
+        topology.apiPackages().forEach(apiPackage -> {
+            if (topology.internal().stream().noneMatch(id -> covers(topology.modulePackages().get(id), apiPackage))) {
+                where.putIfAbsent(apiPackage, "");
+            }
+        });
+        where.remove("");
+        ClassPathScanningCandidateComponentProvider scanner = interfaceScanner(loader, environment);
+        if (scanner == null || where.values().stream().allMatch(String::isEmpty)) {
+            return List.of();
+        }
+        Set<String> covered = new LinkedHashSet<>(ModuleBeans.registeredInterfaceNames(factory, loader,
+                ModuleBeans.REPOSITORY_FACTORY_BEAN));
+        covered.addAll(ModuleBeans.registeredInterfaceNames(factory, loader, ModuleBeans.MAPPER_FACTORY_BEAN));
+        Map<String, Diagnostic> found = new TreeMap<>();
+        where.forEach((scanned, label) -> {
+            if (label.isEmpty()) {
+                return;
+            }
+            scanner.findCandidateComponents(scanned).forEach(candidate -> {
+                String name = candidate.getBeanClassName();
+                // the most specific package that holds the interface decides its label, or leaves it alone
+                String owner = name == null ? "" : where.entrySet().stream()
+                        .filter(entry -> name.startsWith(entry.getKey() + "."))
+                        .max(java.util.Comparator.comparingInt(entry -> entry.getKey().length()))
+                        .map(Map.Entry::getValue).orElse("");
+                if (!owner.isEmpty() && !covered.contains(name)) {
+                    found.putIfAbsent(name, new Diagnostic(TopolithCode.TL0024, "the interface " + name + " in "
+                            + owner + " is a repository or mapper that no registration covers.",
+                            "0.1 registers JPA repositories for modules: use Spring Data JPA, or have the module "
+                            + "register its own (@Enable<Store>Repositories or @MapperScan on its package) and the "
+                            + "host declare its own @Enable<Store>Repositories for the host's package. An interface "
+                            + "that is unregistered on purpose: annotate it @NoRepositoryBean."));
+                }
+            });
+        });
+        return new ArrayList<>(found.values());
+    }
+
+    private static boolean covers(String modulePackage, String candidate) {
+        return modulePackage != null && !modulePackage.isEmpty()
+                && (candidate.equals(modulePackage) || candidate.startsWith(modulePackage + "."));
+    }
+
+    /**
+     * A scanner for Spring Data repository and MyBatis mapper interfaces, or null when neither library is present. It
+     * judges {@code @Profile} and {@code @Conditional} against the application's environment, and skips member
+     * interfaces, which Spring Data's repository scan skips by default, except {@code @Mapper} ones, which MyBatis's
+     * scanner registers.
+     */
+    private static ClassPathScanningCandidateComponentProvider interfaceScanner(ClassLoader loader,
+            Environment environment) {
+        ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false,
+                environment) {
+            @Override
+            protected boolean isCandidateComponent(AnnotatedBeanDefinition definition) {
+                return definition.getMetadata().isInterface()
+                        && (definition.getMetadata().getEnclosingClassName() == null
+                                || definition.getMetadata().hasAnnotation(ModuleBeans.MAPPER));
+            }
+        };
+        scanner.setResourceLoader(new DefaultResourceLoader(loader));
+        boolean any = false;
+        Class<?> repository = ModuleBeans.load(ModuleBeans.REPOSITORY, loader);
+        if (repository != null) {
+            any = true;
+            scanner.addIncludeFilter(new AssignableTypeFilter(repository));
+            annotation(ModuleBeans.REPOSITORY_DEFINITION, loader).ifPresent(type ->
+                    scanner.addIncludeFilter(new AnnotationTypeFilter(type, false)));
+            annotation(ModuleBeans.NO_REPOSITORY_BEAN, loader).ifPresent(type ->
+                    scanner.addExcludeFilter(new AnnotationTypeFilter(type, false)));
+        }
+        Optional<Class<? extends Annotation>> mapper = annotation(ModuleBeans.MAPPER, loader);
+        if (mapper.isPresent()) {
+            any = true;
+            scanner.addIncludeFilter(new AnnotationTypeFilter(mapper.get(), false));
+        }
+        return any ? scanner : null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Optional<Class<? extends Annotation>> annotation(String name, ClassLoader loader) {
+        Class<?> type = ModuleBeans.load(name, loader);
+        return type != null && type.isAnnotation() ? Optional.of((Class<? extends Annotation>) type) : Optional.empty();
     }
 
     /**

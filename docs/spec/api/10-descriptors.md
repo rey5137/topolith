@@ -31,7 +31,8 @@ annotation types, and in exactly an api package (a member interface is written w
 invisible. A concrete class outside the package that implements such an interface is a warning. The `api-version` is
 the required processor option `-Atopolith.apiVersion=${project.version}`; its absence or a blank value is a compile
 error citing TL0013 at the annotation, and descriptor problems the core builder reports (D-27) are compile errors,
-never exceptions from the processor. Output is sorted and has no timestamp. When the api packages are not in the
+never exceptions from the processor. The processor writes the lowest `format-version` that can express the
+descriptor (D-39). Output is sorted and has no timestamp. When the api packages are not in the
 compilation the build reads the API declaration, the `@TopolithModule` in the package-info class of an api package on
 the classpath (a JAR or a class directory), and fails if there is none or its `id` or `api` differ from the module's. It
 recomputes the API's `provides` from the classpath types of the api packages with the API declaration's rule and fails

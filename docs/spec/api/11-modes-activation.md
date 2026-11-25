@@ -84,6 +84,11 @@ without those libraries starts unchanged. Implements INV-2, INV-4, INV-9, D-7, D
 - AC-MODE-28 (M1.4): An internal module's entity managed by no entity-manager factory, or by several, fails with TL0021.
 - AC-MODE-29 (M1.4): A module's migrations run once across topologies: the second run, standalone after composed or
   composed after standalone, finds nothing pending.
+- AC-MODE-30 (M1 gate, D-36): In a topology with at least one module, a Spring Data repository or MyBatis mapper
+  interface in an internal module's package or the host's auto-configuration packages that no registration covers fails
+  with TL0024. A registered one, one of a `none` or `external` module, and a module-less topology do not.
+- AC-MODE-31 (M1 gate, D-37): `topolith.standalone` with another module that has a descriptor and is `internal` fails
+  with TL0025; with the others `external` or `none` it starts.
 
 ### R-MODE-05 — Refresh does not change topology
 

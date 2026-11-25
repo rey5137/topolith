@@ -46,10 +46,17 @@ final class TopologyResolver {
     record ModeOnly(String mode) {
     }
 
+    record MappingSettings(RemoteMapping remote) {
+    }
+
+    record RemoteMapping(Map<String, String> httpInterface) {
+    }
+
     /** The topology with the discovery facts the filter and the persistence checks need. */
     record Resolution(Topology topology, Map<String, String> importOwners, Map<String, String> rootOwners,
             List<String> versionWarnings, Map<String, Set<String>> contracts, Set<String> exposed,
-            Map<String, String> apiVersions, Map<String, String> hostApiVersions) {
+            Map<String, String> apiVersions, Map<String, String> hostApiVersions,
+            Map<String, Map<String, String>> httpInterfaces) {
     }
 
     private TopologyResolver() {
@@ -131,7 +138,8 @@ final class TopologyResolver {
         found.modules().forEach(module -> contracts.computeIfAbsent(module.id(), key -> new LinkedHashSet<>())
                 .addAll(module.provides()));
         ExternalContracts.checkDiscovery(discovered, classLoader, problems);
-        ExternalContracts.check(topology.idsOf(Mode.EXTERNAL), contracts, classLoader, problems);
+        Map<String, Map<String, String>> mappings = httpInterfaces(binder, topology, contracts, problems);
+        ExternalContracts.check(topology.idsOf(Mode.EXTERNAL), contracts, mappings, classLoader, problems);
         Map<String, Set<String>> apiPackages = new TreeMap<>();
         found.apis().forEach(api -> apiPackages.computeIfAbsent(api.id(), key -> new TreeSet<>())
                 .addAll(api.apiPackages()));
@@ -161,7 +169,72 @@ final class TopologyResolver {
         Map<String, String> hostVersions = new TreeMap<>();
         found.apis().forEach(api -> hostVersions.put(api.id(), api.apiVersion()));
         return new Resolution(topology, found.importOwners(), found.rootOwners(), List.copyOf(warnings), contracts,
-                Set.copyOf(exposed), Map.copyOf(versions), Map.copyOf(hostVersions));
+                Set.copyOf(exposed), Map.copyOf(versions), Map.copyOf(hostVersions), mappings);
+    }
+
+    private static Map<String, Map<String, String>> httpInterfaces(Binder binder, Topology topology,
+            Map<String, Set<String>> contracts, List<Diagnostic> problems) {
+        Map<String, Map<String, String>> result = new TreeMap<>();
+        try {
+            binder.bind(MODES, Bindable.mapOf(String.class, MappingSettings.class)).ifBound(modules ->
+                    modules.forEach((id, settings) -> {
+                        if (settings.remote() == null || settings.remote().httpInterface() == null) {
+                            return;
+                        }
+                        settings.remote().httpInterface().forEach((contract, type) -> {
+                            String property = MODES + "." + id + ".remote.http-interface." + contract;
+                            String reason = null;
+                            if (!topology.known().contains(id)) {
+                                reason = "module '" + id + "' is unknown, not external";
+                            } else if (topology.mode(id) != Mode.EXTERNAL) {
+                                reason = "module '" + id + "' has mode " + topology.mode(id).id() + ", not external";
+                            } else if (!validClassName(contract)) {
+                                reason = "malformed contract key '" + contract + "'";
+                            } else if (!contracts.getOrDefault(id, Set.of()).contains(contract)) {
+                                reason = "contract '" + contract + "' is not in provides: "
+                                        + contracts.getOrDefault(id, Set.of());
+                                if (contract.equals(contract.toLowerCase(Locale.ROOT))) {
+                                    reason += "; environment variables cannot preserve case-sensitive mapping keys";
+                                }
+                            }
+                            if (reason != null) {
+                                problems.add(new Diagnostic(TopolithCode.TL0003, "invalid mapping " + property
+                                        + ": " + reason + ".", "Map a provided contract of an external module."));
+                            } else {
+                                result.computeIfAbsent(id, key -> new TreeMap<>()).put(contract, type);
+                            }
+                        });
+                    }));
+        } catch (BindException e) {
+            BindException deepest = e;
+            for (Throwable cause = e.getCause(); cause != null; cause = cause.getCause()) {
+                if (cause instanceof BindException bind) {
+                    deepest = bind;
+                }
+            }
+            String name = deepest.getName() == null ? MODES : deepest.getName().toString();
+            problems.add(new Diagnostic(TopolithCode.TL0003, "invalid mapping property '" + name + "'.",
+                    "Set topolith.modules.<id>.remote.http-interface.<contract FQN>=<interface FQN>."));
+        }
+        return result;
+    }
+
+    private static boolean validClassName(String name) {
+        String[] parts = name.split("\\.", -1);
+        if (parts.length < 2) {
+            return false;
+        }
+        for (String part : parts) {
+            if (part.isEmpty() || !Character.isJavaIdentifierStart(part.charAt(0))) {
+                return false;
+            }
+            for (int i = 1; i < part.length(); i++) {
+                if (!Character.isJavaIdentifierPart(part.charAt(i))) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /** The modules with {@code expose.enabled=true} (D-44); TL0003 if one is not internal or not a boolean. */

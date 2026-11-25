@@ -30,6 +30,10 @@ public class TopolithAutoConfigurationFilter
         boolean[] keep = new boolean[autoConfigurationClasses.length];
         for (int i = 0; i < keep.length; i++) {
             String name = autoConfigurationClasses[i];
+            if (name == null) {
+                keep[i] = true;
+                continue;
+            }
             String owner = topology.ownerOfClass(name).orElse(resolution.importOwners().get(name));
             keep[i] = owner == null || topology.mode(owner) == Mode.INTERNAL;
         }

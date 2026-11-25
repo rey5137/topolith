@@ -18,7 +18,7 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0004 | An internal module's required module is unavailable | failure | M1.3 |
 | TL0005 | More than one provider supplies the same contract | failure | M1.5 |
 | TL0006 | Two module descriptors, or two API descriptors, declare the same id | failure | M1.1 |
-| TL0007 | A non-internal module owns a registered bean or auto-configuration | failure | M3.3 |
+| TL0007 | A non-internal module owns a registered bean, auto-configuration, entity or repository | failure | M3.3 |
 | TL0008 | Required module dependencies contain a cycle | failure | M1.1 |
 | TL0009 | Service-id discovery needs a missing Cloud integration | failure | M2.2 |
 | TL0010 | A refreshed mode or URL/service-id wiring change needs a restart | warning | M2.6 |
@@ -29,13 +29,18 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0015 | The remote API-version endpoint is unavailable or inaccessible | warning | M2.4 |
 | TL0016 | A mode is declared for a module that is not on the classpath | failure | M1.3 |
 | TL0017 | Module packages nest, or another module's API package lies under a module's package | failure | M1.3 |
+| TL0018 | The host's auto-configuration or entity-scan packages overlap a module's package, except the standalone module's own | failure | M1.4 |
+| TL0019 | An internal module's own DataSource, entity-manager, transaction-manager, Flyway or Liquibase bean is a default candidate and would replace the host's | failure | M1.4 |
+| TL0020 | A module's migrations would not run exactly once: no runner or DataSource for its tool, both tools or several changelogs, a host migration location or changelog reaches them, or a tracking table name is too long | failure | M1.4 |
+| TL0021 | An internal module's entity is managed by no entity-manager factory, or by several | failure | M1.4 |
 
 The owning slice names the slice that owns the code's acceptance criterion, not the first slice that raises it. M1.3
-raises TL0007 early, only when a host's component scan covers a non-internal module's package (AC-MODE-24); M3.3
-generalises the check. A known module is one with a module or API descriptor. TL0002 also covers an `internal` mode for
+raises TL0007 early, only when a host's component scan covers a non-internal module's package (AC-MODE-24); M1.4 also
+raises it for a non-internal module's entity or repository that a host registers (AC-MODE-11); M3.3 generalises the
+check. A host migration location or changelog that reaches a non-internal module's scripts is TL0020 in every mode (AC-MODE-27). A known module is one with a module or API descriptor. TL0002 also covers an `internal` mode for
 an id with no module descriptor.
 
-Diagnostic criteria are AC-MODE-02, AC-MODE-05, AC-MODE-08, AC-MODE-21 through AC-MODE-24, AC-DESC-08,
+Diagnostic criteria are AC-MODE-02, AC-MODE-05, AC-MODE-08, AC-MODE-21 through AC-MODE-24, AC-MODE-11, AC-MODE-25 through AC-MODE-28, AC-DESC-08,
 AC-DESC-10, AC-VAL-01 through AC-VAL-04, AC-ARCH-09, AC-ARCH-11, AC-EXT-06, AC-MODE-13, AC-MODE-18, AC-EXT-22 through
 AC-EXT-24 and AC-VAL-10 through AC-VAL-12.
 

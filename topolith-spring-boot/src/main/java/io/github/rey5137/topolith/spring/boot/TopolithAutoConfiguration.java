@@ -2,6 +2,7 @@ package io.github.rey5137.topolith.spring.boot;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureOrder;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.Ordered;
 
@@ -13,4 +14,10 @@ import org.springframework.core.Ordered;
 @AutoConfigureOrder(Ordered.HIGHEST_PRECEDENCE)
 @Import(TopolithModuleImportSelector.class)
 public class TopolithAutoConfiguration {
+
+    /** The persistence checks that need no persistence library (D-32). */
+    @Bean
+    static TopolithPersistenceCheck topolithPersistenceCheck() {
+        return new TopolithPersistenceCheck();
+    }
 }

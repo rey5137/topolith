@@ -57,12 +57,33 @@ are not. External modules' own dependencies are met remotely and are not checked
 
 ### R-MODE-04 — Persistence and migrations
 
-Use filtered `PersistenceManagedTypes`, per-module repository registration and `db/migration/<id>` locations.
-Module-owned DataSource and entity-manager configuration remains usable. Implements INV-2 and D-7.
+Internal modules use the host's JPA by default. Topolith declares the `persistenceManagedTypes` bean from the host's
+entity-scan or auto-configuration packages plus each internal shared-persistence module's `package`, less api packages,
+and backs off for a host-declared one. A registrar ordered after Boot's repository auto-configuration registers each
+internal module's repositories under fully qualified bean names, and restores Boot's scan of the host's packages when
+only module registrations made Boot back off. Migrations live at `classpath:db/modules/<id>`. Each internal module migrates its own `db/modules/<id>` with Flyway
+or Liquibase and its own tracking tables, after the host's migrations (its Flyway, its Liquibase and Boot's SQL-script initializers) and those of the modules
+it requires. The host's
+migration locations and changelog never reach a module's files.
+
+A module that contributes an `EntityManagerFactory` owns its entities and repositories; one that contributes a
+`DataSource` owns its migrations. Such beans, `SpringLiquibase` included, must not be default candidates (`@Bean(defaultCandidate = false)` with
+`@Qualifier`), unless the module is the `topolith.standalone` module. Host auto-configuration and entity-scan packages
+must not overlap a module package, except that the `topolith.standalone` module's own package may (the module is the
+application, and Topolith then adds nothing the host's scans already cover). JPA, Spring Data, Flyway and Liquibase support is guarded by `@ConditionalOnClass`, so a host
+without those libraries starts unchanged. Implements INV-2, INV-4, INV-9, D-7, D-30 and D-32.
 
 - AC-MODE-10 (M1.4): Internal modules register only their own managed entities, repositories and migration locations.
 - AC-MODE-11 (M1.4): A non-internal module leaves no entity, repository, migration or table, even with its JAR present.
 - AC-MODE-12 (M1.4): An internal module's own DataSource and entity-manager configuration works.
+- AC-MODE-25 (M1.4): Host auto-configuration or entity-scan packages that overlap a module's package fail with TL0018,
+  except the standalone module's own, which then registers once.
+- AC-MODE-26 (M1.4): An internal module's default-candidate DataSource, entity-manager factory, transaction manager,
+  Flyway or Liquibase bean fails with TL0019, except in the `topolith.standalone` module.
+- AC-MODE-27 (M1.4): A module migration that would not run exactly once fails with TL0020.
+- AC-MODE-28 (M1.4): An internal module's entity managed by no entity-manager factory, or by several, fails with TL0021.
+- AC-MODE-29 (M1.4): A module's migrations run once across topologies: the second run, standalone after composed or
+  composed after standalone, finds nothing pending.
 
 ### R-MODE-05 — Refresh does not change topology
 

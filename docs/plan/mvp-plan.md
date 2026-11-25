@@ -43,8 +43,8 @@ mechanism (D-7), since both are public contracts.
 
 M1.3 uses an import selector (D-30) and `AutoConfigurationImportFilter`. M1.5 tests startup `TLnnnn` failures with
 `ApplicationContextRunner` and covers its `api/13` and milestone-exit ACs.
-M1.4 uses filtered `PersistenceManagedTypes`, per-module repositories and `db/migration/<id>` locations, while
-preserving module-owned persistence configuration and preventing `none` contributions.
+M1.4 uses filtered `PersistenceManagedTypes`, per-module repositories and `db/modules/<id>` migrations (Flyway or Liquibase)
+with per-module tracking tables (D-32), while preserving module-owned persistence configuration and preventing `none` contributions.
 
 ## 3. M2 — External mode
 

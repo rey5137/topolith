@@ -1,0 +1,213 @@
+package io.github.rey5137.topolith.spring.boot;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Optional;
+import java.util.TreeMap;
+import java.util.TreeSet;
+
+import io.github.rey5137.topolith.spring.boot.TopologyResolver.Resolution;
+
+import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.BeanFactoryUtils;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.support.AbstractBeanDefinition;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.beans.factory.config.ConstructorArgumentValues.ValueHolder;
+import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
+import org.springframework.util.ClassUtils;
+
+/**
+ * Which module a bean definition came from, and which beans of a type a module contributed (D-32). Types are given by
+ * name and loaded only when present, so nothing here depends on an optional library. Shared by every persistence check.
+ */
+final class ModuleBeans {
+    static final String DATA_SOURCE = "javax.sql.DataSource";
+    static final String ENTITY_MANAGER_FACTORY = "jakarta.persistence.EntityManagerFactory";
+    static final String TRANSACTION_MANAGER = "org.springframework.transaction.TransactionManager";
+    static final String FLYWAY = "org.flywaydb.core.Flyway";
+    static final String LIQUIBASE = "liquibase.integration.spring.SpringLiquibase";
+    static final String FLYWAY_INITIALIZER = "org.springframework.boot.flyway.autoconfigure.FlywayMigrationInitializer";
+    /** The factory bean of any Spring Data store. */
+    static final String REPOSITORY_FACTORY_BEAN =
+            "org.springframework.data.repository.core.support.RepositoryFactoryBeanSupport";
+    static final String JPA_REPOSITORY_FACTORY_BEAN =
+            "org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean";
+
+    private ModuleBeans() {
+    }
+
+    /** The module that owns the definition: its factory method's declaring class, otherwise its bean class. */
+    static Optional<String> owner(BeanDefinition definition, Resolution resolution) {
+        String className = null;
+        if (definition instanceof AnnotatedBeanDefinition annotated && annotated.getFactoryMethodMetadata() != null) {
+            className = annotated.getFactoryMethodMetadata().getDeclaringClassName();
+        }
+        if (className == null) {
+            className = definition.getBeanClassName();
+        }
+        return ownerOfClass(className, resolution);
+    }
+
+    /** The module that owns the class: by package, otherwise by the imports file that lists it. */
+    static Optional<String> ownerOfClass(String className, Resolution resolution) {
+        if (className == null) {
+            return Optional.empty();
+        }
+        Optional<String> owner = resolution.topology().ownerOfClass(className);
+        return owner.isPresent() ? owner : Optional.ofNullable(resolution.importOwners().get(className));
+    }
+
+    static Class<?> load(String className, ClassLoader loader) {
+        try {
+            return ClassUtils.forName(className, loader);
+        } catch (ClassNotFoundException | LinkageError e) {
+            return null;
+        }
+    }
+
+    /** The bean names of the type (by name; none when the class is absent) with the module that contributed each. */
+    static Map<String, String> ownedBy(BeanFactory beanFactory, ClassLoader loader, Resolution resolution,
+            String typeName) {
+        Map<String, String> owned = new TreeMap<>();
+        Class<?> type = load(typeName, loader);
+        if (type == null || !(beanFactory instanceof ConfigurableListableBeanFactory factory)) {
+            return owned;
+        }
+        for (String factoryName : factory.getBeanNamesForType(type, true, false)) {
+            String name = BeanFactoryUtils.transformedBeanName(factoryName);
+            if (factory.containsBeanDefinition(name)) {
+                owner(factory.getBeanDefinition(name), resolution).ifPresent(id -> owned.put(name, id));
+            }
+        }
+        return owned;
+    }
+
+    /** The ids of the modules that contributed at least one bean of the type, sorted. */
+    static List<String> contributors(BeanFactory beanFactory, ClassLoader loader, Resolution resolution,
+            String typeName) {
+        return new ArrayList<>(new TreeSet<>(ownedBy(beanFactory, loader, resolution, typeName).values()));
+    }
+
+    /**
+     * The default-candidate beans of the type that no module contributed and Topolith did not register itself: the
+     * host's own, sorted by name.
+     */
+    static List<String> hostBeans(BeanFactory beanFactory, ClassLoader loader, Resolution resolution,
+            String typeName) {
+        Map<String, String> owned = ownedBy(beanFactory, loader, resolution, typeName);
+        List<String> names = new ArrayList<>();
+        for (String name : defaultCandidates(beanFactory, loader, typeName)) {
+            if (!owned.containsKey(name) && !ModuleMigrations.isModuleRunner(name)) {
+                names.add(name);
+            }
+        }
+        return names;
+    }
+
+    /**
+     * Every runner of the host's own migrations, which a module's runner must wait for: the host's Flyway initializers
+     * and Flyway beans and its Liquibase beans. A host clean or {@code dropFirst} then runs before any module.
+     */
+    static List<String> hostRunners(BeanFactory beanFactory, ClassLoader loader, Resolution resolution) {
+        List<String> names = new ArrayList<>();
+        for (String type : List.of(FLYWAY_INITIALIZER, FLYWAY, LIQUIBASE)) {
+            names.addAll(hostBeans(beanFactory, loader, resolution, type));
+        }
+        return names;
+    }
+
+    /**
+     * Why the fallback connection of a module runner is not a single DataSource: "none", or "several" when more than
+     * one default candidate exists and not exactly one of them is primary; null when {@code getBean(DataSource.class)}
+     * resolves.
+     */
+    static String dataSourceProblem(BeanFactory beanFactory, ClassLoader loader) {
+        List<String> names = new ArrayList<>();
+        for (String name : defaultCandidates(beanFactory, loader, DATA_SOURCE)) {
+            if (!ModuleMigrations.isModuleRunner(name)) {
+                names.add(name);
+            }
+        }
+        if (names.size() <= 1) {
+            return names.isEmpty() ? "none" : null;
+        }
+        long primary = names.stream().filter(name -> beanFactory instanceof ConfigurableListableBeanFactory factory
+                && factory.getBeanDefinition(name).isPrimary()).count();
+        return primary == 1 ? null : "several";
+    }
+
+    /**
+     * The ids of the modules that contribute a bean that runs their Flyway scripts: a
+     * {@code FlywayMigrationInitializer}, or a {@code Flyway} whose init method is {@code migrate}. A bare
+     * {@code Flyway} bean migrates nothing.
+     */
+    static Set<String> flywayRunners(BeanFactory beanFactory, ClassLoader loader, Resolution resolution) {
+        Set<String> ids = new TreeSet<>(contributors(beanFactory, loader, resolution, FLYWAY_INITIALIZER));
+        if (beanFactory instanceof ConfigurableListableBeanFactory factory) {
+            ownedBy(beanFactory, loader, resolution, FLYWAY).forEach((name, id) -> {
+                if ("migrate".equals(factory.getBeanDefinition(name).getInitMethodName())) {
+                    ids.add(id);
+                }
+            });
+        }
+        return ids;
+    }
+
+    /** The names of the default-candidate bean definitions of the type, whoever contributed them, sorted. */
+    static List<String> defaultCandidates(BeanFactory beanFactory, ClassLoader loader, String typeName) {
+        List<String> names = new ArrayList<>();
+        Class<?> type = load(typeName, loader);
+        if (type == null || !(beanFactory instanceof ConfigurableListableBeanFactory factory)) {
+            return names;
+        }
+        for (String name : new TreeSet<>(List.of(factory.getBeanNamesForType(type, true, false)))) {
+            if (factory.containsBeanDefinition(name)
+                    && (!(factory.getBeanDefinition(name) instanceof AbstractBeanDefinition definition)
+                    || definition.isDefaultCandidate())) {
+                names.add(name);
+            }
+        }
+        return names;
+    }
+
+    /**
+     * The repository interface of each repository factory bean definition (any store) with the module that owns it,
+     * by interface name.
+     */
+    static Map<String, String> repositoryInterfaces(BeanFactory beanFactory, ClassLoader loader,
+            Resolution resolution, String factoryBeanType) {
+        Map<String, String> interfaces = new TreeMap<>();
+        for (String interfaceName : repositoryInterfaceNames(beanFactory, loader, factoryBeanType)) {
+            interfaces.put(interfaceName, ownerOfClass(interfaceName, resolution).orElse(""));
+        }
+        return interfaces;
+    }
+
+    /** The repository interface names of the definitions of a repository factory bean type: constructor argument 0. */
+    static Set<String> repositoryInterfaceNames(BeanFactory beanFactory, ClassLoader loader,
+            String factoryBeanType) {
+        Set<String> interfaces = new TreeSet<>();
+        Class<?> type = load(factoryBeanType, loader);
+        if (type == null || !(beanFactory instanceof ConfigurableListableBeanFactory factory)) {
+            return interfaces;
+        }
+        for (String factoryName : factory.getBeanNamesForType(type, true, false)) {
+            String name = BeanFactoryUtils.transformedBeanName(factoryName);
+            if (!factory.containsBeanDefinition(name)) {
+                continue;
+            }
+            ValueHolder argument = factory.getBeanDefinition(name).getConstructorArgumentValues()
+                    .getArgumentValue(0, null);
+            Object value = argument == null ? null : argument.getValue();
+            String interfaceName = value instanceof Class<?> clazz ? clazz.getName()
+                    : value == null ? null : value.toString();
+            if (interfaceName != null) {
+                interfaces.add(interfaceName);
+            }
+        }
+        return interfaces;
+    }
+}

@@ -1,5 +1,6 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -42,10 +43,14 @@ final class ExternalClientProperties {
         }
     }
 
-    /** The mapped keys for every external module; M2.6 (D-12) recomputes it on refresh. */
     static Map<String, Object> properties(Environment environment, Topology topology) {
+        return properties(environment, topology.idsOf(Mode.EXTERNAL));
+    }
+
+    /** The mapped keys for the given external modules; a refresh recomputes one module's (D-50). */
+    static Map<String, Object> properties(Environment environment, Collection<String> ids) {
         Map<String, Object> values = new LinkedHashMap<>();
-        for (String id : topology.idsOf(Mode.EXTERNAL)) {
+        for (String id : ids) {
             String target = "spring.http.serviceclient." + id + ".";
             String source = TopologyResolver.MODES + "." + id + ".remote.";
             String url = environment.getProperty(source + "url");

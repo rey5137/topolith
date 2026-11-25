@@ -13,7 +13,7 @@ import io.github.rey5137.topolith.core.Topology;
 class TopolithEndpointConfiguration {
     @Bean
     @ConditionalOnAvailableEndpoint
-    TopolithEndpoint topolithEndpoint(Topology topolithTopology) {
-        return new TopolithEndpoint(topolithTopology);
+    TopolithEndpoint topolithEndpoint(Topology topolithTopology, TopolithRefreshStatus status) {
+        return new TopolithEndpoint(topolithTopology, status);
     }
 }

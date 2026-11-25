@@ -119,7 +119,7 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-http-client</artifactId>
-            <scope>test</scope>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>

@@ -92,10 +92,13 @@ final class TopologyResolver {
                 + id + "'.", "Set topolith.modules." + id + ".mode to internal, external or none.");
     }
 
-    private static Resolution compute(Environment environment, ClassLoader loader) {
-        Environment env = environment == null ? new StandardEnvironment() : environment;
-        ClassLoader classLoader = loader == null ? Thread.currentThread().getContextClassLoader() : loader;
-        DescriptorDiscovery.Found found = DescriptorDiscovery.discover(classLoader);
+    /** The topology the current environment asks for; refresh compares it with the running one (D-13). */
+    static Topology requested(Environment environment, ClassLoader loader) {
+        DescriptorDiscovery.Found found = DescriptorDiscovery.discover(loader);
+        return Topology.resolve(found.modules(), found.apis(), declaredModes(environment), standalone(environment));
+    }
+
+    private static Map<String, String> declaredModes(Environment env) {
         Map<String, String> declared = new HashMap<>();
         try {
             Binder.get(env).bind(MODES, Bindable.mapOf(String.class, ModeOnly.class))
@@ -103,32 +106,20 @@ final class TopologyResolver {
         } catch (BindException e) {
             throw new TopolithException(notAMode(e));
         }
-        Topology topology = Topology.resolve(found.modules(), found.apis(), declared, standalone(env));
+        return declared;
+    }
+
+    private static Resolution compute(Environment environment, ClassLoader loader) {
+        Environment env = environment == null ? new StandardEnvironment() : environment;
+        ClassLoader classLoader = loader == null ? Thread.currentThread().getContextClassLoader() : loader;
+        DescriptorDiscovery.Found found = DescriptorDiscovery.discover(classLoader);
+        Topology topology = Topology.resolve(found.modules(), found.apis(), declaredModes(env), standalone(env));
         List<Diagnostic> problems = new ArrayList<>();
         Binder binder = Binder.get(env);
         Set<String> discovered = new TreeSet<>();
         topology.idsOf(Mode.EXTERNAL).forEach(id -> {
-            String prefix = MODES + "." + id + ".remote.";
-            String url = binder.bind(prefix + "url", String.class).orElse("");
-            String service = binder.bind(prefix + "service-id", String.class).orElse("");
-            if (url.isBlank() == service.isBlank()) {
-                problems.add(new Diagnostic(TopolithCode.TL0003, "external module '" + id
-                        + "' must set exactly one of " + prefix + "url and " + prefix + "service-id.",
-                        "Set exactly one of " + prefix + "url and " + prefix + "service-id."));
-            }
-            if (!service.isBlank() && url.isBlank()) {
+            if (checkRemote(env, binder, id, problems)) {
                 discovered.add(id);
-                conflict(env, binder, prefix + "service-id", "spring.http.serviceclient." + id + ".base-url",
-                        String.class, value -> normalizeUrl(ExternalClientProperties.serviceUrl(value) + "/" + id),
-                        TopologyResolver::normalizeUrl, problems);
-            } else if (!url.isBlank()) {
-                conflict(env, binder, prefix + "url", "spring.http.serviceclient." + id + ".base-url", String.class,
-                        value -> normalizeUrl(ExternalClientProperties.baseUrl(value, id)),
-                        TopologyResolver::normalizeUrl, problems);
-            }
-            for (String key : List.of("connect-timeout", "read-timeout")) {
-                conflict(env, binder, prefix + key, "spring.http.serviceclient." + id + "." + key, Duration.class,
-                        value -> value, problems);
             }
         });
         Set<String> exposed = exposed(env, binder, topology, problems);
@@ -170,6 +161,37 @@ final class TopologyResolver {
         found.apis().forEach(api -> hostVersions.put(api.id(), api.apiVersion()));
         return new Resolution(topology, found.importOwners(), found.rootOwners(), List.copyOf(warnings), contracts,
                 Set.copyOf(exposed), Map.copyOf(versions), Map.copyOf(hostVersions), mappings);
+    }
+
+    /**
+     * The endpoint rules of external module {@code id} (TL0003); true when it uses a service id. Startup and refresh
+     * (D-50) share it.
+     */
+    static boolean checkRemote(Environment env, Binder binder, String id, List<Diagnostic> problems) {
+        String prefix = MODES + "." + id + ".remote.";
+        String url = binder.bind(prefix + "url", String.class).orElse("");
+        String service = binder.bind(prefix + "service-id", String.class).orElse("");
+        if (url.isBlank() == service.isBlank()) {
+            problems.add(new Diagnostic(TopolithCode.TL0003, "external module '" + id
+                    + "' must set exactly one of " + prefix + "url and " + prefix + "service-id.",
+                    "Set exactly one of " + prefix + "url and " + prefix + "service-id."));
+        }
+        boolean discovered = false;
+        if (!service.isBlank() && url.isBlank()) {
+            discovered = true;
+            conflict(env, binder, prefix + "service-id", "spring.http.serviceclient." + id + ".base-url",
+                    String.class, value -> normalizeUrl(ExternalClientProperties.serviceUrl(value) + "/" + id),
+                    TopologyResolver::normalizeUrl, problems);
+        } else if (!url.isBlank()) {
+            conflict(env, binder, prefix + "url", "spring.http.serviceclient." + id + ".base-url", String.class,
+                    value -> normalizeUrl(ExternalClientProperties.baseUrl(value, id)),
+                    TopologyResolver::normalizeUrl, problems);
+        }
+        for (String key : List.of("connect-timeout", "read-timeout")) {
+            conflict(env, binder, prefix + key, "spring.http.serviceclient." + id + "." + key, Duration.class,
+                    value -> value, problems);
+        }
+        return discovered;
     }
 
     private static Map<String, Map<String, String>> httpInterfaces(Binder binder, Topology topology,

@@ -158,7 +158,7 @@ class ExternalClientTest {
     }
 
     @Test
-    void ac_ext_07_and_08_timeouts_default_and_override() throws Exception {
+    void ac_ext_08_and_ac_ext_07_timeouts_override_and_default() throws Exception {
         String external = "topolith.modules.remote.mode=external";
         String url = "topolith.modules.remote.remote.url=http://localhost:1";
         run(context -> {
@@ -188,13 +188,17 @@ class ExternalClientTest {
     }
 
     private void assertTl0026(AssertableApplicationContext context, String... expected) {
+        assertFailure(TopolithCode.TL0026, context, expected);
+    }
+
+    private void assertFailure(TopolithCode code, AssertableApplicationContext context, String... expected) {
         Throwable cause = context.getStartupFailure();
         while (cause != null && !(cause instanceof TopolithException)) {
             cause = cause.getCause();
         }
         assertNotNull(cause);
         TopolithException failure = (TopolithException) cause;
-        assertEquals(List.of(TopolithCode.TL0026), failure.diagnostics().stream().map(d -> d.code()).distinct()
+        assertEquals(List.of(code), failure.diagnostics().stream().map(d -> d.code()).distinct()
                 .toList());
         for (String text : expected) {
             assertTrue(failure.getMessage().contains(text), failure.getMessage());
@@ -210,6 +214,18 @@ class ExternalClientTest {
         run(new FilteredClassLoader("org.springframework.boot.restclient"),
                 context -> assertTl0026(context, "remote", "auto-configuration", "spring-boot-starter-restclient"),
                 external);
+    }
+
+    @Test
+    void ac_ext_06_service_id_without_cloud_loadbalancer_fails_with_the_starters() throws Exception {
+        String[] service = {"topolith.modules.remote.mode=external", "topolith.modules.remote.remote.service-id=users"};
+        run(new FilteredClassLoader("org.springframework.cloud"), context -> assertFailure(TopolithCode.TL0009,
+                context, "'remote'", "remote.service-id", "spring-cloud-starter-loadbalancer"), service);
+        // a fixed URL never needs Cloud, and a module that is not external ignores its service id
+        run(new FilteredClassLoader("org.springframework.cloud"), context -> assertNull(context.getStartupFailure()),
+                "topolith.modules.remote.mode=external", "topolith.modules.remote.remote.url=http://localhost:1");
+        run(new FilteredClassLoader("org.springframework.cloud"), context -> assertNull(context.getStartupFailure()),
+                "topolith.modules.local.remote.service-id=users");
     }
 
     @Test

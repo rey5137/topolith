@@ -16,6 +16,8 @@ import org.springframework.core.env.MapPropertySource;
  */
 final class ExternalClientProperties {
     static final String SOURCE_NAME = "topolithExternalClients";
+    /** A service id maps to this base URL, which Spring Cloud LoadBalancer resolves (AC-EXT-05, D-42). */
+    static final String LB_SCHEME = "lb://";
     static final String CONNECT_TIMEOUT_DEFAULT = "2s";
     static final String READ_TIMEOUT_DEFAULT = "5s";
 
@@ -39,6 +41,10 @@ final class ExternalClientProperties {
             String url = environment.getProperty(source + "url");
             if (url != null && !url.isBlank()) {
                 values.put(target + "base-url", url);
+            }
+            String service = environment.getProperty(source + "service-id");
+            if ((url == null || url.isBlank()) && service != null && !service.isBlank()) {
+                values.put(target + "base-url", LB_SCHEME + service.trim());
             }
             timeout(environment, values, target, source, "connect-timeout", CONNECT_TIMEOUT_DEFAULT);
             timeout(environment, values, target, source, "read-timeout", READ_TIMEOUT_DEFAULT);

@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.math.BigInteger;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -97,6 +98,7 @@ final class TopologyResolver {
         Topology topology = Topology.resolve(found.modules(), found.apis(), declared, standalone(env));
         List<Diagnostic> problems = new ArrayList<>();
         Binder binder = Binder.get(env);
+        Set<String> discovered = new TreeSet<>();
         topology.idsOf(Mode.EXTERNAL).forEach(id -> {
             String prefix = MODES + "." + id + ".remote.";
             String url = binder.bind(prefix + "url", String.class).orElse("");
@@ -106,8 +108,15 @@ final class TopologyResolver {
                         + "' must set exactly one of " + prefix + "url and " + prefix + "service-id.",
                         "Set exactly one of " + prefix + "url and " + prefix + "service-id."));
             }
-            conflict(env, binder, prefix + "url", "spring.http.serviceclient." + id + ".base-url", String.class,
-                    TopologyResolver::normalizeUrl, problems);
+            if (!service.isBlank() && url.isBlank()) {
+                discovered.add(id);
+                conflict(env, binder, prefix + "service-id", "spring.http.serviceclient." + id + ".base-url",
+                        String.class, value -> normalizeUrl(ExternalClientProperties.LB_SCHEME + value.trim()),
+                        TopologyResolver::normalizeUrl, problems);
+            } else if (!url.isBlank()) {
+                conflict(env, binder, prefix + "url", "spring.http.serviceclient." + id + ".base-url", String.class,
+                        TopologyResolver::normalizeUrl, problems);
+            }
             for (String key : List.of("connect-timeout", "read-timeout")) {
                 conflict(env, binder, prefix + key, "spring.http.serviceclient." + id + "." + key, Duration.class,
                         value -> value, problems);
@@ -118,6 +127,7 @@ final class TopologyResolver {
                 .addAll(api.provides()));
         found.modules().forEach(module -> contracts.computeIfAbsent(module.id(), key -> new LinkedHashSet<>())
                 .addAll(module.provides()));
+        ExternalContracts.checkDiscovery(discovered, classLoader, problems);
         ExternalContracts.check(topology.idsOf(Mode.EXTERNAL), contracts, classLoader, problems);
         if (!problems.isEmpty()) {
             throw new TopolithException(problems);
@@ -140,6 +150,11 @@ final class TopologyResolver {
 
     private static <T> void conflict(Environment env, Binder binder, String source, String target, Class<T> type,
             Function<T, Object> normal, List<Diagnostic> problems) {
+        conflict(env, binder, source, target, type, normal, normal, problems);
+    }
+
+    private static <T> void conflict(Environment env, Binder binder, String source, String target, Class<T> type,
+            Function<T, Object> normal, Function<T, Object> targetNormal, List<Diagnostic> problems) {
         T left;
         T right;
         String key = source;
@@ -153,7 +168,7 @@ final class TopologyResolver {
                     + "."));
             return;
         }
-        if (left != null && right != null && !normal.apply(left).equals(normal.apply(right))) {
+        if (left != null && right != null && !normal.apply(left).equals(targetNormal.apply(right))) {
             problems.add(new Diagnostic(TopolithCode.TL0003, "conflicting properties " + source + " and " + target
                     + ".", "Set both properties to the same value or remove one."));
         }

@@ -17,6 +17,11 @@ final class ExternalContracts {
     static final String CLIENT_AUTO_CONFIGURATION =
             "org.springframework.boot.restclient.autoconfigure.service.HttpServiceClientAutoConfiguration";
 
+    static final String LOAD_BALANCER_GROUPS =
+            "org.springframework.cloud.client.loadbalancer.LoadBalancerRestClientHttpServiceGroupConfigurer";
+    static final String LOAD_BALANCER_CLIENT =
+            "org.springframework.cloud.loadbalancer.blocking.client.BlockingLoadBalancerClient";
+
     private ExternalContracts() {
     }
 
@@ -51,6 +56,19 @@ final class ExternalContracts {
                             + "@HttpExchange (or @GetExchange and the like)."));
                 }
             }
+        }
+    }
+
+    /** Adds a TL0009 diagnostic for every module in {@code discovered} (it sets a service id) when Cloud is absent. */
+    static void checkDiscovery(Set<String> discovered, ClassLoader loader, List<Diagnostic> problems) {
+        if (discovered.isEmpty() || ClassUtils.isPresent(LOAD_BALANCER_GROUPS, loader)
+                && ClassUtils.isPresent(LOAD_BALANCER_CLIENT, loader)) {
+            return;
+        }
+        for (String id : discovered) {
+            problems.add(new Diagnostic(TopolithCode.TL0009, "external module '" + id + "' sets remote.service-id, "
+                    + "but Spring Cloud LoadBalancer is not on the classpath.",
+                    "Add spring-cloud-starter-loadbalancer to the host, or set remote.url."));
         }
     }
 

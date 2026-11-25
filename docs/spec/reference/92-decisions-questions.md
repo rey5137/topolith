@@ -50,6 +50,7 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-39 | The processor writes the lowest format-version that expresses the descriptor; see below | A format bump reaches consumers only when a provider uses a new feature | M1 gate architect review; owner |
 | D-40 | External client properties map `remote.*` to Boot's service-client keys; see below | One source of truth per setting, no silent winner | M2.1; owner |
 | D-41 | An external module without a usable client fails with TL0026; see below | A silent skip hid a missing starter or an unannotated contract | M2.1 review; owner |
+| D-42 | A service id maps to `lb://<service-id>` in `topolith-spring-boot`; TL0009 when LoadBalancer is absent | Spring Cloud Commons already resolves `lb://` group base URLs, so no Cloud code is needed | M2.2; owner |
 
 ### D-40 — External client properties
 
@@ -65,7 +66,17 @@ client refresh is deferred to M2.6.
 Startup fails with TL0026, naming the module and where relevant the contract, when an external module has (a) no HTTP
 client stack (no spring-web, or no Boot HTTP service-client auto-configuration; add `spring-boot-starter-restclient`),
 (b) a contract in its `provides` that cannot be loaded, or (c) a provided contract with no `@HttpExchange` on the type
-or a method. M2.5's separate-HTTP-interface option will relax (c). TL0009 stays Cloud-only.
+or a method. M2.5's separate-HTTP-interface option will relax (c). TL0009 stays Cloud-only (D-42).
+
+### D-42 — Service-id discovery (TL0009)
+
+An external module with `remote.service-id` maps it to `spring.http.serviceclient.<id>.base-url=lb://<service-id>`,
+which Spring Cloud Commons' `LoadBalancerRestClientHttpServiceGroupConfigurer` resolves through Spring Cloud
+LoadBalancer and any `DiscoveryClient`. The mapping lives in `topolith-spring-boot` and references no Spring Cloud type
+(INV-7); `topolith-spring-cloud` has no code yet (M2.6 refresh lands there). An explicit Boot `base-url` that differs
+from `lb://<service-id>` fails with TL0003 naming both keys (D-40). When a module sets only a service id and Spring
+Cloud LoadBalancer is not on the classpath, startup fails with TL0009 naming the module and
+`spring-cloud-starter-loadbalancer`. A URL-only module never needs Cloud.
 
 ### D-13 — Computed restart status (Q-3)
 

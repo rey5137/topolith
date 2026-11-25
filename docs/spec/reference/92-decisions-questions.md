@@ -41,6 +41,9 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-30 | Module activation by a non-deferred import selector; see below | Module beans must exist before Boot's conditions run | M1.3 architect pre-read; owner |
 | D-31 | Mode resolution from known descriptors and explicit configuration; see below | Typos and silent activation fail loudly | M1.3 architect pre-read; owner |
 | D-32 | Module persistence; see below | Flyway scans `db/migration` recursively and module beans make Boot's conditions back off | M1.4 architect pre-read; owner |
+| D-33 | Internal contract agreement; see below | API and implementation contracts must agree | Owner |
+| D-34 | Version mismatch warning; see below | Warn at readiness without changing availability | Owner |
+| D-35 | Running topology endpoint; see below | Expose sorted running modes through optional actuator | Owner |
 
 ### D-13 — Computed restart status (Q-3)
 
@@ -249,6 +252,22 @@ step 5. Known limits: Envers repositories in the host are not restored; a module
 Flyway history; with lazy initialization the TL0021 check forces entity-manager factories to be created. A host
 component scan that covers an internal module registers its beans twice; M3.3 owns that (Q-14).
 
+### D-33 — Internal contract agreement (M1.5)
+
+An internal module whose host API descriptor and module descriptor declare different `provides` sets fails with
+TL0022. The diagnostic identifies the module and contracts unique to each side and directs the host to align its API
+and implementation JAR versions. This answers Q-12.
+
+### D-34 — Version mismatch warning (M1.5)
+
+TL0023 warns once when the application becomes ready if a host API descriptor's major version differs from the
+internal module descriptor or remote provider. It neither fails startup nor changes readiness. M2.4 owns remote checks.
+
+### D-35 — Running topology endpoint (M1.5)
+
+The optional, read-only `topolith` actuator endpoint reads the cached topology and returns a `modules` object keyed
+by module id, sorted by id, each containing a `mode` field. It is conditional on actuator and endpoint availability.
+
 ## Open questions
 
 | Id | Status | Question |
@@ -262,7 +281,7 @@ component scan that covers an internal module registers its beans twice; M3.3 ow
 | Q-9 | Answered (D-18) | How can Spring-based test helpers satisfy INV-7's Spring import restriction? |
 | Q-10 | Answered (D-19) | Which slice owns the Maven plugin's hand-written descriptor verification goal? |
 | Q-11 | Open | Should `@TopolithModule` gain an explicit `provides` attribute for consumer-implemented SPI interfaces and lambda-only contracts, which D-29 rejects? |
-| Q-12 | Open | Should startup fail when a host's API JAR `provides` differs from the module descriptor (M1.5)? A new TL code needs reference/90 first. |
+| Q-12 | Answered (D-33) | Should startup fail when a host's API JAR `provides` differs from the module descriptor (M1.5)? |
 | Q-13 | Open | Who owns the `META-INF/spring.factories` and `*ManagementContextConfiguration.imports` entries of a non-internal module's JAR (M3.3), which no `AutoConfigurationImportFilter` sees, and the guard for Topolith's auto-configuration being excluded while a module is internal? |
 | Q-14 | Open | Should Topolith handle general bean replacement (a module's default-candidate `JdbcTemplate`, `ObjectMapper`) and a host scan that covers an internal module, which registers its beans twice (M3.3)? |
 | Q-15 | Answered (D-32) | Should Liquibase be supported for module migrations (it has one master changelog with explicit includes)? |

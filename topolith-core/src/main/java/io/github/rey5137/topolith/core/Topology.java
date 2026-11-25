@@ -56,7 +56,51 @@ public final class Topology {
         apis.forEach(api -> packages.addAll(api.apiPackages()));
         Topology topology = new Topology(graph, new LinkedHashMap<>(modes), packages);
         topology.checkRequirements();
+        checkProviders(modules, apis, modes);
         return topology;
+    }
+
+    private static void checkProviders(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis,
+            Map<String, Mode> modes) {
+        Map<String, ModuleDescriptor> implementations = new TreeMap<>();
+        modules.forEach(module -> implementations.put(module.id(), module));
+        Map<String, ApiDescriptor> interfaces = new TreeMap<>();
+        apis.forEach(api -> interfaces.put(api.id(), api));
+        List<Diagnostic> found = new ArrayList<>();
+        Map<String, Set<String>> providers = new TreeMap<>();
+        modes.forEach((id, mode) -> {
+            if (mode == Mode.NONE) {
+                return;
+            }
+            ModuleDescriptor module = implementations.get(id);
+            ApiDescriptor api = interfaces.get(id);
+            if (mode == Mode.INTERNAL && module != null && api != null && !module.provides().equals(api.provides())) {
+                Set<String> onlyModule = new TreeSet<>(module.provides());
+                onlyModule.removeAll(api.provides());
+                Set<String> onlyApi = new TreeSet<>(api.provides());
+                onlyApi.removeAll(module.provides());
+                found.add(new Diagnostic(TopolithCode.TL0022, "module '" + id + "' has different contracts: "
+                        + "only in module " + onlyModule + "; only in API " + onlyApi + ".",
+                        "Align the API JAR and implementation JAR versions."));
+            }
+            Set<String> contracts = new TreeSet<>();
+            if (module != null && (mode == Mode.INTERNAL || api == null)) {
+                contracts.addAll(module.provides());
+            }
+            if (api != null) {
+                contracts.addAll(api.provides());
+            }
+            contracts.forEach(contract -> providers.computeIfAbsent(contract, key -> new TreeSet<>()).add(id));
+        });
+        providers.forEach((contract, ids) -> {
+            if (ids.size() > 1) {
+                found.add(new Diagnostic(TopolithCode.TL0005, "contract '" + contract + "' has providers " + ids + ".",
+                        "Remove the duplicate provider or set all but one provider to none."));
+            }
+        });
+        if (!found.isEmpty()) {
+            throw new TopolithException(found);
+        }
     }
 
     private static void identity(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis) {

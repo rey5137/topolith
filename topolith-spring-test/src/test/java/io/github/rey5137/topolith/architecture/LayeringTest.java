@@ -21,9 +21,10 @@ class LayeringTest {
     private static final String[] OPTIONAL = {BASE + ".spring.cloud.."};
 
     // INV-7: javax is excluded because not every javax package belongs to the JDK.
-    private static final ArchRule CORE = classes().that().resideInAnyPackage(BASE + ".core..", BASE + ".annotation..")
+    private static final ArchRule CORE = classes().that()
+            .resideInAnyPackage(BASE + ".core..", BASE + ".annotation..", BASE + ".contract..")
             .should().onlyDependOnClassesThat()
-            .resideInAnyPackage("java..", "jdk..", BASE + ".core..", BASE + ".annotation..")
+            .resideInAnyPackage("java..", "jdk..", BASE + ".core..", BASE + ".annotation..", BASE + ".contract..")
             .allowEmptyShould(true);
     private static final ArchRule SPRING = noClasses().that()
             .resideInAPackage(BASE + "..")

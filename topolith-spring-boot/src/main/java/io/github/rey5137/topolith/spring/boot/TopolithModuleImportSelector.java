@@ -55,9 +55,14 @@ final class TopolithModuleImportSelector
         for (String id : topology.internal()) {
             imports.addAll(scan(topology, id));
         }
+        if (!topology.internal().isEmpty()
+                && ClassUtils.isPresent("org.springframework.web.servlet.DispatcherServlet", classLoader)) {
+            imports.add("io.github.rey5137.topolith.spring.boot.ModuleErrorsConfiguration");
+        }
         if (!topology.idsOf(Mode.EXTERNAL).isEmpty() && ClassUtils.isPresent(
                 "org.springframework.web.service.registry.AbstractHttpServiceRegistrar", classLoader)) {
             imports.add("io.github.rey5137.topolith.spring.boot.ExternalHttpServicesRegistrar");
+            imports.add("io.github.rey5137.topolith.spring.boot.ExternalErrorsConfiguration");
         }
         return imports.toArray(String[]::new);
     }

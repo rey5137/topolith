@@ -18,6 +18,8 @@ import io.github.rey5137.topolith.core.ModuleDescriptor;
 /** Builds fixture classpath roots: directories holding descriptors and imports files, read through one loader. */
 final class Fixtures {
     static final String BASE = "io.github.rey5137.topolith.spring.boot.fixture";
+    /** Contract-exception fixtures (M2.3), outside {@link #BASE} so the scanning hosts never see them. */
+    static final String ERRORS = "io.github.rey5137.topolith.spring.boot.errorfixture";
     static final String USER = BASE + ".user";
     static final String USER_API = BASE + ".user.api";
     static final String PAYMENT = BASE + ".payment";
@@ -48,7 +50,7 @@ final class Fixtures {
 
         @Override
         protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-            if (name.startsWith(BASE)) {
+            if (name.startsWith(BASE) || name.startsWith(ERRORS)) {
                 requested.add(name);
             }
             return super.loadClass(name, resolve);

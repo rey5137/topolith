@@ -129,6 +129,14 @@ final class TopologyResolver {
                 .addAll(module.provides()));
         ExternalContracts.checkDiscovery(discovered, classLoader, problems);
         ExternalContracts.check(topology.idsOf(Mode.EXTERNAL), contracts, classLoader, problems);
+        Map<String, Set<String>> apiPackages = new TreeMap<>();
+        found.apis().forEach(api -> apiPackages.computeIfAbsent(api.id(), key -> new TreeSet<>())
+                .addAll(api.apiPackages()));
+        found.modules().forEach(module -> apiPackages.computeIfAbsent(module.id(), key -> new TreeSet<>())
+                .addAll(module.apiPackages()));
+        Set<String> served = new TreeSet<>(topology.internal());
+        served.addAll(topology.idsOf(Mode.EXTERNAL));
+        ContractExceptions.check(served, contracts, apiPackages, classLoader, problems);
         if (!problems.isEmpty()) {
             throw new TopolithException(problems);
         }

@@ -47,11 +47,43 @@ group properties; Boot-only values, including the global `spring.http.clients.*`
 
 ### R-EXT-04 — Errors
 
-API-declared exceptions cross HTTP as ProblemDetail and are reconstructed as the same exception type; transport
-failures raise `ModuleUnavailableException`. Implements INV-6 and D-3.
+Declared exceptions cross HTTP as ProblemDetail and are reconstructed as the same exception type; transport
+failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6, D-3 and D-43.
 
-- AC-EXT-09 (M2.3): A declared API exception returns as ProblemDetail and reconstructs the same type at the caller.
-- AC-EXT-10 (M2.3): A transport failure raises `ModuleUnavailableException` at the caller.
+- **Declared.** An unchecked exception is declared when its class, or its nearest non-abstract superclass, lies in an
+  api package the host knows (exact packages, D-27). Only the top-level exception counts, never its cause chain.
+  `ModuleUnavailableException` is always declared, so a provider's own failed call reaches its caller unchanged.
+- **Provider.** On a handler whose bean type lies in an internal module's `package`, a declared exception answers
+  `application/problem+json` with `type` `urn:topolith:problem:contract-exception`, the status of its
+  `@ResponseStatus` (default 500; 503 for `ModuleUnavailableException`), `detail` set to the message (for
+  `ModuleUnavailableException` the fixed message below), and the
+  properties `exception` (the declared class name) and `module`. On those handlers this takes precedence over the
+  host's `@ControllerAdvice`s and the module's own `@ExceptionHandler`s, which would run only in external mode; any
+  other exception, and any other handler, is left to the host and Boot, and an undeclared exception's message is never
+  sent.
+- **Caller.** A Topolith problem naming a declared class the caller can load is rebuilt through its public `(String)`
+  or no-arg constructor, carrying the HTTP exception as suppressed. A connection failure, a timeout, a 502, 503 or 504
+  without a Topolith problem, no LoadBalancer instance, or a problem naming `ModuleUnavailableException` raise
+  `ModuleUnavailableException` with the original exception as cause and the fixed message `module '<id>' could not
+  be reached (<kind>)`, so no URL or downstream body travels on; after a read timeout the call may have run.
+- **Unspecified.** Any other failure (an undeclared exception, a 4xx or 500 without a Topolith problem) raises an
+  unchecked exception that is neither a declared type nor `ModuleUnavailableException`; its type is unspecified.
+
+- AC-EXT-09 (M2.3): A declared API exception returns as ProblemDetail and reconstructs the same type at the caller; a
+  subclass outside the api packages is rebuilt as its declared ancestor, and an exception from another module's api
+  package passing through the provider is rebuilt too, as is one thrown after the handler started its answer.
+- AC-EXT-10 (M2.3): A transport failure raises `ModuleUnavailableException` at the caller: connection refused, a read
+  timeout, a 503 without a Topolith problem, zero LoadBalancer instances, and a provider's own
+  `ModuleUnavailableException` (transitive); its message names only the module and the kind of failure, never a URL
+  or a downstream body.
+- AC-EXT-29 (M2.3): An undeclared exception is not rebuilt, and its message does not reach the caller.
+- AC-EXT-30 (M2.3): A contract method declaring a checked exception, or a concrete exception class in an api package
+  that a caller cannot rebuild or whose `@ResponseStatus` is not 4xx or 5xx, fails startup with TL0027 for an internal or external module, in a monolith too; a
+  `none` module is not checked.
+- AC-EXT-31 (M2.3): The provider resolver exists only with an internal module, and the caller advice only with an
+  external one; a `none` module leaves neither; a host's own service groups and a host controller's advices are
+  untouched.
+- AC-EXT-32 (M2.3): A host `@ControllerAdvice` does not change what a module route sends for a declared exception.
 
 ### R-EXT-05 — Exposure
 

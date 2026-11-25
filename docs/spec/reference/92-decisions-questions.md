@@ -51,6 +51,7 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-40 | External client properties map `remote.*` to Boot's service-client keys; see below | One source of truth per setting, no silent winner | M2.1; owner |
 | D-41 | An external module without a usable client fails with TL0026; see below | A silent skip hid a missing starter or an unannotated contract | M2.1 review; owner |
 | D-42 | A service id maps to `lb://<service-id>` in `topolith-spring-boot`; TL0009 when LoadBalancer is absent | Spring Cloud Commons already resolves `lb://` group base URLs, so no Cloud code is needed | M2.2; owner |
+| D-43 | Contract exceptions cross HTTP as Topolith problems; transport failures become `ModuleUnavailableException`; TL0027 for exceptions that cannot cross; see below | INV-6 without silent fallbacks (INV-4); relaxing later stays compatible (D-27) | M2.3 architect pre-read; owner |
 
 ### D-40 — External client properties
 
@@ -77,6 +78,50 @@ LoadBalancer and any `DiscoveryClient`. The mapping lives in `topolith-spring-bo
 from `lb://<service-id>` fails with TL0003 naming both keys (D-40). When a module sets only a service id and Spring
 Cloud LoadBalancer is not on the classpath, startup fails with TL0009 naming the module and
 `spring-cloud-starter-loadbalancer`. A URL-only module never needs Cloud.
+
+### D-43 — Contract exceptions across HTTP (M2.3)
+
+- **Declared exceptions.** A declared exception is an unchecked exception whose class, or nearest non-abstract
+  superclass, lies in an api package the host knows (`Topology.apiPackages()`, exact packages). Only the top-level
+  exception counts, never its cause chain. `ModuleUnavailableException` is always declared.
+- **Provider.** A `HandlerExceptionResolver`, placed ahead of `ExceptionHandlerExceptionResolver`, acts only on
+  handlers whose bean type lies in an internal module's `package` (subpackages included), and only on a declared
+  top-level exception. It answers `application/problem+json` with:
+  - `type` set to `urn:topolith:problem:contract-exception`;
+  - status from `@ResponseStatus` (default 500; 503 for `ModuleUnavailableException`; a non-error status, which
+    TL0027 rejects, falls back to 500);
+  - `detail` = the message, except for `ModuleUnavailableException`, whose detail is the fixed message below;
+  - properties `exception` (the declared class name) and `module` (the provider id, or the id a
+    `ModuleUnavailableException` carries).
+
+  On those handlers it takes precedence over host and controller advices. It declines everything else, and never
+  sends an undeclared exception's message. Before writing it drops whatever the handler had buffered (body, content
+  type), keeping the other headers. It is registered through the topology import path, only in a servlet
+  application with `DispatcherServlet` and at least one internal module.
+- **Caller.** An advice at index 0 of each external group's service proxy, added through one
+  `RestClientHttpServiceGroupConfigurer` on Topolith's groups only. It rebuilds the named class when the body carries
+  Topolith's `type`, the name is a valid, length-capped class name in a caller-known api package, and the class loads
+  with `initialize=false` through the contract's class loader, is a public concrete `RuntimeException`, and has a
+  public `(String)` (preferred) or no-arg constructor. The HTTP exception is added as suppressed, not as the cause.
+  No Java serialization and no Jackson polymorphic typing.
+- **`ModuleUnavailableException`.** `io.github.rey5137.topolith.contract.ModuleUnavailableException` in
+  `topolith-core` (final, unchecked, carries the module id; not a `TopolithException`, D-28). It is raised, with the
+  original exception as cause, for an I/O failure, a timeout, no LoadBalancer instance, a 502/503/504 without a
+  Topolith problem, or a propagated one (its `module` checked against the D-27 id pattern). After a read timeout the
+  call may have run. Because it is declared and travels on, its message is fixed, `module '<id>' could not be reached
+  (<kind>)` with kind `connection failure`, `timeout`, `status 502|503|504`, `no instance` or `unavailable
+  downstream`; URLs and downstream bodies stay in the cause, and a provider re-sending one sends only that shape.
+- **Other failures** raise an unspecified unchecked exception.
+- **TL0027** fails startup, for internal and external modules in every topology, when a contract method declares a
+  checked exception or a concrete unchecked exception class in the module's api packages is not public, has neither
+  a public `(String)` nor a public no-arg constructor, or carries a `@ResponseStatus` (direct, composed or inherited)
+  that is not 4xx or 5xx, which a caller would read as a result. Contracts load with `initialize=false`; api package classes are
+  read as class files and never loaded, so an external module's classes stay unloaded (INV-2).
+- **Convention.** A declared exception's `(String)` constructor takes the message verbatim. Fields beyond the message,
+  the cause chain and the provider's stack trace do not cross (Q-21); a subclass is rebuilt as its declared ancestor.
+
+Rationale: INV-6 without silent fallbacks (INV-4); relaxing later stays compatible (D-27). Source: M2.3 architect
+pre-read; owner.
 
 ### D-13 — Computed restart status (Q-3)
 
@@ -368,4 +413,6 @@ providers (D-27).
 | Q-17 | Partly answered (M1.6) | Spring Data JDBC is registered per module in 0.1. Should Topolith register R2DBC, MongoDB and MyBatis per module? They stay at TL0024 in 0.1. |
 | Q-18 | Open | A host's `mybatis.mapper-locations` (for example `classpath*:mapper/**/*.xml`) can load a `none` module's mappers (INV-2); should it be a check like TL0020's host-location check? |
 | Q-19 | Open | A module with no contracts (listener-only, jobs) still has to declare an api package (`@TopolithModule.api()` is required and `api-packages` is non-empty); should that be relaxed (compatible later, D-27)? |
-| Q-20 | Open (M3.3) | `Topology` is an injectable public bean, so business code could branch on a module's mode (INV-1, INV-6); should M3.3 add an ArchUnit rule forbidding module code from depending on `topolith-core` (only the annotation package allowed)? |
+| Q-20 | Open (M3.3) | `Topology` is an injectable public bean, so business code could branch on a module's mode (INV-1, INV-6); should M3.3 add an ArchUnit rule forbidding module code from depending on `topolith-core` (only the `annotation` and `contract` packages allowed, D-43)? |
+| Q-21 | Open | Should a contract support checked exceptions (TL0027 rejects them) or carry exception payload beyond the message (fields, cause chain) across HTTP (D-43)? |
+| Q-22 | Open | Should a 404, 405 or 415, or a 401 or 403, without a Topolith problem become `ModuleUnavailableException` rather than an unspecified exception, and should a fixed JDK list (`IllegalArgumentException`, `IllegalStateException`, `UnsupportedOperationException`) count as declared (D-43)? |

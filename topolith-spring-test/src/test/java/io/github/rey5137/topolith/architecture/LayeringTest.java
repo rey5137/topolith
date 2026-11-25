@@ -21,8 +21,9 @@ class LayeringTest {
     private static final String[] OPTIONAL = {BASE + ".spring.cloud.."};
 
     // INV-7: javax is excluded because not every javax package belongs to the JDK.
-    private static final ArchRule CORE = classes().that().resideInAPackage(BASE + ".core..")
-            .should().onlyDependOnClassesThat().resideInAnyPackage("java..", "jdk..", BASE + ".core..")
+    private static final ArchRule CORE = classes().that().resideInAnyPackage(BASE + ".core..", BASE + ".annotation..")
+            .should().onlyDependOnClassesThat()
+            .resideInAnyPackage("java..", "jdk..", BASE + ".core..", BASE + ".annotation..")
             .allowEmptyShould(true);
     private static final ArchRule SPRING = noClasses().that()
             .resideInAPackage(BASE + "..")
@@ -78,6 +79,10 @@ class LayeringTest {
         assertViolation(CORE, BASE + ".core.bad", "BadCore");
     }
 
+    @Test void ac_build_03_fails_on_bad_annotation_fixture() {
+        assertViolation(CORE, BASE + ".annotation.bad", "BadAnnotation");
+    }
+
     @Test void ac_build_04_fails_on_bad_fixture() {
         assertViolation(SPRING, BASE + ".processor.bad", "BadProcessor");
         assertViolation(SPRING, BASE + ".core.bad", "BadCore");
@@ -120,8 +125,8 @@ class LayeringTest {
 
     @Test void ac_build_03_to_06_production_excludes_fixtures() {
         JavaClasses classes = production();
-        for (String name : new String[] {"core.bad.BadCore", "processor.bad.BadProcessor",
-                "spring.boot.badcloud.BadCloud", "spring.boot.badmodulith.BadModulith",
+        for (String name : new String[] {"core.bad.BadCore", "annotation.bad.BadAnnotation",
+                "processor.bad.BadProcessor", "spring.boot.badcloud.BadCloud", "spring.boot.badmodulith.BadModulith",
                 "spring.cloud.bad.BadConfiguration", "spring.cloud.good.GoodConfiguration", "other.bad.BadOther",
                 "spring.cloud.composed.ComposedConfiguration",
                 "spring.cloud.nested.GuardedOuter$NestedConfiguration"}) {

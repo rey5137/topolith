@@ -37,6 +37,7 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-25 | `<referencing class FQN> -> <referenced class FQN>`; see below | Runtime baseline | Owner |
 | D-27 | Strict descriptor format with `format-version`; see below | Typos and drift fail loudly; relaxing later stays compatible | M1.1 architect review; owner |
 | D-28 | One unchecked `TopolithException` carrying coded diagnostics; see below | One failure-analyzer path; exact codes in tests; warnings are values | M1.1 architect review; owner |
+| D-29 | An API declaration on the api package, verified by the module build; see below | External hosts see only the API descriptor, so it must match the implementation | M1.2 architect review; owner |
 
 ### D-13 — Computed restart status (Q-3)
 
@@ -128,6 +129,31 @@ enum value, a description and an action). Validation reports every problem in a 
 graph) and stops after the first stage that fails. Warnings are returned as values and never thrown, and core never
 logs. `ModuleUnavailableException` does not extend `TopolithException`.
 
+### D-29 — API declaration and `provides` verification (M1.2)
+
+`@TopolithModule` (`topolith-core`, package `io.github.rey5137.topolith.annotation`, CLASS retention, String-only
+members `id`, `api`, `requires`, `optional`) on a package that is in its own `api` list is an **API declaration** and
+emits `apis/<id>.properties`; anywhere else it is a **module declaration** and emits `modules/<id>.properties`. An API
+declaration may not set `requires` or `optional`, and each of its `api` packages must hold a type in the compilation.
+Its `provides` are the public, non-sealed, non-annotation interfaces in the api packages, keeping only the
+most-derived ones. A module declaration infers `provides` from the concrete classes under its package that implement
+those interfaces. When the api packages come from the classpath, it reads the API declaration from the package-info
+class of an api package (CLASS retention, so JARs and class directories alike), fails if there is none or its `id` or
+`api` differ, and recomputes the API's `provides` from the classpath types, failing if they differ from the inferred
+ones; this does not prove the API artifact carries its descriptor file. When every api package is in the same
+compilation (a single-artifact module) it compares in the same way and emits both descriptors. javac's
+`Filer.getResource` cannot open JARs, so the descriptor file is not the verification source. An api package holding
+both compiled and classpath types, or a classpath declaration, fails as split.
+`api-version` comes from the required
+processor option `-Atopolith.apiVersion`, and its absence is a compile error citing TL0013. One declaration per
+compilation.
+
+Rationale: an `external` or `none` host has only the API descriptor, so it must equal what the module implements
+(INV-6, INV-4, P-6). Rejected: every interface as `provides` (an HTTP proxy with no internal bean, a parity break),
+processor options in the api pom (test-compile duplicates, stringly typed), generating it in the module build
+(the api JAR is already built). Accepted strictness: a consumer-implemented SPI interface or a contract implemented
+only by a lambda or `@Bean` fails the build (Q-11).
+
 ## Open questions
 
 | Id | Status | Question |
@@ -140,3 +166,5 @@ logs. `ModuleUnavailableException` does not extend `TopolithException`.
 | Q-8 | Answered (D-16) | How is a contract call declared or determined to be idempotent for retry? |
 | Q-9 | Answered (D-18) | How can Spring-based test helpers satisfy INV-7's Spring import restriction? |
 | Q-10 | Answered (D-19) | Which slice owns the Maven plugin's hand-written descriptor verification goal? |
+| Q-11 | Open | Should `@TopolithModule` gain an explicit `provides` attribute for consumer-implemented SPI interfaces and lambda-only contracts, which D-29 rejects? |
+| Q-12 | Open | Should startup fail when a host's API JAR `provides` differs from the module descriptor (M1.5)? A new TL code needs reference/90 first. |

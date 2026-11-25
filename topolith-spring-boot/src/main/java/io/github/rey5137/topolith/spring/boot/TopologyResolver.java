@@ -48,7 +48,8 @@ final class TopologyResolver {
 
     /** The topology with the discovery facts the filter and the persistence checks need. */
     record Resolution(Topology topology, Map<String, String> importOwners, Map<String, String> rootOwners,
-            List<String> versionWarnings, Map<String, Set<String>> contracts) {
+            List<String> versionWarnings, Map<String, Set<String>> contracts, Set<String> exposed,
+            Map<String, String> apiVersions, Map<String, String> hostApiVersions) {
     }
 
     private TopologyResolver() {
@@ -111,10 +112,11 @@ final class TopologyResolver {
             if (!service.isBlank() && url.isBlank()) {
                 discovered.add(id);
                 conflict(env, binder, prefix + "service-id", "spring.http.serviceclient." + id + ".base-url",
-                        String.class, value -> normalizeUrl(ExternalClientProperties.LB_SCHEME + value.trim()),
+                        String.class, value -> normalizeUrl(ExternalClientProperties.serviceUrl(value) + "/" + id),
                         TopologyResolver::normalizeUrl, problems);
             } else if (!url.isBlank()) {
                 conflict(env, binder, prefix + "url", "spring.http.serviceclient." + id + ".base-url", String.class,
+                        value -> normalizeUrl(ExternalClientProperties.baseUrl(value, id)),
                         TopologyResolver::normalizeUrl, problems);
             }
             for (String key : List.of("connect-timeout", "read-timeout")) {
@@ -122,6 +124,7 @@ final class TopologyResolver {
                         value -> value, problems);
             }
         });
+        Set<String> exposed = exposed(env, binder, topology, problems);
         Map<String, Set<String>> contracts = new TreeMap<>();
         found.apis().forEach(api -> contracts.computeIfAbsent(api.id(), key -> new LinkedHashSet<>())
                 .addAll(api.provides()));
@@ -153,7 +156,35 @@ final class TopologyResolver {
                 }
             }
         }
-        return new Resolution(topology, found.importOwners(), found.rootOwners(), List.copyOf(warnings), contracts);
+        Map<String, String> versions = new TreeMap<>();
+        found.modules().forEach(module -> versions.put(module.id(), module.apiVersion()));
+        Map<String, String> hostVersions = new TreeMap<>();
+        found.apis().forEach(api -> hostVersions.put(api.id(), api.apiVersion()));
+        return new Resolution(topology, found.importOwners(), found.rootOwners(), List.copyOf(warnings), contracts,
+                Set.copyOf(exposed), Map.copyOf(versions), Map.copyOf(hostVersions));
+    }
+
+    /** The modules with {@code expose.enabled=true} (D-44); TL0003 if one is not internal or not a boolean. */
+    private static Set<String> exposed(Environment env, Binder binder, Topology topology, List<Diagnostic> problems) {
+        Set<String> exposed = new TreeSet<>();
+        for (String id : topology.known()) {
+            String key = MODES + "." + id + ".expose.enabled";
+            try {
+                if (binder.bind(key, Boolean.class).orElse(false)) {
+                    if (topology.mode(id) == Mode.INTERNAL) {
+                        exposed.add(id);
+                    } else {
+                        problems.add(new Diagnostic(TopolithCode.TL0003, "module '" + id + "' is exposed by " + key
+                                + " but its mode is " + topology.mode(id).id() + ".", "Set topolith.modules." + id
+                                + ".mode to internal, or remove " + key + "."));
+                    }
+                }
+            } catch (BindException e) {
+                problems.add(new Diagnostic(TopolithCode.TL0003, "invalid value '" + env.getProperty(key) + "' for "
+                        + key + ".", "Set " + key + " to true or false."));
+            }
+        }
+        return exposed;
     }
 
     private static <T> void conflict(Environment env, Binder binder, String source, String target, Class<T> type,
@@ -199,7 +230,7 @@ final class TopologyResolver {
         }
     }
 
-    private static BigInteger major(String version) {
+    static BigInteger major(String version) {
         return new BigInteger(version.split("[.-]", 2)[0]);
     }
 }

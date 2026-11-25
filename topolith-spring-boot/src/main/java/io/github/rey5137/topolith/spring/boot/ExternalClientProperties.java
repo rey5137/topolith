@@ -24,6 +24,16 @@ final class ExternalClientProperties {
     private ExternalClientProperties() {
     }
 
+    /** The caller's base URL for module {@code id}: the provider's URL and the fixed {@code /<id>} prefix (D-45). */
+    static String baseUrl(String url, String id) {
+        return url.trim().replaceAll("/+$", "") + "/" + id;
+    }
+
+    /** The load-balanced URL of a service id, without the module prefix. */
+    static String serviceUrl(String serviceId) {
+        return LB_SCHEME + serviceId.trim();
+    }
+
     static void register(Environment environment, Topology topology) {
         if (environment instanceof ConfigurableEnvironment configurable
                 && !configurable.getPropertySources().contains(SOURCE_NAME)) {
@@ -40,11 +50,11 @@ final class ExternalClientProperties {
             String source = TopologyResolver.MODES + "." + id + ".remote.";
             String url = environment.getProperty(source + "url");
             if (url != null && !url.isBlank()) {
-                values.put(target + "base-url", url);
+                values.put(target + "base-url", baseUrl(url, id));
             }
             String service = environment.getProperty(source + "service-id");
             if ((url == null || url.isBlank()) && service != null && !service.isBlank()) {
-                values.put(target + "base-url", LB_SCHEME + service.trim());
+                values.put(target + "base-url", serviceUrl(service) + "/" + id);
             }
             timeout(environment, values, target, source, "connect-timeout", CONNECT_TIMEOUT_DEFAULT);
             timeout(environment, values, target, source, "read-timeout", READ_TIMEOUT_DEFAULT);

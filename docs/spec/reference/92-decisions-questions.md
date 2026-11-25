@@ -52,6 +52,53 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-41 | An external module without a usable client fails with TL0026; see below | A silent skip hid a missing starter or an unannotated contract | M2.1 review; owner |
 | D-42 | A service id maps to `lb://<service-id>` in `topolith-spring-boot`; TL0009 when LoadBalancer is absent | Spring Cloud Commons already resolves `lb://` group base URLs, so no Cloud code is needed | M2.2; owner |
 | D-43 | Contract exceptions cross HTTP as Topolith problems; transport failures become `ModuleUnavailableException`; TL0027 for exceptions that cannot cross; see below | INV-6 without silent fallbacks (INV-4); relaxing later stays compatible (D-27) | M2.3 architect pre-read; owner |
+| D-44 | Exposure is `topolith.modules.<id>.expose.enabled`, default `false` in every topology; it governs all of an internal module's routes; TL0003 for a module that is not internal, TL0028 on WebFlux; see below | A monolith serves nothing it did not choose to; one switch, one prefix | M2.4 owner decision |
+| D-45 | A caller's base URL is `remote.url` + `/<id>` (`lb://<service-id>/<id>`); contract paths are relative to it; see below | The provider's fixed prefix (D-44) is the caller's too, so a contract carries no module prefix | M2.4 owner decision |
+| D-46 | Security hook: public `@Incubating` `ExposedEndpoints` and `ExposedRequestMatcher`; Topolith registers no `SecurityFilterChain`; see below | A host secures `/<id>/**` with its own chain (INV-4); Spring Security stays optional (INV-7) | M2.4 owner decision |
+| D-47 | The D-2 boundary is an advisor on an internal provider bean, counted by `topolith.contract.calls.in.transaction`; see below | Makes D-2 enforceable for every caller without a proxy per call site | M2.4 owner decision |
+
+### D-44 to D-47 — Exposure, caller URL, security hook and transaction boundary (M2.4)
+
+- **D-44 Exposure.** `topolith.modules.<id>.expose.enabled` (default `false`, so a monolith serves nothing). It governs
+  every handler that `ModuleHandlers.internalOwner` assigns to the module (D-30): exposed, they are mapped under the
+  fixed `/<id>` prefix (Spring MVC `PathMatchConfigurer.addPathPrefix`); not exposed, they are removed from every
+  `RequestMappingHandlerMapping` and not mapped at all. Host handlers are untouched. `expose.enabled=true` for a module
+  that is not `internal`, or a value that is not a boolean, fails startup with TL0003. Exposure on a reactive (WebFlux)
+  host fails with the new TL0028: only Spring MVC is served, and D-43's resolver has no reactive counterpart.
+  Functional (`RouterFunction`) routes are not module handlers and are not governed.
+- **D-45 Caller URL.** The external group's `base-url` is `remote.url` with trailing `/` removed plus `/<id>`, and
+  `lb://<service-id>/<id>` for a service id. TL0003's comparison with Boot's `spring.http.serviceclient.<id>.base-url`
+  uses that prefixed value. A contract's `@HttpExchange` paths are relative to it, so the contract carries no module
+  prefix; a provider maps the same contract under `/<id>` by D-44.
+- **D-46 Security hook.** `ExposedEndpoints` (public, `@Incubating`, a bean whenever a module is internal in a servlet
+  host) gives `moduleIds()`, `prefixes()` and `patterns()` (`/<id>/**`), with no Spring Security types.
+  `ExposedRequestMatcher` (public, `@Incubating`, a bean only when `spring-security-web` is present) matches a request
+  under any exposed prefix and nothing when none is exposed; a host passes it to its own
+  `http.securityMatcher(...)`. Topolith registers no `SecurityFilterChain` (INV-4), and `spring-security-web` is an
+  optional dependency of `topolith-spring-boot` only (INV-7).
+- **D-47 Transaction boundary.** A `BeanPostProcessor` adds an advisor, outermost, to each bean of an internal module
+  that implements a contract the module provides; it applies `NOT_SUPPORTED` to calls of that contract's methods for
+  every caller, the module's own code included, by suspending the current transaction of each
+  `PlatformTransactionManager`. The callee's own `@Transactional` then decides, because the advisor sits in front of
+  Spring's transaction interceptor. A call made while a transaction is active increments the Micrometer counter
+  `topolith.contract.calls.in.transaction` tagged `module` and `contract` (only when Micrometer and a `MeterRegistry`
+  exist). No `PlatformTransactionManager` definition: no advice. A `none` or external module has no advice (INV-2).
+  Calls that do not go through the contract interface are not a boundary. Managers are suspended in bean-name order and
+  resumed in reverse; a failure while suspending or resuming still resumes the rest and the first failure propagates
+  with the others suppressed. A `final` provider class gets an interface-only proxy, as with any Spring AOP or
+  `@Transactional` advice; callers in other modules inject the contract interface, never the class.
+- **Version endpoint (R-VAL-04).** An exposed module answers `GET /<id>/.topolith/api-version` with its module
+  descriptor's `api-version` as `text/plain`. At readiness the host reads it through each external module's own client
+  builder (its base URL, mandatory timeouts and load balancing apply): a major that differs from the host API
+  descriptor's is TL0023, an unreachable endpoint, a non-2xx answer or a body that is not `<major>[.-]...` is TL0015.
+  Both are warnings, logged once per module; neither fails startup or changes readiness (D-24, D-34). The remote
+  reads run asynchronously on one daemon thread started by the ready event, so a provider's timeouts never delay
+  readiness; the internal TL0023 comparison stays synchronous. The check, TL0028 and the module prefixes are eager
+  under lazy initialization. Exposed modules' prefixes take precedence over a host's own `addPathPrefix` (the module
+  configurer is ordered first), and the version endpoint has its own handler mapping ahead of annotated controllers,
+  so a module's wildcard route cannot shadow it.
+
+Rationale: owner decisions of 2026-11-25. Source: M2.4.
 
 ### D-40 — External client properties
 

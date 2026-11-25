@@ -14,7 +14,7 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 |---|---|---|---|
 | TL0001 | A host has not declared a valid mode for a known module | failure | M1.3 |
 | TL0002 | An internal module has no implementation JAR | failure | M1.3 |
-| TL0003 | An external module has neither or both URL and service id | failure | M1.5 |
+| TL0003 | An external module has neither or both URL and service id, a Topolith client property conflicts with Boot's, or a module that is not internal is exposed (D-44) | failure | M1.5 (AC-EXT-11) |
 | TL0004 | An internal module's required module is unavailable | failure | M1.3 |
 | TL0005 | More than one provider supplies the same contract | failure | M1.5 |
 | TL0006 | Two module descriptors, or two API descriptors, declare the same id | failure | M1.1 |
@@ -39,6 +39,7 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0025 | `topolith.standalone` is set while another module with a descriptor is `internal` | failure | M1 gate (AC-MODE-31) |
 | TL0026 | An external module has no usable client: spring-web or Boot's HTTP service-client auto-configuration (`spring-boot-starter-restclient`) is missing, a provided contract cannot be loaded, or it carries no `@HttpExchange` | failure | M2.1 (AC-EXT-26..28) |
 | TL0027 | A contract's exceptions cannot cross HTTP: a contract method of an internal or external module declares a checked exception, or a concrete unchecked exception class in its api packages is not public, has neither a public `(String)` nor a public no-arg constructor, or carries a `@ResponseStatus` (direct, composed or inherited) that is not 4xx or 5xx. Raised in every topology, a monolith too | failure | M2.3 (AC-EXT-30) |
+| TL0028 | A module is exposed (`topolith.modules.<id>.expose.enabled=true`) in a reactive (WebFlux) application, which has no exposure support (D-43, D-44) | failure | M2.4 (AC-EXT-11) |
 
 The owning slice names the slice that owns the code's acceptance criterion, not the first slice that raises it. M1.3
 raises TL0007 early, only when a host's component scan covers a non-internal module's package (AC-MODE-24); M1.4 also

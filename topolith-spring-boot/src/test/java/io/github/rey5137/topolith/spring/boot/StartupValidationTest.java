@@ -80,7 +80,7 @@ class StartupValidationTest {
         String mode = "topolith.modules.alpha.mode=external";
         String url = "topolith.modules.alpha.remote.url=http://localhost";
         run(context -> {
-            assertEquals("http://localhost", context.getEnvironment().getProperty(
+            assertEquals("http://localhost/alpha", context.getEnvironment().getProperty(
                     "spring.http.serviceclient.alpha.base-url"));
             assertEquals("2s", context.getEnvironment().getProperty("spring.http.serviceclient.alpha.connect-timeout"));
             assertEquals("5s", context.getEnvironment().getProperty("spring.http.serviceclient.alpha.read-timeout"));
@@ -120,7 +120,7 @@ class StartupValidationTest {
         descriptor("modules", "alpha", module("alpha", "", ""));
         run(context -> assertNull(context.getStartupFailure()), "topolith.modules.alpha.mode=external",
                 "topolith.modules.alpha.remote.url=HTTP://Svc:8080/",
-                "spring.http.serviceclient.alpha.base-url=http://svc:8080");
+                "spring.http.serviceclient.alpha.base-url=http://svc:8080/alpha");
         run(context -> {
             String message = failure(context, TopolithCode.TL0003).getMessage();
             assertTrue(message.contains("topolith.modules.alpha.remote.connect-timeout"), message);

@@ -23,7 +23,14 @@ import io.github.rey5137.topolith.spring.cloud.fixture.user.api.UserContract;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.test.context.FilteredClassLoader;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.junit.jupiter.api.extension.ExtendWith;
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -35,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** M2.2 acceptance tests: a service id resolves through Spring Cloud LoadBalancer and a DiscoveryClient. */
+@ExtendWith(OutputCaptureExtension.class)
 class DiscoveryTest {
     private static final String API = UserContract.class.getPackageName();
     private static final String PACKAGE = "io.github.rey5137.topolith.spring.cloud.fixture.user";
@@ -134,7 +142,7 @@ class DiscoveryTest {
         // the same service id on Boot's key is no conflict
         run(context -> assertNull(context.getStartupFailure()), "topolith.modules.user.mode=external",
                 "topolith.modules.user.remote.service-id=users-service",
-                "spring.http.serviceclient.user.base-url=lb://users-service");
+                "spring.http.serviceclient.user.base-url=lb://users-service/user");
     }
 
     @Test
@@ -160,10 +168,10 @@ class DiscoveryTest {
                 assertEquals("pong", context.getBean(UserContract.class).ping());
             }, "topolith.modules.user.mode=external", "topolith.modules.user.remote.url=  ",
                     "topolith.modules.user.remote.service-id=users-service",
-                    "spring.http.serviceclient.user.base-url=lb://users-service",
+                    "spring.http.serviceclient.user.base-url=lb://users-service/user",
                     "spring.cloud.discovery.client.simple.instances.users-service[0].uri=http://127.0.0.1:"
                             + server.getAddress().getPort());
-            run(context -> assertEquals("lb://users-service",
+            run(context -> assertEquals("lb://users-service/user",
                     context.getEnvironment().getProperty("spring.http.serviceclient.user.base-url")),
                     "topolith.modules.user.mode=external", "topolith.modules.user.remote.url=",
                     "topolith.modules.user.remote.service-id=users-service");
@@ -180,6 +188,45 @@ class DiscoveryTest {
                 assertTrue(context.getBeansOfType(UserContract.class).isEmpty());
                 assertNull(context.getEnvironment().getProperty("spring.http.serviceclient.user.base-url"));
             }, "topolith.modules.user.mode=" + mode, "topolith.modules.user.remote.service-id=users-service");
+        }
+    }
+
+    @Test
+    void ac_val_07_the_version_endpoint_is_read_through_the_load_balancer(CapturedOutput output) throws Exception {
+        HttpServer server = stub();
+        AtomicInteger hits = new AtomicInteger();
+        server.createContext("/user/.topolith/api-version", exchange -> {
+            hits.incrementAndGet();
+            byte[] body = "3.0.0".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/plain");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        try {
+            run(context -> {
+                assertNull(context.getStartupFailure());
+                var source = context.getSourceApplicationContext();
+                source.publishEvent(new ApplicationReadyEvent(new SpringApplication(), new String[0], source,
+                        Duration.ZERO));
+                try {
+                    // the remote check runs on its own thread: wait for it (package-private in the boot module)
+                    Object readiness = context.getBean("topolithVersionReadiness");
+                    java.lang.reflect.Method await = readiness.getClass().getDeclaredMethod("await", long.class,
+                            java.util.concurrent.TimeUnit.class);
+                    await.setAccessible(true);
+                    assertTrue((boolean) await.invoke(readiness, 10L, java.util.concurrent.TimeUnit.SECONDS));
+                } catch (ReflectiveOperationException e) {
+                    throw new IllegalStateException(e);
+                }
+                // the service id resolved, so the request reached the instance, and 3 differs from 1.0.0
+                assertEquals(1, hits.get());
+                assertTrue(output.getAll().contains("TL0023"), output.getAll());
+            }, "topolith.modules.user.mode=external", "topolith.modules.user.remote.service-id=users-service",
+                    "spring.cloud.discovery.client.simple.instances.users-service[0].uri=http://127.0.0.1:"
+                            + server.getAddress().getPort());
+        } finally {
+            server.stop(0);
         }
     }
 }

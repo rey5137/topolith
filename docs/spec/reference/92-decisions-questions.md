@@ -99,6 +99,12 @@ M3.2 baseline tooling generates `META-INF/topolith/baseline/<id>.txt` in the ref
 ArchUnit store. Each violation is a line formatted `<referencing class FQN> -> <referenced class FQN>`; blank lines and
 lines starting with `#` are ignored. The startup boundary check reads the packaged resource to recognize violations.
 
+### D-26 — Committed slices need named tests (M0 gate)
+
+A criterion's owning slice excuses a missing named test only until that slice is committed. The audit reads committed
+slices from commit subjects in the checked-out history (`(Mn.m)` or `(Mn.m, …)`), so CI checks out full history; the
+audit fails when it cannot read that history. A squash merge whose subject names no slice leaves its criteria pending.
+
 ## Open questions
 
 | Id | Status | Question |

@@ -16,7 +16,7 @@ class AuditTest(unittest.TestCase):
         self.spec = self.root / 'spec'
         self.spec.mkdir()
 
-    def run_audit(self, definitions, java='', python=''):
+    def run_audit(self, definitions, java='', python='', committed=''):
         (self.spec / 'criteria.md').write_text(definitions)
         if java:
             path = self.root / 'module/src/test/java/Example.java'
@@ -26,8 +26,13 @@ class AuditTest(unittest.TestCase):
             path = self.root / '.github/scripts/test_example.py'
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(python)
-        return subprocess.run([sys.executable, str(SCRIPT), '--spec', str(self.spec), '--root', str(self.root)],
-                              text=True, capture_output=True)
+        args = [sys.executable, str(SCRIPT), '--spec', str(self.spec), '--root', str(self.root)]
+        if committed is not None:
+            args += ['--committed-slices', committed]
+        return subprocess.run(args, text=True, capture_output=True)
+
+    def git(self, *args):
+        subprocess.run(['git', '-C', str(self.root), *args], check=True, capture_output=True)
 
     def test_ac_ci_05_java_named_test(self):
         result = self.run_audit('- AC-FOO-01: text\n', '@Test void ac_foo_01_example() {}')
@@ -67,8 +72,8 @@ class AuditTest(unittest.TestCase):
         self.assertIn('criteria', result.stdout.lower())
 
     def run_missing_spec(self):
-        return subprocess.run([sys.executable, str(SCRIPT), '--spec', str(self.spec), '--root', str(self.root)],
-                              text=True, capture_output=True)
+        return subprocess.run([sys.executable, str(SCRIPT), '--spec', str(self.spec), '--root', str(self.root),
+                               '--committed-slices', ''], text=True, capture_output=True)
 
     def test_ac_ci_06_commented_test(self):
         result = self.run_audit('- AC-FOO-01: text\n', '// @Test void ac_foo_01_example() {}')
@@ -121,6 +126,37 @@ class AuditTest(unittest.TestCase):
         self.assertNotIn('continue-on-error', workflow)
         result = self.run_audit('- AC-FOO-01: text\n')
         self.assertNotEqual(result.returncode, 0)
+
+    def test_ac_ci_08_committed_slice_needs_test(self):
+        result = self.run_audit('- AC-FOO-01 (M1.2): text\n- AC-FOO-02 (M1.3): text\n', committed='M1.2')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('criteria.md:1 AC-FOO-01: no named test and owning slice M1.2 is committed', result.stdout)
+        self.assertNotIn('AC-FOO-02', result.stdout)
+
+    def test_ac_ci_08_committed_slice_with_test(self):
+        java = 'class Example { @Test void ac_foo_01_example() {} }'
+        result = self.run_audit('- AC-FOO-01 (M1.2): text\n', java=java, committed='M1.2')
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_ac_ci_08_reads_commit_subjects(self):
+        self.git('init', '-q')
+        for subject in ('build: skeleton (M1.2)', 'ci: gate (M1.3, AC-FOO-03)', 'docs: plan M1.4 and (M1.5 draft)'):
+            self.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', subject)
+        criteria = ''.join(f'- AC-FOO-0{n} (M1.{n}): text\n' for n in range(2, 6))
+        result = self.run_audit(criteria, committed=None)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('AC-FOO-02: no named test and owning slice M1.2 is committed', result.stdout)
+        self.assertIn('AC-FOO-03: no named test and owning slice M1.3 is committed', result.stdout)
+        self.assertNotIn('AC-FOO-04', result.stdout)
+        self.assertNotIn('AC-FOO-05', result.stdout)
+
+    def test_ac_ci_08_fails_without_git_history(self):
+        result = self.run_audit('- AC-FOO-01 (M1.2): text\n', committed=None)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('cannot read git history', result.stdout)
+
+    def test_ac_ci_08_ci_fetches_full_history(self):
+        self.assertRegex(WORKFLOW.read_text(), r'(?m)^\s+fetch-depth:\s*0\s*$')
 
 
 if __name__ == '__main__':

@@ -25,9 +25,12 @@ The pull-request gate runs on JDK 21 and 25 and includes the build and acceptanc
 
 ### R-CI-03 — Acceptance-criterion audit
 
-Every criterion has a test named after its id or names its owning milestone slice while that test is still pending.
-Criterion definitions have unique ids. Implements P-4 and P-6.
+Every criterion has a test named after its id, or names an owning milestone slice that is not yet committed. A slice
+is committed once a commit subject in the checked-out history names it as `(Mn.m)` or `(Mn.m, …)` (D-26). Criterion
+definitions have unique ids. Implements P-4 and P-6.
 
-- AC-CI-05 (M0.4): The audit accepts a criterion with a matching named test or an owning milestone slice.
+- AC-CI-05 (M0.4): The audit accepts a criterion with a matching named test or an uncommitted owning milestone slice.
 - AC-CI-06 (M0.4): The audit fails a criterion with neither a matching test nor an owning milestone slice.
 - AC-CI-07 (M0.4): The audit fails duplicate criterion definitions.
+- AC-CI-08 (M0.4): The audit fails a criterion without a matching test once its owning slice is committed, and fails
+  when it cannot read the git history.

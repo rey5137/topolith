@@ -39,7 +39,7 @@ starter hint. Implements INV-4 and P-3. Its criterion is AC-EXT-06.
 
 At readiness compare the host `*-api` JAR's API descriptor `api-version` major against the internal module's
 descriptor major, or for an external module against its remote provider's version read from
-`/<id>/.topolith/api-version`. A mismatch logs warning TL0023 once and neither fails startup nor changes readiness
+`/<id>/.topolith/api-version` (plain text; D-44 to D-47). The remote read is asynchronous (D-24). A mismatch logs warning TL0023 once and neither fails startup nor changes readiness
 (D-34). Use the mandatory client timeouts in R-EXT-03 for the
 remote check. If the endpoint is unreachable, returns any non-2xx response, or returns a 2xx response without a readable
 version, log warning TL0015; the failed version check does not make an otherwise-ready host unready. Implements INV-4,

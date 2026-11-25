@@ -48,7 +48,8 @@ final class TopolithModuleImportSelector
 
     @Override
     public String[] selectImports(AnnotationMetadata importingClassMetadata) {
-        Topology topology = TopologyResolver.resolve(beanFactory, environment, classLoader).topology();
+        TopologyResolver.Resolution resolution = TopologyResolver.resolve(beanFactory, environment, classLoader);
+        Topology topology = resolution.topology();
         ExternalClientProperties.register(environment, topology);
         checkHostScan(topology);
         List<String> imports = new ArrayList<>();
@@ -58,6 +59,17 @@ final class TopolithModuleImportSelector
         if (!topology.internal().isEmpty()
                 && ClassUtils.isPresent("org.springframework.web.servlet.DispatcherServlet", classLoader)) {
             imports.add("io.github.rey5137.topolith.spring.boot.ModuleErrorsConfiguration");
+            imports.add("io.github.rey5137.topolith.spring.boot.ExposureConfiguration");
+            if (!resolution.exposed().isEmpty()) {
+                imports.add("io.github.rey5137.topolith.spring.boot.ExposedApiVersionConfiguration");
+            }
+        }
+        if (!topology.internal().isEmpty()
+                && ClassUtils.isPresent("org.springframework.transaction.PlatformTransactionManager", classLoader)) {
+            imports.add("io.github.rey5137.topolith.spring.boot.ContractBoundaryConfiguration");
+        }
+        if (!resolution.exposed().isEmpty()) {
+            imports.add("io.github.rey5137.topolith.spring.boot.ReactiveExposureConfiguration");
         }
         if (!topology.idsOf(Mode.EXTERNAL).isEmpty() && ClassUtils.isPresent(
                 "org.springframework.web.service.registry.AbstractHttpServiceRegistrar", classLoader)) {

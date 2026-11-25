@@ -5,7 +5,7 @@ import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
 
 /** A contract whose implementation throws each kind of exception R-EXT-04 distinguishes, chosen by {@code case}. */
-@HttpExchange("/account")
+@HttpExchange
 public interface AccountContract {
     @GetExchange("/find")
     String find(@RequestParam("case") String failure);

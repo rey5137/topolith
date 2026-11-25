@@ -18,7 +18,9 @@ interface remains supported. Implements INV-5, INV-8 and D-3.
 ### R-EXT-02 — Endpoint and discovery
 
 Exactly one of `remote.url` and `remote.service-id` is required for an external module; otherwise fail with TL0003.
-Map `remote.url` to `spring.http.serviceclient.<id>.base-url`. Service ids use `lb://` and Spring Cloud LoadBalancer
+Map `remote.url` plus the provider's fixed `/<id>` prefix to `spring.http.serviceclient.<id>.base-url` (D-45): a
+contract's `@HttpExchange` paths are relative to that prefixed URL. Service ids use `lb://<service-id>/<id>` and
+Spring Cloud LoadBalancer
 with a `DiscoveryClient`; if the integration is absent, fail with TL0009 and name the starter to add.
 Implements INV-4, INV-8 and P-3.
 
@@ -87,13 +89,16 @@ failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6
 
 ### R-EXT-05 — Exposure
 
-Each module's exposed endpoints use the fixed `/<id>` prefix. `expose.enabled` controls exposure, which is off in a
-monolith; exposed endpoints have a `SecurityFilterChain` hook. One application has one discovery registration.
-Implements INV-8 and P-2.
+Each module's exposed endpoints use the fixed `/<id>` prefix. `topolith.modules.<id>.expose.enabled` controls exposure of
+all the module's routes and is `false` in every topology, so a monolith serves none; a module that is not internal, or
+a reactive host, cannot be exposed (TL0003, TL0028; D-44). Exposed endpoints have a security hook: the public
+`ExposedEndpoints` and `ExposedRequestMatcher` beans, for the host's own `SecurityFilterChain` (D-46). One application
+has one discovery registration. Implements INV-8 and P-2.
 
 - AC-EXT-11 (M2.4): An exposed module's endpoint uses its fixed id prefix in each topology.
 - AC-EXT-12 (M2.4): A monolith defaults exposure off, and disabling exposure removes that module's routes.
-- AC-EXT-13 (M2.4): A host can supply security through the exposed-endpoint `SecurityFilterChain` hook.
+- AC-EXT-13 (M2.4): A host can supply security through the exposed-endpoint hook: a matcher over every exposed prefix
+  for its own `SecurityFilterChain`, and no chain registered by Topolith.
 - AC-EXT-14 (M2.4): An application exposing multiple modules registers once with discovery.
 
 ### R-EXT-06 — Client customization
@@ -104,8 +109,10 @@ The host can configure a module client with `ModuleClients.restClientBuilder(<id
 
 ### R-EXT-07 — Internal transaction boundary
 
-An internal contract call suspends the caller's transaction with `NOT_SUPPORTED`; the callee's own transaction
-annotation decides whether it starts one. An active caller transaction emits a warning metric. Implements INV-6, D-2.
+An internal contract call suspends the caller's transaction with `NOT_SUPPORTED`, for every caller and in front of the
+callee's own transaction interceptor; the callee's own transaction annotation decides whether it starts one. An active
+caller transaction increments the counter `topolith.contract.calls.in.transaction` (tags `module`, `contract`). Implements
+INV-6, D-2, D-47.
 
 - AC-EXT-16 (M2.4): A caller transaction is suspended during an internal contract call and resumes afterward.
 - AC-EXT-17 (M2.4): The callee's own transaction policy applies and an active caller transaction emits a warning metric.

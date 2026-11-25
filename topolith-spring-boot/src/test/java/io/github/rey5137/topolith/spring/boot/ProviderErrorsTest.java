@@ -60,6 +60,7 @@ class ProviderErrorsTest {
                     .withClassLoader(loader).withUserConfiguration(ErrorHost.class)
                     .withPropertyValues("server.port=0", "spring.liquibase.enabled=false",
                             "topolith.modules.account.mode=" + mode, "topolith.modules.payment.mode=none",
+                            "topolith.modules.account.expose.enabled=" + mode.equals("internal"),
                             "topolith.modules.account.remote.url=http://localhost:1")
                     .run(context -> {
                         assertNull(context.getStartupFailure());
@@ -75,7 +76,7 @@ class ProviderErrorsTest {
         return context.getSourceApplicationContext(ServletWebServerApplicationContext.class).getWebServer().getPort();
     }
 
-    private static Answer get(AssertableWebApplicationContext context, String path) {
+    static Answer get(AssertableWebApplicationContext context, String path) {
         int port = port(context);
         try {
             HttpResponse<String> response = HTTP.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port

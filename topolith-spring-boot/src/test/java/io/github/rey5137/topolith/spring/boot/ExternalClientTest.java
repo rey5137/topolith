@@ -165,7 +165,7 @@ class ExternalClientTest {
             var settings = context.getBean(HttpServiceClientProperties.class).get("remote");
             assertEquals(Duration.ofSeconds(2), settings.getConnectTimeout());
             assertEquals(Duration.ofSeconds(5), settings.getReadTimeout());
-            assertEquals("http://localhost:1", settings.getBaseUrl());
+            assertEquals("http://localhost:1/remote", settings.getBaseUrl());
         }, external, url);
         run(context -> {
             var settings = context.getBean(HttpServiceClientProperties.class).get("remote");

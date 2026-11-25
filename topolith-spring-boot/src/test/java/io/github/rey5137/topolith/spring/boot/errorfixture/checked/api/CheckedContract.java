@@ -5,7 +5,7 @@ import java.io.IOException;
 import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
 
-@HttpExchange("/checked")
+@HttpExchange
 public interface CheckedContract {
     @GetExchange("/read")
     String read() throws IOException;

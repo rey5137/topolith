@@ -44,6 +44,40 @@ class TopologyTest {
     private final ModuleDescriptor payment = module("payment", "com.acme.payment", "user");
 
     @Test
+    void ac_val_02_internal_and_external_api_providers_conflict() {
+        ModuleDescriptor internal = ModuleDescriptor.builder("alpha").packageName("fixture.alpha")
+                .apiPackages(List.of("fixture")).apiVersion("1.0").provides(List.of("fixture.Contract")).build();
+        ApiDescriptor external = ApiDescriptor.builder("beta").apiPackages(List.of("fixture")).apiVersion("1.0")
+                .provides(List.of("fixture.Contract")).build();
+        TopolithException failure = fails(List.of(internal), List.of(external),
+                modes("alpha", "internal", "beta", "external"), null);
+        assertEquals(List.of(TopolithCode.TL0005), codes(failure));
+        assertTrue(failure.getMessage().contains("fixture.Contract"));
+        assertTrue(failure.getMessage().contains("alpha") && failure.getMessage().contains("beta"));
+    }
+
+    @Test
+    void ac_val_02_matching_internal_api_is_not_a_second_provider() {
+        ModuleDescriptor internal = ModuleDescriptor.builder("alpha").packageName("fixture.alpha")
+                .apiPackages(List.of("fixture")).apiVersion("1.0").provides(List.of("fixture.Contract")).build();
+        ApiDescriptor api = ApiDescriptor.builder("alpha").apiPackages(List.of("fixture")).apiVersion("1.0")
+                .provides(List.of("fixture.Contract")).build();
+        assertEquals(Mode.INTERNAL, Topology.resolve(List.of(internal), List.of(api),
+                modes("alpha", "internal"), null).mode("alpha"));
+    }
+
+    @Test
+    void ac_val_04_external_module_and_api_may_declare_different_contracts() {
+        ModuleDescriptor external = ModuleDescriptor.builder("alpha").packageName("fixture.alpha")
+                .apiPackages(List.of("fixture")).apiVersion("1.0")
+                .provides(List.of("fixture.ImplementationContract")).build();
+        ApiDescriptor api = ApiDescriptor.builder("alpha").apiPackages(List.of("fixture")).apiVersion("1.0")
+                .provides(List.of("fixture.ApiContract")).build();
+        assertEquals(Mode.EXTERNAL, Topology.resolve(List.of(external), List.of(api),
+                modes("alpha", "external"), null).mode("alpha"));
+    }
+
+    @Test
     void ac_mode_01_each_explicit_mode_resolves_to_its_declared_value() {
         Topology topology = Topology.resolve(List.of(user, payment), List.of(),
                 modes("user", "internal", "payment", " External "), null);

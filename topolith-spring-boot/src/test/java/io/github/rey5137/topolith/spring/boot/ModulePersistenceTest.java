@@ -185,6 +185,10 @@ class ModulePersistenceTest {
         try (RecordingLoader loader = new RecordingLoader(parent, roots.toArray(Path[]::new))) {
             new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(host)
                     .withPropertyValues("spring.liquibase.enabled=false")
+                    .withPropertyValues("topolith.modules.ledger.remote.url=http://localhost",
+                            "topolith.modules.billing.remote.url=http://localhost",
+                            "topolith.modules.audit.remote.url=http://localhost",
+                            "topolith.modules.inventory.remote.url=http://localhost")
                     .withPropertyValues(properties.toArray(String[]::new)).run(context -> {
                         try {
                             assertions.check(context);

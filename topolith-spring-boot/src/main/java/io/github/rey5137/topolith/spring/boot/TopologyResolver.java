@@ -1,9 +1,15 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.math.BigInteger;
 
+import io.github.rey5137.topolith.core.ApiDescriptor;
 import io.github.rey5137.topolith.core.Diagnostic;
+import io.github.rey5137.topolith.core.Mode;
+import io.github.rey5137.topolith.core.ModuleDescriptor;
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.core.Topology;
@@ -32,7 +38,8 @@ final class TopologyResolver {
     }
 
     /** The topology with the discovery facts the filter and the persistence checks need. */
-    record Resolution(Topology topology, Map<String, String> importOwners, Map<String, String> rootOwners) {
+    record Resolution(Topology topology, Map<String, String> importOwners, Map<String, String> rootOwners,
+            List<String> versionWarnings) {
     }
 
     private TopologyResolver() {
@@ -82,6 +89,37 @@ final class TopologyResolver {
         String standalone = env.getProperty(STANDALONE);
         Topology topology = Topology.resolve(found.modules(), found.apis(), declared,
                 standalone == null || standalone.isBlank() ? null : standalone.trim());
-        return new Resolution(topology, found.importOwners(), found.rootOwners());
+        List<Diagnostic> problems = new ArrayList<>();
+        topology.idsOf(Mode.EXTERNAL).forEach(id -> {
+                String prefix = MODES + "." + id + ".remote.";
+                String url = Binder.get(env).bind(prefix + "url", String.class).orElse("");
+                String service = Binder.get(env).bind(prefix + "service-id", String.class).orElse("");
+                if (url.isBlank() == service.isBlank()) {
+                    problems.add(new Diagnostic(TopolithCode.TL0003, "external module '" + id
+                            + "' must set exactly one of " + prefix + "url and " + prefix + "service-id.",
+                            "Set exactly one of " + prefix + "url and " + prefix + "service-id."));
+                }
+        });
+        if (!problems.isEmpty()) {
+            throw new TopolithException(problems);
+        }
+        List<String> warnings = new ArrayList<>();
+        for (ApiDescriptor api : found.apis()) {
+            if (topology.mode(api.id()) != Mode.INTERNAL) {
+                continue;
+            }
+            for (ModuleDescriptor module : found.modules()) {
+                if (api.id().equals(module.id()) && !major(api.apiVersion()).equals(major(module.apiVersion()))) {
+                    warnings.add(new Diagnostic(TopolithCode.TL0023, "module '" + api.id() + "' has API version "
+                            + api.apiVersion() + " and implementation version " + module.apiVersion() + ".",
+                            "Align the host API JAR and the implementation JAR major versions.").toString());
+                }
+            }
+        }
+        return new Resolution(topology, found.importOwners(), found.rootOwners(), List.copyOf(warnings));
+    }
+
+    private static BigInteger major(String version) {
+        return new BigInteger(version.split("[.-]", 2)[0]);
     }
 }

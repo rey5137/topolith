@@ -33,6 +33,8 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0019 | An internal module's own DataSource, entity-manager, transaction-manager, Flyway or Liquibase bean is a default candidate and would replace the host's | failure | M1.4 |
 | TL0020 | A module's migrations would not run exactly once: no runner or DataSource for its tool, both tools or several changelogs, a host migration location or changelog reaches them, or a tracking table name is too long | failure | M1.4 |
 | TL0021 | An internal module's entity is managed by no entity-manager factory, or by several | failure | M1.4 |
+| TL0022 | An internal module and its host API descriptor declare different contracts | failure | M1.5 |
+| TL0023 | A host API descriptor's `api-version` major differs from its module's descriptor or remote provider | warning | M1.5 |
 
 The owning slice names the slice that owns the code's acceptance criterion, not the first slice that raises it. M1.3
 raises TL0007 early, only when a host's component scan covers a non-internal module's package (AC-MODE-24); M1.4 also

@@ -66,6 +66,8 @@ class ModeActivationTest {
         try (RecordingLoader loader = new RecordingLoader(roots.toArray(Path[]::new))) {
             new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(host)
                     .withPropertyValues("spring.liquibase.enabled=false")
+                    .withPropertyValues("topolith.modules.user.remote.url=http://localhost",
+                            "topolith.modules.payment.remote.url=http://localhost")
                     .withPropertyValues(properties.toArray(String[]::new)).run(context -> {
                         try {
                             assertions.check(context, loader);

@@ -142,6 +142,34 @@ descriptor. `verify(ClassLoader)` finds the descriptors and the classes through 
   `org.hibernate.collection.spi.PersistentCollection` or `java.lang.reflect.Proxy`, or one annotated
   `jakarta.persistence.Entity`. All are matched by name, so no Spring Data, JPA or Hibernate dependency is needed.
 
+### D-57 — Frozen verify and baseline generation API (M3.2)
+
+`TopolithArchitecture` (`@Incubating`) adds `frozenRules(modules, apis)` (each of the five D-56 rules wrapped in
+ArchUnit's `FreezingArchRule`, store entry keyed by the rule text) and `verifyFrozen()`, `verifyFrozen(ClassLoader)`
+and `verifyFrozen(modules, apis, JavaClasses)`. The store is ArchUnit's, configured in `archunit.properties`
+(`freeze.store.default.path`); `allowStoreCreation` stays false and `allowStoreUpdate` true, so a new violation fails
+and a fixed one is dropped.
+
+- **No store** (`stored.rules` absent): `verifyFrozen` freezes nothing and behaves exactly as `verify`: clean classes
+  pass, a violation fails with the normal `AssertionError`. Nothing is created.
+- **Store without a Topolith rule** (an adopter's own frozen rules only, or a rule text changed): fails naming the
+  rule and `freeze.store.default.allowStoreCreation=true`; nothing is recorded silently.
+- **Opt-in:** `allowStoreCreation=true` for one run records the first baseline (and adds missing rules).
+  `freeze.refreeze=true` only re-records an existing store; it does not create one.
+- The cycle and consistency rules report from `finish` and freeze by message text.
+- A custom `freeze.store` class is used by `verifyFrozen` as configured, without the missing-rule check.
+
+`TopolithBaseline.generate(modules, apis, outputDir)` (and `generate(outputDir)` for the descriptors on the context
+class loader) is called from an adopter test or `main`; there is no Maven plugin. It reads the store entry of the
+non-API access rule only, whose messages start `<referencing class> -> <referenced class>: `, and writes one sorted,
+de-duplicated `META-INF/topolith/baseline/<id>.txt` per referencing module (owner of the referencing class); a stale
+file of a listed module with no violation left is deleted after the new files are written. Array-typed
+dependencies are skipped (the component dependency is reported separately). `generate` rejects a custom
+`freeze.store` class with an `IllegalStateException`, and `generate(outputDir)` fails like `verify` when no module
+descriptor is found. The format reader and writer are the JDK-only
+`io.github.rey5137.topolith.core.BoundaryBaseline`, in `topolith-core` so `topolith-spring-boot` (M3.3) can read the
+resource without depending on ArchUnit.
+
 ### D-50 — Client refresh mechanism (M2.6)
 
 A refresh never replaces the group's `RestClient`, its proxies or the proxy factory advice (D-43), which the

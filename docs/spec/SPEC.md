@@ -20,23 +20,22 @@ what it is for in its first five lines, so you can route without reading the bod
 
 ### Routing table
 
-Child files are written in milestone M0 (`docs/plan/mvp-plan.md` §1, slice M0.1). Until a file exists, RFC 0001 is the
-reference for its area.
+Child files are written in milestone M0 (`docs/plan/mvp-plan.md` §1, slice M0.1).
 
 | If you are working on… | Read |
 |---|---|
 | Anything at all | this file (invariants, principles) |
-| `@TopolithModule`, the descriptor format, `provides` inference, api descriptors | `api/10` |
-| Modes, mode resolution, inclusion-based activation, persistence and migration filtering | `api/11` |
-| External mode: HTTP service groups, `remote.url` / `remote.service-id`, timeouts, errors, exposure | `api/12` |
-| Startup validation, the actuator endpoint, `TLnnnn` diagnostics | `api/13` |
-| ArchUnit boundary rules, the frozen baseline, the startup ownership check | `test/20` |
-| `topolith-test`: mode matrix, test helpers | `test/21` |
-| Test layers, CI gates, the AC audit | `delivery/60` |
-| Module layout, dependency rules, releases, publishing, license, RFCs | `delivery/61` |
-| Milestones, release scope, exclusions | `delivery/62` |
-| `TLnnnn` codes, exception catalog, glossary | `reference/90` |
-| Why a design choice was made; open questions for the owner | `reference/92` |
+| `@TopolithModule`, the descriptor format, `provides` inference, api descriptors | `api/10-descriptors.md` |
+| Modes, activation, persistence and migration filtering | `api/11-modes-activation.md` |
+| External HTTP groups, endpoints, timeouts, errors, exposure | `api/12-external.md` |
+| Startup validation, the actuator endpoint, `TLnnnn` diagnostics | `api/13-validation-actuator.md` |
+| ArchUnit boundary rules, the frozen baseline, the startup ownership check | `test/20-boundaries.md` |
+| `topolith-spring-test`: mode test configuration, test helpers | `test/21-test-helpers.md` |
+| Test layers, CI gates, the AC audit | `delivery/60-quality-ci.md` |
+| Module layout, dependency rules, releases, publishing, license, RFCs | `delivery/61-build-release.md` |
+| Milestones, release scope, exclusions | `delivery/62-roadmap.md` |
+| `TLnnnn` codes, exception catalog, glossary | `reference/90-catalog.md` |
+| Why a design choice was made; open questions for the owner | `reference/92-decisions-questions.md` |
 
 ### Identifier scheme
 

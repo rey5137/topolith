@@ -128,17 +128,13 @@ class LiquibaseModulesAutoConfiguration {
                 if (tool != Tool.LIQUIBASE) {
                     return;
                 }
-                List<String> dependsOn = new ArrayList<>(host);
-                for (String required : ModuleMigrations.runnersRequiredBy(topology, id, runners.keySet())) {
-                    dependsOn.add(runners.get(required).runnerName(required));
-                }
                 String changeLog = ModuleMigrations.location(id) + "/"
                         + ModuleMigrations.migrations(loader, id).master();
                 RootBeanDefinition definition = new RootBeanDefinition(ModuleLiquibase.class,
                         () -> new ModuleLiquibase(moduleLiquibase(factory, environment, id, changeLog,
                                 hostLiquibase)));
                 definition.setDefaultCandidate(false);
-                definition.setDependsOn(dependsOn.toArray(String[]::new));
+                definition.setDependsOn(ModuleMigrations.dependsOn(topology, id, runners, host));
                 registry.registerBeanDefinition(Tool.LIQUIBASE.runnerName(id), definition);
             });
         }

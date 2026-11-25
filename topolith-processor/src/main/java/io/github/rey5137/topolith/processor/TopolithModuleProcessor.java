@@ -353,12 +353,7 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
         }
         List<String> names = new ArrayList<>();
         for (String name : module.apiPackages()) {
-            PackageElement pkg = processingEnv.getElementUtils().getPackageElement(name);
-            for (Element member : pkg == null ? List.<Element>of() : pkg.getEnclosedElements()) {
-                if (member instanceof TypeElement type) {
-                    names.add(type.getQualifiedName().toString());
-                }
-            }
+            members(name).forEach(type -> names.add(type.getQualifiedName().toString()));
         }
         Set<String> declared = contracts.mostDerived(contracts.declared(contracts.allTypes(names),
                 module.apiPackages()));

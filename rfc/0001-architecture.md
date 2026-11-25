@@ -1,6 +1,7 @@
 # RFC 0001 — Topolith architecture
 
 - **Status:** accepted
+- **Note:** D-30 (M1.3) replaces the `TopolithImportRegistrar` of §2 and §3.2 with an import selector.
 - **Affects:** all initial `INV-*`, `P-*` and `D-1..D-5` (`docs/spec/SPEC.md`, `docs/spec/reference/92-decisions-questions.md`)
 - **Discussion:** none (founding RFC)
 

@@ -201,7 +201,8 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
         boolean classpath = !anyLocal;
         Set<TypeElement> implemented = implemented(declaration, contracts, compiled, apiPackages);
         Set<String> provides = contracts.mostDerived(implemented);
-        ModuleDescriptor module = ModuleDescriptor.builder(declaration.id()).apiPackages(sorted(declaration.api()))
+        ModuleDescriptor module = ModuleDescriptor.builder(declaration.id()).packageName(declaration.packageName())
+                .apiPackages(sorted(declaration.api()))
                 .provides(provides).requires(sorted(declaration.requires())).optional(sorted(declaration.optional()))
                 .apiVersion(version).build();
         if (sameCompilation) {

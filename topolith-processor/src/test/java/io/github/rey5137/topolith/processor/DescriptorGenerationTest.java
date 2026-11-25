@@ -63,13 +63,17 @@ class DescriptorGenerationTest {
     }
 
     @Test
-    void ac_desc_02_descriptor_records_id_packages_requires_and_optional() throws IOException {
+    void ac_desc_02_descriptor_records_id_package_api_packages_requires_and_optional() throws IOException {
         Javac.Result result = module(declaration("\"billing\", \"audit\"", "\"search\""));
         assertTrue(result.success(), result.errors());
-        ModuleDescriptor expected = ModuleDescriptor.builder("user").apiPackages(List.of("com.acme.user"))
+        ModuleDescriptor expected = ModuleDescriptor.builder("user").packageName("com.acme.user.impl")
+                .apiPackages(List.of("com.acme.user"))
                 .provides(List.of(LISTENER, "com.acme.user.UserService")).requires(List.of("audit", "billing"))
                 .optional(List.of("search")).apiVersion("1.4.2").build();
         assertEquals(expected, result.module("user"));
+        assertEquals("com.acme.user.impl", result.module("user").packageName());
+        assertTrue(Files.readString(result.file("META-INF/topolith/modules/user.properties"))
+                .contains("package=com.acme.user.impl\n"));
     }
 
     @Test

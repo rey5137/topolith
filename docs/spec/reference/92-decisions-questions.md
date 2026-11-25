@@ -16,7 +16,7 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-4 | Boundary and data-ownership checks **`fail` by default**; an adopted legacy repo starts from an ArchUnit **frozen baseline** that can only shrink | New code stays clean; old code starts green and only improves. Noisy, unranked violations kill adoption (Packwerk retrospective). | RFC 0001 §8, §11 |
 | D-5 | **Native images are out of 0.1.** Mode resolution stays deterministic from configuration so AOT works later; the AOT guard (INV-9) arrives in 0.2. | Not on the critical path; the design already allows it | RFC 0001 §9, §11 |
 | D-6 | **No in-JVM isolation of unmodified services** (child contexts). Legacy services join through the adoption checklist and are consumed `external` until then. | A child context sees every parent bean, so legacy auto-config silently uses the host's infrastructure; servlets can't be added after the host server starts; classpath-root resources shadow each other; one classpath forces one library version on all. | RFC 0001 §12 rows 1–2 |
-| D-7 | **Inclusion-based activation:** the host scans only its own package; a registrar imports internal modules and an `AutoConfigurationImportFilter` drops non-internal modules' auto-configurations; migrations live under `db/migration/<id>` | Component-scan exclusion misses auto-configurations, `@Import`, entity scanning and Flyway's merged migration path, breaking INV-2 | RFC 0001 §12 row 3 |
+| D-7 | **Inclusion-based activation:** the host scans only its own package; an import selector imports internal modules (D-30; first written as a registrar) and an `AutoConfigurationImportFilter` drops non-internal modules' auto-configurations; migrations live under `db/migration/<id>` | Component-scan exclusion misses auto-configurations, `@Import`, entity scanning and Flyway's merged migration path, breaking INV-2 | RFC 0001 §12 row 3 |
 | D-8 | **Modes are explicit in hosts** (INV-3); only a standalone `*-service` defaults its own module to `internal` | A transitive dependency on an implementation JAR must never activate a module silently | RFC 0001 §12 row 6 |
 | D-9 | The descriptor is **generated** from `@TopolithModule` on `package-info.java` by an annotation processor; a hand-written one is verified against the bytecode in the build | Hand-written package lists drift on refactoring; `.properties` has no trailing comments | RFC 0001 §12 row 7; Amended by D-19 |
 | D-10 | **Baseline:** Java 21, Spring Boot 4.2, Spring Framework 7; Spring Cloud 2026.0 only for discovery | Current GA lines at project start; HTTP service groups and their LoadBalancer configurer need Framework 7 / Boot 4 | —; Amended by D-20 |
@@ -38,6 +38,8 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-27 | Strict descriptor format with `format-version`; see below | Typos and drift fail loudly; relaxing later stays compatible | M1.1 architect review; owner |
 | D-28 | One unchecked `TopolithException` carrying coded diagnostics; see below | One failure-analyzer path; exact codes in tests; warnings are values | M1.1 architect review; owner |
 | D-29 | An API declaration on the api package, verified by the module build; see below | External hosts see only the API descriptor, so it must match the implementation | M1.2 architect review; owner |
+| D-30 | Module activation by a non-deferred import selector; see below | Module beans must exist before Boot's conditions run | M1.3 architect pre-read; owner |
+| D-31 | Mode resolution from known descriptors and explicit configuration; see below | Typos and silent activation fail loudly | M1.3 architect pre-read; owner |
 
 ### D-13 — Computed restart status (Q-3)
 
@@ -118,8 +120,8 @@ fail with TL0013. Lists are comma-separated, with entries trimmed, blank entries
 missing or empty `requires`, `optional` or `provides` means none. Required in both kinds: `format-version=1`, `id`
 (must match the file name, `[a-z][a-z0-9]*(-[a-z0-9]+)*`, at most 63 characters), a non-empty `api-packages`, and an
 `api-version` with a numeric major. `api-packages` lists exact packages, not their subpackages. `provides` entries lie
-in an api package. A module may not list itself, or list one id in both `requires` and `optional`. An API descriptor
-has no `requires` or `optional` key. The core parser raises TL0013; M1.5 makes startup fail with it. Starting strict
+in an api package. A module may not list itself, or list one id in both `requires` and `optional`. A module descriptor also requires `package` (M1.3, D-30): a valid
+package that is not one of its own `api-packages`. An API descriptor has no `package`, `requires` or `optional` key. The core parser raises TL0013; M1.5 makes startup fail with it. Starting strict
 is deliberate: relaxing a rule before 1.0 stays compatible, tightening one breaks hand-written descriptors.
 
 ### D-28 — Core failure reporting (M1.1)
@@ -154,6 +156,39 @@ processor options in the api pom (test-compile duplicates, stringly typed), gene
 (the api JAR is already built). Accepted strictness: a consumer-implemented SPI interface or a contract implemented
 only by a lambda or `@Bean` fails the build (Q-11).
 
+### D-30 — Module activation (M1.3)
+
+`TopolithAutoConfiguration`, ordered first, imports a non-deferred `TopolithModuleImportSelector`. The selector returns
+the internal modules' scan candidates: their `package`, less every known api package, with Boot's `TypeExcludeFilter`
+and `AutoConfigurationExcludeFilter` applied. Module descriptors carry a required `package` (format-version 1,
+pre-release; API descriptors have none). An auto-configuration is owned by a module if its name is under the module's
+package, or if an `AutoConfiguration.imports` file lists it and the imports file or the class (found as a resource,
+not loaded) is in the classpath root that holds the module's sole descriptor; two roots naming different modules own
+nothing. Module
+packages never nest (TL0017). A host component scan covering a non-internal module's package fails with TL0007.
+Imported classes get fully qualified default bean names (explicit `@Component("x")` names are kept).
+
+Rationale: classes imported by a selector are parsed before later auto-configurations, so Boot's conditions see module
+beans. Rejected: an `ImportBeanDefinitionRegistrar` (its imports are parsed in a second round, after Boot's
+`@ConditionalOnMissingBean` checks, which breaks AC-MODE-12), an initializer-registered
+`BeanDefinitionRegistryPostProcessor` (it also runs in the Spring Cloud bootstrap context and in no
+`ApplicationContextRunner`), package-only ownership (an auto-configuration outside the root would leak), and longest
+prefix ownership. This replaces the registrar wording of D-7 and RFC 0001 §3.2.
+
+### D-31 — Mode resolution (M1.3)
+
+A module is known when a module descriptor or an API descriptor carries its id. Each known module declares
+`topolith.modules.<id>.mode`, read through `Binder`, trimmed and case-insensitive. A missing or invalid mode is TL0001.
+A mode for an id that is not on the classpath is TL0016, or TL0002 when it is `internal`; `internal` for a module known
+only through its API descriptor is TL0002. `topolith.standalone=<id>` defaults only that module to `internal` and needs
+its module descriptor (TL0002). Topology is resolved once, in the order parse (TL0013), identity (TL0006, TL0017), graph
+(TL0008), modes (TL0001, TL0016, TL0002), requirements (TL0004), and cached as the `topolithTopology` bean. TL0004
+checks internal modules against `internal` plus `external` modules (D-21).
+
+Rejected: inferring the standalone service from the classpath or the artifact name, binding straight to an enum, and
+ignoring unknown ids. Known limit: an environment variable drops the hyphens of a map key, so a hyphenated module id
+set only by environment variable fails loudly (TL0001 and TL0016).
+
 ## Open questions
 
 | Id | Status | Question |
@@ -168,3 +203,4 @@ only by a lambda or `@Bean` fails the build (Q-11).
 | Q-10 | Answered (D-19) | Which slice owns the Maven plugin's hand-written descriptor verification goal? |
 | Q-11 | Open | Should `@TopolithModule` gain an explicit `provides` attribute for consumer-implemented SPI interfaces and lambda-only contracts, which D-29 rejects? |
 | Q-12 | Open | Should startup fail when a host's API JAR `provides` differs from the module descriptor (M1.5)? A new TL code needs reference/90 first. |
+| Q-13 | Open | Who owns the `META-INF/spring.factories` and `*ManagementContextConfiguration.imports` entries of a non-internal module's JAR (M3.3), which no `AutoConfigurationImportFilter` sees, and the guard for Topolith's auto-configuration being excluded while a module is internal? |

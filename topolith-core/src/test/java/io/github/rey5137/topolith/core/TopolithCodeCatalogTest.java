@@ -31,7 +31,7 @@ class TopolithCodeCatalogTest {
         for (TopolithCode code : TopolithCode.values()) {
             enumerated.put(code.id(), code.severity().name().toLowerCase(java.util.Locale.ROOT));
         }
-        assertEquals(15, table.size());
+        assertEquals(17, table.size());
         assertEquals(table, enumerated);
     }
 }

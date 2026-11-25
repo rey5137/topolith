@@ -18,7 +18,8 @@ final class DescriptorReader {
     private static final Set<String> API_KEYS =
             Set.of("format-version", "id", "api-packages", "api-version", "provides");
     private static final Set<String> MODULE_KEYS =
-            Set.of("format-version", "id", "api-packages", "api-version", "provides", "requires", "optional");
+            Set.of("format-version", "id", "package", "api-packages", "api-version", "provides", "requires",
+                    "optional");
 
     /** A byte-order mark is valid UTF-8 and is skipped, not read as part of the first key. */
     private static final int BYTE_ORDER_MARK = 0xFEFF;
@@ -89,6 +90,7 @@ final class DescriptorReader {
         data.apiPackages.addAll(list(properties.getProperty("api-packages")));
         data.provides.addAll(list(properties.getProperty("provides")));
         if (module) {
+            data.packageName = properties.getProperty("package");
             data.requires.addAll(list(properties.getProperty("requires")));
             data.optional.addAll(list(properties.getProperty("optional")));
         }

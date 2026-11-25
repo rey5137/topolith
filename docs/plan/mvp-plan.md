@@ -41,7 +41,7 @@ mechanism (D-7), since both are public contracts.
 
 **Exit:** a host with two modules runs each combination of `internal` and `none`; INV-2 holds by test.
 
-M1.3 uses `TopolithImportRegistrar` and `AutoConfigurationImportFilter`. M1.5 tests startup `TLnnnn` failures with
+M1.3 uses an import selector (D-30) and `AutoConfigurationImportFilter`. M1.5 tests startup `TLnnnn` failures with
 `ApplicationContextRunner` and covers its `api/13` and milestone-exit ACs.
 M1.4 uses filtered `PersistenceManagedTypes`, per-module repositories and `db/migration/<id>` locations, while
 preserving module-owned persistence configuration and preventing `none` contributions.

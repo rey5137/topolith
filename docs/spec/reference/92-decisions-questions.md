@@ -64,6 +64,10 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-53 | The contract's server-side implementation is the module's `@RestController`; see below | A service-only implementation uses a D-49 separate HTTP interface | M2 gate F2; amends D-3 and RFC 0001 §5 |
 | D-54 | INV-1 allows the types of `io.github.rey5137.topolith.contract` in business code; see below | Contract exceptions are Topolith types a module must throw and catch | M2 gate F4; amends INV-1; Q-20 |
 | D-55 | INV-6's "same exception types" covers declared contract exceptions and `ModuleUnavailableException`; see below | Undeclared exceptions are outside the guarantee in 0.1 | M2 gate F5; amends INV-6; Q-22 |
+| D-58 | A malformed packaged baseline fails with TL0030; see below | Invalid freeze data must not silently weaken startup checks | M3.3 owner decision |
+| D-59 | Module code may depend only on Topolith annotation and contract packages; see below | Prevent topology-dependent business behavior | M3.3 owner decision; closes Q-20 |
+| D-60 | Host scans covering internal modules fail TL0018; module beans making auto-configuration back off fail TL0031; see below | Avoid duplicate registration and silent default replacement | M3.3 owner decision; closes Q-14 |
+| D-61 | Non-internal module entries in management imports fail TL0007; see below | Close activation paths outside the imports filter | M3.3 owner decision; answers Q-13 in part |
 
 ### D-49 — Separate HTTP interface (M2.5)
 
@@ -141,6 +145,28 @@ descriptor. `verify(ClassLoader)` finds the descriptors and the classes through 
   `java.util.stream.BaseStream` (so `Stream`), `java.io.InputStream`, `org.hibernate.proxy.HibernateProxy`,
   `org.hibernate.collection.spi.PersistentCollection` or `java.lang.reflect.Proxy`, or one annotated
   `jakarta.persistence.Entity`. All are matched by name, so no Spring Data, JPA or Hibernate dependency is needed.
+
+### D-61 — Other module registration resources (M3.3)
+
+A bean definition is owned first by its declaring or factory-method class; API package classes are shared and do not
+confer module ownership. Otherwise, its resource belongs to a
+module when its path lies under that module’s package directory, or when it is inside a JAR containing only that
+module’s descriptor. A directory classpath root alone does not confer resource ownership.
+
+Boot 3 and later ignore the `META-INF/spring.factories` EnableAutoConfiguration key, so it is not checked. When actuator management auto-configuration is present, startup reads `META-INF/spring/*ManagementContextConfiguration.imports` resources and fails TL0007 naming the resource if an entry belongs to a non-internal module. The resource is checked directly because the management child context is never seen by the main context's bean-factory post-processor. The guard for excluding Topolith auto-configuration while a module is internal remains open past 0.1 (Q-13).
+
+### D-60 — Host scans and auto-configuration back-off (M3.3)
+
+A host component, servlet-component or configuration-properties scan at or above an internal module package fails TL0018, except for the standalone module's own package and scans that exclude the module's components. An internal module default-candidate bean that makes an auto-configuration's `@ConditionalOnMissingBean` back off fails TL0031 naming the module, bean and auto-configuration. Declare the bean `@Bean(defaultCandidate = false)` and inject it with a qualifier, or move it to the host. Persistence beans covered by TL0019 stay TL0019.
+
+### D-59 — Topolith dependencies in module code (M3.3)
+
+ArchUnit rejects dependencies from module or API code to `io.github.rey5137.topolith..` except its `annotation..` and `contract..` packages (D-43, D-54).
+
+### D-58 — Malformed packaged baselines (M3.3)
+
+A malformed packaged boundary baseline fails startup with TL0030 naming the resource and bad line. Regenerate it
+with the M3.2 tooling.
 
 ### D-57 — Frozen verify and baseline generation API (M3.2)
 
@@ -615,14 +641,14 @@ providers (D-27).
 | Q-10 | Answered (D-19) | Which slice owns the Maven plugin's hand-written descriptor verification goal? |
 | Q-11 | Open | Should `@TopolithModule` gain an explicit `provides` attribute for consumer-implemented SPI interfaces and lambda-only contracts, which D-29 rejects? |
 | Q-12 | Answered (D-33) | Should startup fail when a host's API JAR `provides` differs from the module descriptor (M1.5)? |
-| Q-13 | Open | Who owns the `META-INF/spring.factories` and `*ManagementContextConfiguration.imports` entries of a non-internal module's JAR (M3.3), which no `AutoConfigurationImportFilter` sees, and the guard for Topolith's auto-configuration being excluded while a module is internal? |
-| Q-14 | Open | Should Topolith handle general bean replacement (a module's default-candidate `JdbcTemplate`, `ObjectMapper`) and a host scan that covers an internal module, which registers its beans twice (M3.3)? |
+| Q-13 | Partly answered (D-61); exclusion guard open past 0.1 | How can Topolith detect its own auto-configuration being excluded while a module is internal? Management imports and the ignored `spring.factories` key are covered by D-61. |
+| Q-14 | Closed (D-60) | Should Topolith handle general bean replacement (a module's default-candidate `JdbcTemplate`, `ObjectMapper`) and a host scan that covers an internal module, which registers its beans twice (M3.3)? |
 | Q-15 | Answered (D-32) | Should Liquibase be supported for module migrations (it has one master changelog with explicit includes)? |
 | Q-16 | Open | Should Topolith run a Pattern A module's migrations on the module's own DataSource? |
 | Q-17 | Partly answered (M1.6) | Spring Data JDBC is registered per module in 0.1. Should Topolith register R2DBC, MongoDB and MyBatis per module? They stay at TL0024 in 0.1. |
 | Q-18 | Open | A host's `mybatis.mapper-locations` (for example `classpath*:mapper/**/*.xml`) can load a `none` module's mappers (INV-2); should it be a check like TL0020's host-location check? |
 | Q-19 | Open | A module with no contracts (listener-only, jobs) still has to declare an api package (`@TopolithModule.api()` is required and `api-packages` is non-empty); should that be relaxed (compatible later, D-27)? |
-| Q-20 | Open (M3.3) | `Topology` is an injectable public bean, so business code could branch on a module's mode (INV-1, INV-6); should M3.3 add an ArchUnit rule forbidding module code from depending on `topolith-core` (only the `annotation` and `contract` packages allowed, D-43)? |
+| Q-20 | Closed (D-59) | `Topology` is an injectable public bean, so business code could branch on a module's mode (INV-1, INV-6); should M3.3 add an ArchUnit rule forbidding module code from depending on `topolith-core` (only the `annotation` and `contract` packages allowed, D-43)? |
 | Q-21 | Open | Should a contract support checked exceptions (TL0027 rejects them) or carry exception payload beyond the message (fields, cause chain) across HTTP (D-43)? |
 | Q-22 | Open | Should a 404, 405 or 415, or a 401 or 403, without a Topolith problem become `ModuleUnavailableException` rather than an unspecified exception, and should a fixed JDK list (`IllegalArgumentException`, `IllegalStateException`, `UnsupportedOperationException`) count as declared (D-43)? |
 | Q-23 | Open | Should a refresh rebuild a group's Spring Cloud CircuitBreaker and retry settings (D-12, D-51), or stay restart-only? |

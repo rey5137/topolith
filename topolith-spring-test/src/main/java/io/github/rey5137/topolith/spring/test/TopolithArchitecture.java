@@ -192,6 +192,9 @@ public final class TopolithArchitecture {
                         .as("modules form no requires cycle (AC-ARCH-03)").allowEmptyShould(true),
                 classes().should(consistent(modules, ownership))
                         .as("descriptors are consistent: unique module ids and api packages").allowEmptyShould(true),
+                classes().should(topolithDependencies(ownership))
+                        .as("module code uses only Topolith annotation and contract packages (AC-ARCH-19)")
+                        .allowEmptyShould(true),
                 classes().should(contractTypes(ownership, apis))
                         .as("contract methods expose only value types (AC-ARCH-05)").allowEmptyShould(true));
     }
@@ -208,6 +211,24 @@ public final class TopolithArchitecture {
      */
     public static List<ArchRule> frozenRules(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis) {
         return rules(modules, apis).stream().map(rule -> (ArchRule) FreezingArchRule.freeze(rule)).toList();
+    }
+
+    private static ArchCondition<JavaClass> topolithDependencies(Ownership ownership) {
+        return new ArchCondition<>("depend only on Topolith annotation and contract packages") {
+            @Override
+            public void check(JavaClass type, ConditionEvents events) {
+                if (ownership.owner(type.getPackageName()) == null) {
+                    return;
+                }
+                for (Dependency dependency : type.getDirectDependenciesFromSelf()) {
+                    String target = dependency.getTargetClass().getPackageName();
+                    if ((target.equals("io.github.rey5137.topolith")
+                            || target.startsWith("io.github.rey5137.topolith.")) && !isShared(target)) {
+                        events.add(SimpleConditionEvent.violated(dependency, dependency.getDescription()));
+                    }
+                }
+            }
+        };
     }
 
     private static ArchCondition<JavaClass> nonApiAccess(Ownership ownership) {

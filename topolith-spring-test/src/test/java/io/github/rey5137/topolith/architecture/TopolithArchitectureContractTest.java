@@ -2,30 +2,30 @@ package io.github.rey5137.topolith.architecture;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.EntityOrder;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.FileStreamParam;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.GenericBase;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.GenericContract;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.InheritedBase;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.InheritedContract;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.IntStreamReturn;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.NestedContract;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.PageSubtypeReturn;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.PagedResult;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.SliceParam;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.EntityParam;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.EntityReturn;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.InputStreamParam;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.InputStreamReturn;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.NestedPageReturn;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.PageParam;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.PageReturn;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.ProxyParam;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.ProxyReturn;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.SliceReturn;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.StreamParam;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.StreamReturn;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.ValueContract;
+import fixture.architecture.contracts.EntityOrder;
+import fixture.architecture.contracts.FileStreamParam;
+import fixture.architecture.contracts.GenericBase;
+import fixture.architecture.contracts.GenericContract;
+import fixture.architecture.contracts.InheritedBase;
+import fixture.architecture.contracts.InheritedContract;
+import fixture.architecture.contracts.IntStreamReturn;
+import fixture.architecture.contracts.NestedContract;
+import fixture.architecture.contracts.PageSubtypeReturn;
+import fixture.architecture.contracts.PagedResult;
+import fixture.architecture.contracts.SliceParam;
+import fixture.architecture.contracts.EntityParam;
+import fixture.architecture.contracts.EntityReturn;
+import fixture.architecture.contracts.InputStreamParam;
+import fixture.architecture.contracts.InputStreamReturn;
+import fixture.architecture.contracts.NestedPageReturn;
+import fixture.architecture.contracts.PageParam;
+import fixture.architecture.contracts.PageReturn;
+import fixture.architecture.contracts.ProxyParam;
+import fixture.architecture.contracts.ProxyReturn;
+import fixture.architecture.contracts.SliceReturn;
+import fixture.architecture.contracts.StreamParam;
+import fixture.architecture.contracts.StreamReturn;
+import fixture.architecture.contracts.ValueContract;
 import io.github.rey5137.topolith.core.ApiDescriptor;
 import io.github.rey5137.topolith.core.ModuleDescriptor;
 import io.github.rey5137.topolith.core.TopolithCode;
@@ -39,9 +39,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TopolithArchitectureContractTest {
-    private static final String PACKAGE = "io.github.rey5137.topolith.architecture.fixtures.contracts";
+    private static final String PACKAGE = "fixture.architecture.contracts";
     private static final List<ModuleDescriptor> MODULES = List.of(ModuleDescriptor.builder("catalog")
-            .packageName("io.github.rey5137.topolith.architecture.fixtures")
+            .packageName("fixture.architecture")
             .apiPackages(List.of(PACKAGE)).apiVersion("1.0.0").build());
 
     private static void rejects(Class<?> contract, String exposed) {

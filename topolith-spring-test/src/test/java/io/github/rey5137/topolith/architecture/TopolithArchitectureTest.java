@@ -3,14 +3,15 @@ package io.github.rey5137.topolith.architecture;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.lang.ArchRule;
-import io.github.rey5137.topolith.architecture.fixtures.billing.BillingController;
-import io.github.rey5137.topolith.architecture.fixtures.billing.BillingImpl;
-import io.github.rey5137.topolith.architecture.fixtures.contracts.PageReturn;
-import io.github.rey5137.topolith.architecture.fixtures.billingapi.RemoteBillingApi;
-import io.github.rey5137.topolith.architecture.fixtures.shop.ShopHack;
-import io.github.rey5137.topolith.architecture.fixtures.shop.ShopHandlesOutage;
-import io.github.rey5137.topolith.architecture.fixtures.shop.ShopRemote;
-import io.github.rey5137.topolith.architecture.fixtures.shop.ShopService;
+import fixture.architecture.billing.BillingController;
+import fixture.architecture.billing.BillingImpl;
+import fixture.architecture.contracts.PageReturn;
+import fixture.architecture.billingapi.RemoteBillingApi;
+import fixture.architecture.shop.ShopHack;
+import fixture.architecture.shop.ShopHandlesOutage;
+import fixture.architecture.shop.ShopRemote;
+import fixture.architecture.shop.ShopService;
+import fixture.architecture.shop.ShopTopologyAccess;
 import io.github.rey5137.topolith.core.ApiDescriptor;
 import io.github.rey5137.topolith.core.Descriptors;
 import io.github.rey5137.topolith.core.ModuleDescriptor;
@@ -38,7 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TopolithArchitectureTest {
-    private static final String F = "io.github.rey5137.topolith.architecture.fixtures.";
+    private static final String F = "fixture.architecture.";
 
     private static ModuleDescriptor shop(List<String> requires, List<String> optional) {
         return ModuleDescriptor.builder("shop").packageName(F + "shop").apiPackages(List.of(F + "shop.api"))
@@ -65,6 +66,17 @@ class TopolithArchitectureTest {
 
     private static List<ModuleDescriptor> declared() {
         return List.of(shop(List.of("billing"), List.of()), billing(List.of(F + "billing.api"), List.of()));
+    }
+
+    @Test
+    void ac_arch_19_module_dependency_on_topolith_core_fails() {
+        AssertionError error = fails(declared(), List.of(), classes(ShopTopologyAccess.class));
+        assertTrue(error.getMessage().contains("Topology"), error.getMessage());
+    }
+
+    @Test
+    void ac_arch_20_module_dependency_on_contract_passes() {
+        passes(declared(), List.of(), classes(ShopHandlesOutage.class));
     }
 
     @Test
@@ -150,7 +162,7 @@ class TopolithArchitectureTest {
 
     @Test
     void rules_are_exposed_one_per_check() {
-        assertEquals(5, TopolithArchitecture.rules(declared(), List.of()).size());
+        assertEquals(6, TopolithArchitecture.rules(declared(), List.of()).size());
     }
 
     private static final Map<String, String> BILLING_SOURCES = Map.of(
@@ -218,6 +230,7 @@ class TopolithArchitectureTest {
         failing.put("AC-ARCH-05", () -> fails(List.of(ModuleDescriptor.builder("catalog").packageName(F + "shop")
                 .apiPackages(List.of(F + "contracts")).apiVersion("1.0.0").build()), List.of(),
                 classes(PageReturn.class)));
+        failing.put("AC-ARCH-19", () -> fails(declared(), List.of(), classes(ShopTopologyAccess.class)));
         List<ArchRule> rules = TopolithArchitecture.rules(declared(), List.of());
         for (ArchRule rule : rules) {
             List<String> keys = failing.keySet().stream().filter(rule.getDescription()::contains).toList();

@@ -4,6 +4,7 @@ import io.github.rey5137.topolith.spring.boot.fixture.shared.SharedService;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -12,6 +13,7 @@ import org.springframework.context.annotation.Bean;
  * {@code @AutoConfigureOrder} on Topolith's auto-configuration puts that one ahead of it.
  */
 @AutoConfiguration
+@ConditionalOnProperty(name = "test.later.enabled", havingValue = "true")
 public class LaterAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(SharedService.class)

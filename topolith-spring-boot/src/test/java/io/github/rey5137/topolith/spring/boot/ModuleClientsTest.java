@@ -58,6 +58,19 @@ class ModuleClientsTest {
     }
 
     @Test
+    void ac_arch_10_external_contract_client_is_not_module_owned() throws Exception {
+        descriptor("remote", RemoteContract.class);
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(temp)) {
+            new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(Host.class)
+                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.modules.remote.mode=external",
+                            "topolith.modules.remote.remote.url=http://localhost:8080").run(context -> {
+                                assertNull(context.getStartupFailure());
+                                assertNotNull(context.getBean(RemoteContract.class));
+                            });
+        }
+    }
+
+    @Test
     void ac_ext_15_only_named_group_receives_customization() throws Exception {
         descriptor("remote", RemoteContract.class);
         descriptor("local", LocalContract.class);

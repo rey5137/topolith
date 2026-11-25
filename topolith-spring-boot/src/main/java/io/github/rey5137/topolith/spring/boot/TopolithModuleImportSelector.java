@@ -20,12 +20,17 @@ import org.springframework.beans.factory.BeanClassLoaderAware;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurationExcludeFilter;
 import org.springframework.boot.context.TypeExcludeFilter;
 import org.springframework.context.EnvironmentAware;
 import org.springframework.context.ResourceLoaderAware;
 import org.springframework.context.annotation.ImportSelector;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.TypeFilterUtils;
+import org.springframework.beans.factory.support.BeanDefinitionRegistry;
+import org.springframework.context.annotation.ComponentScans;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.context.annotation.ScannedGenericBeanDefinition;
 import org.springframework.core.env.Environment;
@@ -98,6 +103,7 @@ final class TopolithModuleImportSelector
         if (!(beanFactory instanceof ConfigurableListableBeanFactory factory)) {
             return;
         }
+        checkDeclaredScans(factory, topology);
         Map<String, List<String>> scanned = new TreeMap<>();
         for (String name : factory.getBeanDefinitionNames()) {
             BeanDefinition definition = factory.getBeanDefinition(name);
@@ -119,6 +125,117 @@ final class TopolithModuleImportSelector
         if (!found.isEmpty()) {
             throw new TopolithException(found);
         }
+    }
+
+    private void checkDeclaredScans(ConfigurableListableBeanFactory factory, Topology topology) {
+        Map<String, String> annotations = Map.of(
+                "org.springframework.context.annotation.ComponentScan", "component scan",
+                "org.springframework.boot.web.servlet.ServletComponentScan", "servlet-component scan",
+                "org.springframework.boot.web.server.servlet.context.ServletComponentScan", "servlet-component scan",
+                "org.springframework.boot.context.properties.ConfigurationPropertiesScan",
+                "configuration-properties scan");
+        List<Diagnostic> found = new ArrayList<>();
+        for (String name : factory.getBeanDefinitionNames()) {
+            BeanDefinition definition = factory.getBeanDefinition(name);
+            if (!(definition instanceof AnnotatedBeanDefinition annotated)) {
+                continue;
+            }
+            AnnotationMetadata metadata = annotated.getMetadata();
+            if (topology.ownerOfClass(metadata.getClassName()).isPresent()) {
+                continue;
+            }
+            annotations.forEach((annotation, label) -> {
+                List<Map<String, Object>> scans = new ArrayList<>();
+                if (annotation.equals(ComponentScan.class.getName())) {
+                    var single = metadata.getAnnotationAttributes(annotation, false);
+                    if (single != null) {
+                        scans.add(single);
+                    }
+                    var repeated = metadata.getAnnotationAttributes(ComponentScans.class.getName(), false);
+                    if (repeated != null) {
+                        var values = (org.springframework.core.annotation.AnnotationAttributes[]) repeated.get("value");
+                        for (var item : values) {
+                            scans.add(item);
+                        }
+                    }
+                } else {
+                    var attributes = metadata.getAnnotationAttributes(annotation, true);
+                    if (attributes != null) {
+                        scans.add(attributes);
+                    }
+                }
+                scans.forEach(attributes -> {
+                Set<String> packages = new TreeSet<>();
+                for (String key : List.of("value", "basePackages", "basePackageClasses")) {
+                    Object value = attributes.get(key);
+                    if (value instanceof Class<?>[] classes) {
+                        for (Class<?> type : classes) {
+                            packages.add(ClassUtils.getPackageName(type));
+                        }
+                    } else if (value instanceof String[] values) {
+                        for (String item : values) {
+                            String resolved = environment.resolvePlaceholders(item);
+                            if (key.equals("basePackageClasses")) {
+                                resolved = ClassUtils.getPackageName(resolved);
+                            }
+                            packages.add(resolved);
+                        }
+                    }
+                }
+                if (packages.isEmpty()) {
+                    packages.add(ClassUtils.getPackageName(metadata.getClassName()));
+                }
+                for (String base : packages) {
+                    topology.modulePackages().forEach((id, modulePackage) -> {
+                        if (id.equals(TopologyResolver.standalone(environment)) || modulePackage == null
+                                || !(base.isEmpty() || modulePackage.equals(base)
+                                        || modulePackage.startsWith(base + "."))) {
+                            return;
+                        }
+                        boolean internal = topology.mode(id) == Mode.INTERNAL;
+                        if (!internal && annotation.endsWith("ComponentScan")
+                                && !annotation.endsWith("ServletComponentScan")) {
+                            return; // Existing registration check accounts for component-scan filters.
+                        }
+                        if (internal && annotation.equals(ComponentScan.class.getName())
+                                && excludedByScan(attributes, modulePackage, factory)) {
+                            return;
+                        }
+                        found.add(new Diagnostic(internal ? TopolithCode.TL0018 : TopolithCode.TL0007,
+                                "the host's " + label + " package '" + base + "' covers module '" + id
+                                        + "' (" + modulePackage + ").",
+                                "Narrow the host's scan to its own package."));
+                    });
+                }
+                });
+            });
+        }
+        if (!found.isEmpty()) {
+            throw new TopolithException(found);
+        }
+    }
+
+    private boolean excludedByScan(Map<String, Object> attributes, String modulePackage,
+            ConfigurableListableBeanFactory factory) {
+        Object value = attributes.get("excludeFilters");
+        if (!(value instanceof Map[] filters)
+                || filters.length == 0 || !(factory instanceof BeanDefinitionRegistry registry)) {
+            return false;
+        }
+        var scanner = new ClassPathScanningCandidateComponentProvider(true, environment);
+        if (resourceLoader != null) {
+            scanner.setResourceLoader(resourceLoader);
+        }
+        if (scanner.findCandidateComponents(modulePackage).isEmpty()) {
+            return false;
+        }
+        for (var filter : filters) {
+            TypeFilterUtils.createTypeFiltersFor(
+                    org.springframework.core.annotation.AnnotationAttributes.fromMap(filter),
+                    environment, resourceLoader, registry)
+                    .forEach(scanner::addExcludeFilter);
+        }
+        return scanner.findCandidateComponents(modulePackage).isEmpty();
     }
 
     private List<String> scan(Topology topology, String id) {

@@ -29,7 +29,7 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0015 | The remote API-version endpoint is unavailable or inaccessible | warning | M2.4 |
 | TL0016 | A mode is declared for a module that is not on the classpath | failure | M1.3 |
 | TL0017 | Module packages nest, or another module's API package lies under a module's package | failure | M1.3 |
-| TL0018 | The host's auto-configuration or entity-scan packages overlap a module's package, except the standalone module's own | failure | M1.4 |
+| TL0018 | The host's auto-configuration or entity-scan packages overlap a module's package, or its component, servlet-component or configuration-properties scan covers an internal module, except the standalone module's own (D-60) | failure | M1.4 |
 | TL0019 | An internal module's own DataSource, entity-manager, transaction-manager, Flyway, Liquibase or `AbstractJdbcConfiguration` bean is a default candidate and would replace the host's | failure | M1.4 |
 | TL0020 | A module's migrations would not run exactly once: no runner or DataSource for its tool, both tools or several changelogs, a host migration location or changelog reaches them, or a tracking table name is too long | failure | M1.4 |
 | TL0021 | An internal module's entity is managed by no entity-manager factory, or by several | failure | M1.4 |
@@ -41,11 +41,15 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0027 | A contract's exceptions cannot cross HTTP: a contract method of an internal or external module declares a checked exception, or a concrete unchecked exception class in its api packages is not public, has neither a public `(String)` nor a public no-arg constructor, or carries a `@ResponseStatus` (direct, composed or inherited) that is not 4xx or 5xx. Raised in every topology, a monolith too | failure | M2.3 (AC-EXT-30) |
 | TL0028 | A module is exposed (`topolith.modules.<id>.expose.enabled=true`) in a reactive (WebFlux) application, which has no exposure support (D-43, D-44) | failure | M2.4 (AC-EXT-11) |
 | TL0029 | A provider bean of an internal module that implements a provided contract is a `final` handler class (a `@Controller`, `@RestController` or `@RequestMapping` type) while a `PlatformTransactionManager` exists, so the contract transaction boundary (D-47) cannot proxy it by class; the fix is a non-final class (D-47); a `final` provider that is not a handler takes an interface proxy | failure | M2.4 (AC-EXT-16) |
+| TL0030 | A packaged boundary baseline is malformed; regenerate it with the M3.2 tooling (D-58) | failure | M3.3 (AC-ARCH-16) |
+| TL0031 | An internal module default-candidate bean makes an auto-configuration back off (D-60); make it a non-default candidate and use a qualifier, or move it to the host | failure | M3.3 (AC-ARCH-28) |
 
 The owning slice names the slice that owns the code's acceptance criterion, not the first slice that raises it. M1.3
 raises TL0007 early, only when a host's component scan covers a non-internal module's package (AC-MODE-24); M1.4 also
 raises it for a non-internal module's entity or repository that a host registers (AC-MODE-11); M3.3 generalises the
-check. A host migration location or changelog that reaches a non-internal module's scripts is TL0020 in every mode (AC-MODE-27). A known module is one with a module or API descriptor. TL0002 also covers an `internal` mode for
+check, including servlet-component and configuration-properties scans and artifact registration resources. M1.4 owns
+TL0018 for auto-configuration and entity scans; M3.3 owns its component, servlet-component and configuration-properties
+scan cases (D-60). A host migration location or changelog that reaches a non-internal module's scripts is TL0020 in every mode (AC-MODE-27). A known module is one with a module or API descriptor. TL0002 also covers an `internal` mode for
 an id with no module descriptor.
 
 Diagnostic criteria are AC-MODE-02, AC-MODE-05, AC-MODE-08, AC-MODE-21 through AC-MODE-24, AC-MODE-11, AC-MODE-25 through AC-MODE-28, AC-MODE-30, AC-MODE-31, AC-DESC-08,

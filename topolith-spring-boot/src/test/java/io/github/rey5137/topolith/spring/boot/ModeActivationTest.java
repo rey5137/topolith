@@ -118,7 +118,8 @@ class ModeActivationTest {
             return annotated.getFactoryMethodMetadata().getDeclaringClassName();
         }
         String factoryBean = definition.getFactoryBeanName();
-        if (definition.getBeanClassName() == null && factoryBean != null && context.containsBeanDefinition(factoryBean)) {
+        if (definition.getBeanClassName() == null && factoryBean != null
+                && context.containsBeanDefinition(factoryBean)) {
             return context.getBeanFactory().getBeanDefinition(factoryBean).getBeanClassName();
         }
         return definition.getBeanClassName();
@@ -269,15 +270,13 @@ class ModeActivationTest {
 
     @Test
     void ac_mode_04_a_module_bean_is_seen_by_the_conditions_of_a_later_auto_configuration() throws Exception {
-        run(List.of("topolith.modules.user.mode=internal", "topolith.modules.payment.mode=none"),
-                (context, loader) -> {
-                    assertTrue(has(context, "userSharedService"));
-                    assertFalse(has(context, "fallbackSharedService"), "the later @ConditionalOnMissingBean must "
-                            + "see the module's bean");
-                });
-        run(List.of("topolith.modules.user.mode=none", "topolith.modules.payment.mode=none"), (context, loader) -> {
+        run(List.of("topolith.modules.user.mode=internal", "topolith.modules.payment.mode=none",
+                "test.later.enabled=true"), (context, loader) ->
+                assertEquals(List.of(TopolithCode.TL0031), codes(context)));
+        run(List.of("topolith.modules.user.mode=none", "topolith.modules.payment.mode=none",
+                "test.later.enabled=true"), (context, loader) -> {
             assertFalse(has(context, "userSharedService"));
-            assertTrue(has(context, "fallbackSharedService"), "the control: without the module the default stays");
+            assertTrue(has(context, "fallbackSharedService"));
         });
     }
 
@@ -317,7 +316,8 @@ class ModeActivationTest {
     @Test
     void ac_mode_06_a_non_internal_module_contributes_no_component_or_owned_auto_configuration() throws Exception {
         for (String mode : List.of("none", "external")) {
-            run(List.of("topolith.modules.user.mode=" + mode, "topolith.modules.payment.mode=none"),
+            run(List.of("topolith.modules.user.mode=" + mode, "topolith.modules.payment.mode=none",
+                    "test.later.enabled=true"),
                     (context, loader) -> {
                         assertTrue(footprint(context, BASE + ".user").empty(), mode);
                         assertFalse(has(context, "userAutoConfigurationMarker"), mode);
@@ -503,12 +503,10 @@ class ModeActivationTest {
     }
 
     @Test
-    void ac_mode_24_a_host_scan_over_internal_modules_only_is_allowed() throws Exception {
+    void ac_arch_23_a_host_scan_over_internal_modules_fails() throws Exception {
         run(ParentScanningHost.class, List.of(userRoot, paymentRoot, hostRoot),
                 List.of("topolith.modules.user.mode=internal", "topolith.modules.payment.mode=internal"),
-                (context, loader) -> {
-                    assertEquals(1, context.getBeanNamesForType(UserComponent.class).length);
-                    assertTrue(has(context, "userSharedService"));
-                });
+                (context, loader) -> assertEquals(List.of(TopolithCode.TL0018, TopolithCode.TL0018),
+                        codes(context)));
     }
 }

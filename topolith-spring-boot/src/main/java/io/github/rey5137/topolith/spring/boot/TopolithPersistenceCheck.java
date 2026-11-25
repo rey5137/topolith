@@ -1,6 +1,8 @@
 package io.github.rey5137.topolith.spring.boot;
 
 import java.lang.annotation.Annotation;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -27,10 +29,16 @@ import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.support.AbstractBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionEvaluationReport;
+import org.springframework.boot.context.annotation.ImportCandidates;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.context.EnvironmentAware;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.core.io.DefaultResourceLoader;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.core.type.filter.AssignableTypeFilter;
 import org.springframework.core.env.Environment;
@@ -64,7 +72,10 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                 throw new TopolithException(found);
             }
         }
+        found.addAll(resourceRegistrations(loader, resolution));
+        found.addAll(nonInternalBeans(factory, resolution));
         found.addAll(defaultCandidates(factory, loader, resolution));
+        found.addAll(backedOffDefaults(factory, loader, resolution));
         found.addAll(repositories(factory, loader, resolution));
         found.addAll(unregistered(factory, loader, resolution));
         found.addAll(migrations(factory, loader, resolution));
@@ -97,6 +108,86 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
         return found;
     }
 
+    /** TL0007: management imports can activate in a child context outside this factory. */
+    private static List<Diagnostic> resourceRegistrations(ClassLoader loader, Resolution resolution) {
+        if (!org.springframework.util.ClassUtils.isPresent(
+                "org.springframework.boot.actuate.autoconfigure.web.server.ManagementContextAutoConfiguration", loader)) {
+            return List.of();
+        }
+        List<Diagnostic> found = new ArrayList<>();
+        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver(loader);
+        try {
+            for (Resource resource : resolver.getResources(
+                    "classpath*:META-INF/spring/*ManagementContextConfiguration.imports")) {
+                String url = resource.getURL().toString();
+                String content;
+                try (var in = resource.getInputStream()) {
+                    content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                }
+                for (String line : content.split("\\R")) {
+                    String className = line.split("#", 2)[0].trim();
+                    String id = resolution.topology().ownerOfClass(className).orElse(null);
+                    if (id != null && resolution.topology().mode(id) != Mode.INTERNAL) {
+                        found.add(new Diagnostic(TopolithCode.TL0007, "module '" + id + "' lists "
+                                + className + " in " + url + ".",
+                                "Remove the registration or activate the module."));
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot read module registration resources", e);
+        }
+        return found;
+    }
+
+    private static String registrationSource(BeanDefinition definition) {
+        if (definition.getResourceDescription() != null) {
+            return definition.getResourceDescription();
+        }
+        if (definition.getFactoryMethodName() != null) {
+            return (definition.getBeanClassName() != null ? definition.getBeanClassName() : "factory")
+                    + "#" + definition.getFactoryMethodName();
+        }
+        return definition.getBeanClassName() != null ? definition.getBeanClassName() : "an unknown source";
+    }
+
+    private static boolean externalClient(String name, BeanDefinition definition, Resolution resolution) {
+        if (!(definition instanceof AbstractBeanDefinition bean) || bean.getInstanceSupplier() == null) {
+            return false;
+        }
+        String type = definition.getBeanClassName();
+        for (String id : resolution.topology().idsOf(Mode.EXTERNAL)) {
+            if (!id.equals(definition.getAttribute("httpServiceGroupName")) || !(id + "#" + type).equals(name)) {
+                continue;
+            }
+            var mappings = resolution.httpInterfaces().getOrDefault(id, Map.of());
+            if (resolution.contracts().getOrDefault(id, Set.of()).stream()
+                    .anyMatch(contract -> mappings.getOrDefault(contract, contract).equals(type))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<Diagnostic> nonInternalBeans(ConfigurableListableBeanFactory factory, Resolution resolution) {
+        List<Diagnostic> found = new ArrayList<>();
+        for (String name : factory.getBeanDefinitionNames()) {
+            BeanDefinition definition = factory.getBeanDefinition(name);
+            if (externalClient(name, definition, resolution)) {
+                continue;
+            }
+            ModuleBeans.owner(definition, resolution).ifPresent(id -> {
+                if (resolution.topology().mode(id) != Mode.INTERNAL) {
+                    found.add(new Diagnostic(TopolithCode.TL0007, "bean '" + name + "' declared by module '" + id
+                            + "' (mode " + resolution.topology().mode(id).id() + ") was registered from "
+                            + registrationSource(definition) + ".",
+                            "Remove the module's registrations or set its mode to internal."));
+                }
+            });
+        }
+        return found;
+    }
+
     /** TL0019: a module persistence bean that is a default candidate and would replace the host's. */
     private List<Diagnostic> defaultCandidates(ConfigurableListableBeanFactory factory, ClassLoader loader,
             Resolution resolution) {
@@ -116,6 +207,79 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                 }
             });
         }
+        return new ArrayList<>(found.values());
+    }
+
+    /** Boot exposes condition outcomes, but the names of beans that caused a back-off only in its message. */
+    private static List<Diagnostic> backedOffDefaults(ConfigurableListableBeanFactory factory, ClassLoader loader,
+            Resolution resolution) {
+        ConditionEvaluationReport report = ConditionEvaluationReport.find(factory);
+        if (report == null) {
+            return List.of();
+        }
+        Map<String, Diagnostic> found = new TreeMap<>();
+        Set<String> persistenceBeans = new java.util.HashSet<>();
+        for (String type : OWN_TYPES) {
+            persistenceBeans.addAll(ModuleBeans.ownedBy(factory, loader, resolution, type).keySet());
+        }
+        Set<String> autoConfigurations = new java.util.HashSet<>();
+        ImportCandidates.load(AutoConfiguration.class, loader).forEach(autoConfigurations::add);
+        report.getConditionAndOutcomesBySource().forEach((source, outcomes) -> {
+            String configName = source.split("#", 2)[0];
+            try {
+                Class<?> config = Class.forName(configName, false, loader);
+                while (config != null && !AnnotatedElementUtils.hasAnnotation(config, AutoConfiguration.class)
+                        && !autoConfigurations.contains(config.getName())) {
+                    config = config.getEnclosingClass();
+                }
+                if (config == null) {
+                    return;
+                }
+            } catch (ClassNotFoundException | LinkageError e) {
+                return;
+            }
+            outcomes.forEach(result -> {
+                String message = result.getOutcome().getMessage();
+                if (result.getOutcome().isMatch()
+                        || !result.getCondition().getClass().getSimpleName().equals("OnBeanCondition")
+                        || message == null || !message.contains("@ConditionalOnMissingBean")
+                        || !message.contains("found bean")) {
+                    return;
+                }
+                Set<String> names = new java.util.HashSet<>();
+                String details = message.substring(message.indexOf("found bean"));
+                var quoted = java.util.regex.Pattern.compile("'([^']+)'").matcher(details);
+                while (quoted.find()) {
+                    names.add(quoted.group(1));
+                }
+                var typed = java.util.regex.Pattern.compile(
+                        "found beans? of type '[^']+' (.*?)(?= and found bean|$)").matcher(details);
+                while (typed.find()) {
+                    for (String name : typed.group(1).split("[,\\s]+")) {
+                        names.add(name.startsWith("&") ? name.substring(1) : name);
+                    }
+                }
+                for (String name : names) {
+                    if (!factory.containsBeanDefinition(name)) {
+                        continue;
+                    }
+                    BeanDefinition definition = factory.getBeanDefinition(name);
+                    if (definition instanceof AbstractBeanDefinition bean && !bean.isDefaultCandidate()) {
+                        continue;
+                    }
+                    ModuleBeans.owner(definition, resolution).ifPresent(id -> {
+                        if (resolution.topology().mode(id) != Mode.INTERNAL || persistenceBeans.contains(name)
+                                || resolution.topology().ownerOfClass(configName).filter(id::equals).isPresent()) {
+                            return;
+                        }
+                        found.put(id + "/" + name + "/" + source, new Diagnostic(TopolithCode.TL0031,
+                                "module '" + id + "' bean '" + name + "' made auto-configuration '" + source
+                                        + "' back off.", "Declare the bean @Bean(defaultCandidate = false) and "
+                                        + "inject it with a qualifier, or move it to the host."));
+                    });
+                }
+            });
+        });
         return new ArrayList<>(found.values());
     }
 
@@ -195,7 +359,8 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                             + "or have the module register its own (@Enable<Store>Repositories or @MapperScan on "
                             + "its package) and the "
                             + "host declare its own @Enable<Store>Repositories for the host's package. An interface "
-                            + "that is unregistered on purpose: annotate it @NoRepositoryBean. With multiple Spring Data stores, "
+                            + "that is unregistered on purpose: annotate it @NoRepositoryBean. With multiple "
+                            + "Spring Data stores, "
                             + "annotate the aggregate for its store (for JDBC, @Table), or extend a store-specific "
                             + "repository interface so strict mode can assign it."));
                 }

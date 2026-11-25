@@ -44,7 +44,7 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-33 | Internal contract agreement; see below | API and implementation contracts must agree | Owner |
 | D-34 | Version mismatch warning; see below | Warn at readiness without changing availability | Owner |
 | D-35 | Running topology endpoint; see below | Expose sorted running modes through optional actuator | Owner |
-| D-36 | Unregistered repositories fail startup (TL0024); see below | TL0018 turns off Boot's default scan of module packages, and only JPA is compensated | M1 gate architect review; owner |
+| D-36 | Unregistered repositories fail startup (TL0024); see below | TL0018 turns off Boot's default scan of module packages; JPA and JDBC are compensated | M1 gate architect review; owner |
 | D-37 | A standalone host hosts only its own module (TL0025); see below | `topolith.standalone` exempts a module from TL0001, TL0018 and TL0019 and must not let a composed host use that | M1 gate architect review; owner |
 | D-38 | `TopolithCode.defaultSeverity()`; see below | The code fixes only a default severity; the effective one is resolved later (P-2, R-VAL-04) | M1 gate architect review; owner |
 | D-39 | The processor writes the lowest format-version that expresses the descriptor; see below | A format bump reaches consumers only when a provider uses a new feature | M1 gate architect review; owner |
@@ -200,11 +200,11 @@ set only by environment variable fails loudly (TL0001 and TL0016).
 
 ### D-32 — Module persistence (M1.4)
 
-Internal modules use the host's JPA by default.
+Internal modules use the host's JPA and Spring Data JDBC by default.
 - **Entities.** Topolith declares `persistenceManagedTypes` from the host's entity-scan or auto-configuration packages
   plus each internal shared-persistence module's `package`, less api packages. It backs off for a host-declared one.
 - **Repositories.** A registrar ordered after Boot's repository auto-configuration registers repositories per internal
-  module, with fully qualified names. It restores Boot's scan of the host's packages when only module registrations
+  module for JPA and JDBC in 0.1, with fully qualified names. It restores Boot's scan of the host's packages when only module registrations
   made Boot back off.
 - **Migrations.** They live at `classpath:db/modules/<id>`. A module uses Flyway (scripts named by Flyway's rules, or
   a Java migration in that package) or Liquibase (one master `db.changelog-master.<yaml|yml|xml|json|sql>`), never
@@ -235,7 +235,8 @@ Internal modules use the host's JPA by default.
   host's Flyway locations and Liquibase changelog must not reach a module's files (TL0020): the host's changelog is
   parsed without a database, and a change set under `db/modules/` or from a module artifact, or the host's master file
   found twice or in a module artifact, fails startup. A module that contributes a DataSource runs its own migrations.
-- **Pattern A.** A module that contributes an EntityManagerFactory owns its entities and repositories. A module that
+- **Pattern A.** A module that contributes an EntityManagerFactory owns its JPA entities and repositories. A module that
+  contributes a DataSource owns its JDBC repositories. A module that
   contributes a DataSource owns its migrations (a Flyway, `FlywayMigrationInitializer` or `SpringLiquibase` of its own,
   or TL0020). Its persistence beans, `SpringLiquibase` included, must not be default candidates (TL0019) unless
   the module is the standalone module (the module is then the application).
@@ -283,8 +284,8 @@ by module id, sorted by id, each containing a `mode` field. It is conditional on
 A Spring Data repository interface or MyBatis `@Mapper` interface in an internal module's package, or in the host's
 auto-configuration packages of a topology with at least one module, that no repository or mapper registration covers
 fails startup with TL0024. Registrations are covered however their scanner recorded the interface: constructor argument 0,
-a generic constructor argument, or the `factoryBeanObjectType` attribute, as a `Class` or a name. The JPA registration
-Topolith makes per module covers JPA repositories. Spring Data enters strict mode with several stores on the class path and
+a generic constructor argument, or the `factoryBeanObjectType` attribute, as a `Class` or a name. The JPA and JDBC registrations
+Topolith makes per module cover their respective repositories. Spring Data enters strict mode with several stores on the class path and
 silently skips an interface it cannot assign, and a module's own `@Enable<Store>Repositories` makes Boot's host scan back off, so
 without the check an interface can go missing without a message (INV-4). Detection is by class-file metadata and marker
 names (`Repository`, `@RepositoryDefinition`, `@NoRepositoryBean`, `@Mapper`); no store library is a dependency, and a host
@@ -335,7 +336,7 @@ providers (D-27).
 | Q-14 | Open | Should Topolith handle general bean replacement (a module's default-candidate `JdbcTemplate`, `ObjectMapper`) and a host scan that covers an internal module, which registers its beans twice (M3.3)? |
 | Q-15 | Answered (D-32) | Should Liquibase be supported for module migrations (it has one master changelog with explicit includes)? |
 | Q-16 | Open | Should Topolith run a Pattern A module's migrations on the module's own DataSource? |
-| Q-17 | Open | Should Topolith register non-JPA stores per module? Spring Data JDBC is planned as slice M1.6 before m1-verified; R2DBC, MongoDB and MyBatis stay at TL0024 for 0.1. |
+| Q-17 | Partly answered (M1.6) | Spring Data JDBC is registered per module in 0.1. Should Topolith register R2DBC, MongoDB and MyBatis per module? They stay at TL0024 in 0.1. |
 | Q-18 | Open | A host's `mybatis.mapper-locations` (for example `classpath*:mapper/**/*.xml`) can load a `none` module's mappers (INV-2); should it be a check like TL0020's host-location check? |
 | Q-19 | Open | A module with no contracts (listener-only, jobs) still has to declare an api package (`@TopolithModule.api()` is required and `api-packages` is non-empty); should that be relaxed (compatible later, D-27)? |
 | Q-20 | Open (M3.3) | `Topology` is an injectable public bean, so business code could branch on a module's mode (INV-1, INV-6); should M3.3 add an ArchUnit rule forbidding module code from depending on `topolith-core` (only the annotation package allowed)? |

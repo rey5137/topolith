@@ -10,6 +10,9 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 
+import io.github.rey5137.topolith.core.Diagnostic;
+import io.github.rey5137.topolith.core.TopolithCode;
+import io.github.rey5137.topolith.core.TopolithException;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import org.springframework.aop.framework.Advised;
@@ -22,7 +25,9 @@ import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.core.Ordered;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.PriorityOrdered;
+import org.springframework.stereotype.Controller;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
@@ -79,15 +84,29 @@ final class ContractTransactionBoundary implements BeanPostProcessor, PriorityOr
         if (contracts.isEmpty()) {
             return bean;
         }
+        boolean last = Modifier.isFinal(type.getModifiers()) && !AopUtils.isAopProxy(bean);
+        if (last && handler(type)) {
+            throw new TopolithException(new Diagnostic(TopolithCode.TL0029, "provider bean '" + beanName + "' of module '"
+                    + module + "' is a final handler (" + type.getName() + ") and cannot take the contract transaction boundary: "
+                    + "an interface-only proxy would hide its routes and its class.",
+                    "Make " + type.getSimpleName() + " non-final, as Spring's @Transactional requires."));
+        }
         DefaultPointcutAdvisor advisor = new DefaultPointcutAdvisor(new Boundary(module, contracts));
         if (bean instanceof Advised advised && !advised.isFrozen()) {
             advised.addAdvisor(0, advisor);
             return bean;
         }
         ProxyFactory factory = new ProxyFactory(bean);
-        factory.setProxyTargetClass(!Modifier.isFinal(type.getModifiers()) && !AopUtils.isAopProxy(bean));
+        // a final non-handler (a lambda, a JDK proxy class) gets the interface proxy; a frozen CGLIB proxy stays class-based
+        factory.setProxyTargetClass(AopUtils.isCglibProxy(bean) || (!AopUtils.isAopProxy(bean) && !last));
         factory.addAdvisor(advisor);
         return factory.getProxy(type.getClassLoader());
+    }
+
+    /** The managers in bean-name order, looked up on each call so one created after startup is included. */
+    private List<PlatformTransactionManager> managers() {
+        return List.copyOf(new TreeMap<>(((ListableBeanFactory) beanFactory)
+                .getBeansOfType(PlatformTransactionManager.class)).values());
     }
 
     /** Looked up once, by definition, so no transaction manager is created early. */
@@ -99,6 +118,12 @@ final class ContractTransactionBoundary implements BeanPostProcessor, PriorityOr
             transactional = known;
         }
         return known;
+    }
+
+    /** Whether {@code type} is a web handler, whose routes and class an interface-only proxy would hide. */
+    private static boolean handler(Class<?> type) {
+        return AnnotatedElementUtils.hasAnnotation(type, Controller.class)
+                || AnnotatedElementUtils.isAnnotated(type, "org.springframework.web.bind.annotation.RequestMapping");
     }
 
     /** The contracts of {@code names} that {@code type} implements; a name that does not load is skipped. */
@@ -135,9 +160,7 @@ final class ContractTransactionBoundary implements BeanPostProcessor, PriorityOr
                 return invocation.proceed();
             }
             counter.count(module, contract.getName());
-            List<PlatformTransactionManager> managers = new ArrayList<>(new TreeMap<>(
-                    ((ListableBeanFactory) beanFactory).getBeansOfType(PlatformTransactionManager.class)).values());
-            return suspended(managers, invocation);
+            return suspended(managers(), invocation);
         }
 
         private Optional<Class<?>> declaringContract(Method method) {

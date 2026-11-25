@@ -59,12 +59,12 @@ Breaking an invariant is an architecture decision that needs an accepted RFC, ne
 
 | Id | Invariant |
 |---|---|
-| INV-1 | **Business code needs no Topolith type.** The only Topolith API a module may carry is the optional `@TopolithModule` on `package-info.java`. |
+| INV-1 | **Business code needs no Topolith type.** The only Topolith API a module may carry is the optional `@TopolithModule` on `package-info.java` and the types of `io.github.rey5137.topolith.contract`. |
 | INV-2 | **A module that is not `internal` contributes nothing to the host:** no bean, auto-configuration, entity, repository, migration, route, listener or scheduled task. |
 | INV-3 | **Explicit topology.** A host states the mode of every module it knows; only a standalone `*-service` may default its own module to `internal` (D-8). |
 | INV-4 | **Loud over silent.** An unsatisfiable or ambiguous topology fails startup with a `TLnnnn` code and a fix-it message. Nothing falls back, picks a winner (`@Primary`) or drops a call or event silently. |
 | INV-5 | **Contracts only.** A module calls another only through a contract type that the callee `provides`. |
-| INV-6 | **Mode parity.** A call to a contract has the same observable semantics whichever mode serves it: no shared transaction (D-2), arguments and results by value, the same exception types, the same observation. |
+| INV-6 | **Mode parity.** A call to a contract has the same observable semantics whichever mode serves it: no shared transaction (D-2), arguments and results by value, the same exception types (declared contract exceptions and `ModuleUnavailableException`, D-55), the same observation. |
 | INV-7 | **One-way module dependencies.** `topolith-core` imports only the JDK; only `topolith-spring-*` modules import Spring; Spring Cloud and Spring Modulith are imported only by optional modules. Checked by ArchUnit. |
 | INV-8 | **Standard Spring extension points only.** No custom container, RPC protocol, message broker or class loader. |
 | INV-9 | **The topology is fixed at context refresh** (at build time for AOT and native images). There is no runtime mode change. |

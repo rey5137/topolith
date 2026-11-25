@@ -2,7 +2,9 @@ package io.github.rey5137.topolith.spring.boot;
 
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.github.rey5137.topolith.core.Mode;
@@ -64,7 +66,7 @@ final class VersionReadiness implements ApplicationListener<ApplicationReadyEven
         try {
             remote.get(timeout, unit);
             return true;
-        } catch (java.util.concurrent.TimeoutException | java.util.concurrent.ExecutionException e) {
+        } catch (TimeoutException | ExecutionException e) {
             return false;
         }
     }

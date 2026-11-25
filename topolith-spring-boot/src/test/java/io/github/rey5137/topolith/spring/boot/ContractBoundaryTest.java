@@ -6,6 +6,10 @@ import java.util.function.Consumer;
 
 import io.github.rey5137.topolith.spring.boot.errorfixture.boundary.BoundaryClient;
 import io.github.rey5137.topolith.spring.boot.errorfixture.boundary.BoundaryService;
+import io.github.rey5137.topolith.spring.boot.errorfixture.boundary.FinalBoundaryProvider;
+import io.github.rey5137.topolith.spring.boot.errorfixture.boundary.FinalPlainProvider;
+import io.github.rey5137.topolith.core.TopolithCode;
+import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.boundary.api.BoundaryContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.host.ErrorHost;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -170,6 +174,65 @@ class ContractBoundaryTest {
                 public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) {
                 }
             };
+        }
+    }
+
+    @Test
+    void ac_ext_16_a_final_provider_fails_startup_with_tl0029() throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            new ApplicationContextRunner().withClassLoader(loader)
+                    .withUserConfiguration(ErrorHost.class, FinalProviderConfiguration.class)
+                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.modules.boundary.mode=internal")
+                    .run(context -> {
+                        Throwable cause = context.getStartupFailure();
+                        while (cause != null && !(cause instanceof TopolithException)) {
+                            cause = cause.getCause();
+                        }
+                        assertTrue(cause instanceof TopolithException);
+                        var diagnostics = ((TopolithException) cause).diagnostics();
+                        assertEquals(TopolithCode.TL0029, diagnostics.get(0).code());
+                        assertTrue(diagnostics.get(0).description().contains(FinalBoundaryProvider.class.getName()));
+                        assertTrue(diagnostics.get(0).action().contains("non-final"));
+                        assertTrue(diagnostics.get(0).description().contains("final handler"));
+                    });
+        }
+        // no transaction manager, no advice, so a final provider is fine
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(FinalProviderConfiguration.class)
+                    .withPropertyValues("topolith.modules.boundary.mode=internal")
+                    .run(context -> assertNull(context.getStartupFailure()));
+        }
+    }
+
+    @Test
+    void ac_ext_16_a_final_provider_that_is_not_a_handler_takes_the_boundary() throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            new ApplicationContextRunner().withClassLoader(loader)
+                    .withUserConfiguration(ErrorHost.class, FinalPlainConfiguration.class)
+                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.modules.boundary.mode=internal")
+                    .run(context -> {
+                        assertNull(context.getStartupFailure());
+                        BoundaryContract provider = (BoundaryContract) context.getBean("finalPlainProvider");
+                        assertTrue(AopUtils.isAopProxy(provider));
+                        assertEquals("active:caller|inactive:null|active:caller", inCaller(context, provider::plain));
+                    });
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class FinalPlainConfiguration {
+        // not an injection candidate, so the module's own client keeps its one provider
+        @Bean(autowireCandidate = false)
+        FinalPlainProvider finalPlainProvider() {
+            return new FinalPlainProvider();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class FinalProviderConfiguration {
+        @Bean
+        FinalBoundaryProvider finalBoundaryProvider() {
+            return new FinalBoundaryProvider();
         }
     }
 

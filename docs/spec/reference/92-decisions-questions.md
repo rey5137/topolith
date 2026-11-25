@@ -12,7 +12,7 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 |---|---|---|---|
 | D-1 | The project is named **Topolith**; the Maven groupId is **`io.github.rey5137`** | Names the idea (topology + monolith). Name check on 2026-11-24: nothing on Maven Central, npm, PyPI or crates.io; no software product or trademark found; `topolith.dev` and `topolith.com` belong to others, so a domain-based groupId isn't available, and the GitHub namespace needs no domain. | RFC 0001 §11; Q-1 (answered) |
 | D-2 | An internal contract call runs with **`NOT_SUPPORTED`** at the boundary: the caller's transaction is suspended and the callee's own `@Transactional` decides. A call made inside an active transaction emits a warning metric. | Matches remote behaviour exactly. `REQUIRES_NEW` forces a transaction a remote callee might not open and holds two connections at once (pool starvation). | RFC 0001 §6, §11 |
-| D-3 | The contract interface carries **`@HttpExchange`** by default; a separate HTTP interface stays supported | `*-api` needs only `spring-web` annotations, not MVC. Spring MVC maps `@HttpExchange` on a `@RestController` implementation (Framework 6.1+), so one interface serves client and server and they can't drift. | RFC 0001 §5, §11 |
+| D-3 | The contract interface carries **`@HttpExchange`** by default; a separate HTTP interface stays supported (amended by D-53: the `@RestController` implements the contract) | `*-api` needs only `spring-web` annotations, not MVC. Spring MVC maps `@HttpExchange` on a `@RestController` implementation (Framework 6.1+), so one interface serves client and server and they can't drift. | RFC 0001 §5, §11 |
 | D-4 | Boundary and data-ownership checks **`fail` by default**; an adopted legacy repo starts from an ArchUnit **frozen baseline** that can only shrink | New code stays clean; old code starts green and only improves. Noisy, unranked violations kill adoption (Packwerk retrospective). | RFC 0001 §8, §11 |
 | D-5 | **Native images are out of 0.1.** Mode resolution stays deterministic from configuration so AOT works later; the AOT guard (INV-9) arrives in 0.2. | Not on the critical path; the design already allows it | RFC 0001 §9, §11 |
 | D-6 | **No in-JVM isolation of unmodified services** (child contexts). Legacy services join through the adoption checklist and are consumed `external` until then. | A child context sees every parent bean, so legacy auto-config silently uses the host's infrastructure; servlets can't be added after the host server starts; classpath-root resources shadow each other; one classpath forces one library version on all. | RFC 0001 §12 rows 1–2 |
@@ -21,7 +21,7 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-9 | The descriptor is **generated** from `@TopolithModule` on `package-info.java` by an annotation processor; a hand-written one is verified against the bytecode in the build | Hand-written package lists drift on refactoring; `.properties` has no trailing comments | RFC 0001 §12 row 7; Amended by D-19 |
 | D-10 | **Baseline:** Java 21, Spring Boot 4.2, Spring Framework 7; Spring Cloud 2026.0 only for discovery | Current GA lines at project start; HTTP service groups and their LoadBalancer configurer need Framework 7 / Boot 4 | —; Amended by D-20 |
 | D-11 | **A mode change needs a restart.** If an `EnvironmentChangeEvent` (Spring Cloud `/actuator/refresh`, a Config Server push) changes any `topolith.modules.<id>.mode`, Topolith logs a `TLnnnn` warning that names each changed module with its running and requested modes, and the actuator endpoint reports a restart as pending. The running topology does not change. | INV-9 fixes the topology at context refresh, because a mode decides which bean definitions, auto-configurations, entities and migrations exist, and `@RefreshScope` can only rebuild beans that already exist. Ignoring the change without a word would break INV-4. Switching to `internal` after a restart still needs the implementation JAR on the host's classpath (P-3). | INV-4, INV-9 |
-| D-12 | **An `external` module's endpoint settings can change on refresh.** On an `EnvironmentChangeEvent` that changes `remote.url`, timeouts, or retry or circuit-breaker settings, Topolith rebuilds that module's HTTP service group client. Calls already in flight finish on the old client. Changing between `remote.url` and `remote.service-id` changes the module's wiring, so it is treated like a mode change and gets the D-11 warning instead. | These settings aren't topology, so INV-9 allows them to change. Endpoints already move at runtime through `remote.service-id` and discovery, and requiring a restart to repoint a URL or adjust a timeout would gain nothing. | Q-2 (answered); Amended by D-15, D-16 |
+| D-12 | **An `external` module's endpoint settings can change on refresh.** On an `EnvironmentChangeEvent` that changes `remote.url`, timeouts, or retry or circuit-breaker settings, Topolith rebuilds that module's HTTP service group client. Calls already in flight finish on the old client. Changing between `remote.url` and `remote.service-id` changes the module's wiring, so it is treated like a mode change and gets the D-11 warning instead. | These settings aren't topology, so INV-9 allows them to change. Endpoints already move at runtime through `remote.service-id` and discovery, and requiring a restart to repoint a URL or adjust a timeout would gain nothing. | Q-2 (answered); Amended by D-15, D-16, D-51 |
 | D-13 | Computed restart status; see below | Avoid stale mode status | Q-3 (answered) |
 | D-14 | Keep the old client on failed refresh; see below | Preserve service during a failed swap | Q-4 (answered) |
 | D-15 | Rebuild on service-id changes; see below | Endpoint changes need no restart | Q-5 (answered) |
@@ -56,9 +56,14 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-45 | A caller's base URL is `remote.url` + `/<id>` (`lb://<service-id>/<id>`); contract paths are relative to it; see below | The provider's fixed prefix (D-44) is the caller's too, so a contract carries no module prefix | M2.4 owner decision |
 | D-46 | Security hook: public `@Incubating` `ExposedEndpoints` and `ExposedRequestMatcher`; Topolith registers no `SecurityFilterChain`; see below | A host secures `/<id>/**` with its own chain (INV-4); Spring Security stays optional (INV-7) | M2.4 owner decision |
 | D-47 | The D-2 boundary is an advisor on an internal provider bean, counted by `topolith.contract.calls.in.transaction`; see below | Makes D-2 enforceable for every caller without a proxy per call site | M2.4 owner decision |
-| D-48 | A host configures one external group with `ModuleClients.restClientBuilder`; see below | Explicit customization preserves Topolith settings | M2.5 owner decision |
+| D-48 | A host configures one external group with `ModuleClients.configure`; see below | Explicit customization preserves Topolith settings | M2.5 owner decision |
 | D-49 | An external contract may map to a separate HTTP interface; see below | Keep API contracts free of spring-web | M2.5 owner decision |
 | D-50 | A refresh swaps delegates inside the group's one `RestClient`; see below | Proxies, error translation and customizers stay as built | M2.6; mechanism is the orchestrator's call, owner may revisit |
+| D-51 | Error translation sees through Spring Cloud CircuitBreaker; see below | Keep INV-6 when a breaker wraps the call | M2 gate F1; amends D-12; Q-23 |
+| D-52 | `ModuleClients.configure(id, customizer)` replaces `restClientBuilder`; `ModuleUnavailableException` is `@Incubating`; see below | The method returns a group configurer, and every public type is incubating until 1.0 | M2 gate N1, N2; amends D-48 and D-43 |
+| D-53 | The contract's server-side implementation is the module's `@RestController`; see below | A service-only implementation uses a D-49 separate HTTP interface | M2 gate F2; amends D-3 and RFC 0001 §5 |
+| D-54 | INV-1 allows the types of `io.github.rey5137.topolith.contract` in business code; see below | Contract exceptions are Topolith types a module must throw and catch | M2 gate F4; amends INV-1; Q-20 |
+| D-55 | INV-6's "same exception types" covers declared contract exceptions and `ModuleUnavailableException`; see below | Undeclared exceptions are outside the guarantee in 0.1 | M2 gate F5; amends INV-6; Q-22 |
 
 ### D-49 — Separate HTTP interface (M2.5)
 
@@ -71,10 +76,43 @@ implements the HTTP interface and is exposed under `/<id>` (D-44); the contract 
 
 ### D-48 — Client customization (M2.5)
 
-The host declares `ModuleClients.restClientBuilder(id, customizer)` as a bean. Unknown or non-external ids fail
+The host declares `ModuleClients.configure(id, customizer)` as a bean. Unknown or non-external ids fail
 TL0003 naming `topolith.modules.<id>.mode`. The customizer cannot replace the base URL or request factory; attempts
 to do so fail, preserving the Topolith URL and timeouts. Replacing the URI factory, default URI variables, interceptor list or message converters and cloning the
 builder are also rejected, preserving error response translation. Topolith retains its error advice.
+
+### D-51 — Translation through Spring Cloud CircuitBreaker (M2 gate)
+
+With Spring Cloud CircuitBreaker on an external group, translation sees through the breaker's no-fallback wrapper; a rejected call is
+`ModuleUnavailableException`. Commons' `CircuitBreakerAdapterDecorator` runs each exchange through
+`CircuitBreaker.run`; with no fallback it throws `NoFallbackAvailableException(cause)`, so `ContractCallTranslator`
+also maps the cause of a `NoFallbackAvailableException` (found by class name; a host's own wrapper exception is left as thrown) when it would map that cause itself, a `java.util.concurrent.TimeoutException` cause (the time limiter) becomes kind `timeout`, and a `CallNotPermittedException` (found by class
+name, no breaker library dependency) becomes `ModuleUnavailableException` of kind `circuit open`. A
+`NoFallbackAvailableException` with no mappable cause propagates unchanged, since it also wraps ordinary failures.
+This amends D-12: retry and circuit-breaker settings are not rebuilt on refresh in 0.1 (Q-23).
+
+### D-52 — Client configurer name and incubating exception (M2 gate)
+
+`ModuleClients.configure(id, customizer)` replaces `restClientBuilder`; it returns a group configurer (a
+`RestClientHttpServiceGroupConfigurer`), not a builder. `ModuleUnavailableException` is `@Incubating` like every public
+type until 1.0. Amends D-48 (the method name) and D-43 (the exception's stability).
+
+### D-53 — Server-side implementation of a contract (M2 gate)
+
+The contract's server-side implementation is the module's `@RestController` (it may delegate to a non-contract
+service); a service-only implementation is exposed through a D-49 separate HTTP interface. Amends D-3 and RFC 0001 §5.
+
+### D-54 — Topolith contract types in business code (M2 gate)
+
+INV-1 reads "...the optional `@TopolithModule` on `package-info.java` and the types of
+`io.github.rey5137.topolith.contract`". Amends INV-1; Q-20's ArchUnit rule already allows the `annotation` and
+`contract` packages (D-43).
+
+### D-55 — Scope of exception parity (M2 gate)
+
+INV-6's "same exception types" covers declared contract exceptions and `ModuleUnavailableException` (D-43) in 0.1.
+Undeclared exceptions are outside the type guarantee; a later parity mode may wrap them at the internal boundary behind
+the P-2 switch. Amends INV-6; Q-22 stays open.
 
 ### D-50 — Client refresh mechanism (M2.6)
 
@@ -113,6 +151,12 @@ that startup would fail (TL0003), and restart is pending until the value matches
 variables are protected like the base URL (D-48), because the swapped URI factory would drop them. Boot's own `ssl`, redirect and cookie settings of the group
 are mapped once at startup and carried into each rebuild; only the two timeouts change.
 
+A host's own `RestClientHttpServiceGroupConfigurer` that sets `requestFactory` for all groups, without a guard for
+Topolith's external groups, may win over the swap (it runs at the same lowest precedence order), so refreshed timeouts
+would not apply to that group. A refresh that changes only Boot keys (`spring.http.serviceclient.<id>.*`,
+`spring.http.clients.*`) is restart-only: it is not applied and not checked against Topolith's keys until the next
+start.
+
 ### D-44 to D-47 — Exposure, caller URL, security hook and transaction boundary (M2.4)
 
 - **D-44 Exposure.** `topolith.modules.<id>.expose.enabled` (default `false`, so a monolith serves nothing). It governs
@@ -141,8 +185,12 @@ are mapped once at startup and carried into each rebuild; only the two timeouts 
   exist). No `PlatformTransactionManager` definition: no advice. A `none` or external module has no advice (INV-2).
   Calls that do not go through the contract interface are not a boundary. Managers are suspended in bean-name order and
   resumed in reverse; a failure while suspending or resuming still resumes the rest and the first failure propagates
-  with the others suppressed. A `final` provider class gets an interface-only proxy, as with any Spring AOP or
-  `@Transactional` advice; callers in other modules inject the contract interface, never the class.
+  with the others suppressed. A `final` handler class (user class annotated `@Controller`, `@RestController` or `@RequestMapping`, merged) cannot take
+  the advice, so such a provider bean of an internal module that implements a provided contract fails startup with
+  TL0029 whenever a `PlatformTransactionManager` exists, as Spring's own `@Transactional` does; an interface-only proxy
+  would hide the class's routes. A `final` non-handler (a lambda, a JDK proxy class) gets the interface proxy, and a
+  CGLIB proxy that is already frozen keeps a class-based proxy. The managers are looked up on every call, so one created
+  after startup is included.
 - **Version endpoint (R-VAL-04).** An exposed module answers `GET /<id>/.topolith/api-version` with its module
   descriptor's `api-version` as `text/plain`. At readiness the host reads it through each external module's own client
   builder (its base URL, mandatory timeouts and load balancing apply): a major that differs from the host API
@@ -373,7 +421,7 @@ checks internal modules against `internal` plus `external` modules (D-21).
 
 Rejected: inferring the standalone service from the classpath or the artifact name, binding straight to an enum, and
 ignoring unknown ids. Known limit: an environment variable drops the hyphens of a map key, so a hyphenated module id
-set only by environment variable fails loudly (TL0001 and TL0016).
+set only by environment variable fails loudly (TL0001 and TL0016). The unknown-id check (TL0003) treats a key equal to a known id with its hyphens removed as known.
 
 ### D-32 — Module persistence (M1.4)
 
@@ -455,6 +503,8 @@ internal module descriptor or remote provider. It neither fails startup nor chan
 
 The optional, read-only `topolith` actuator endpoint reads the cached topology and returns a `modules` object keyed
 by module id, sorted by id, each containing a `mode` field. It is conditional on actuator and endpoint availability.
+The fields `restartPending`, `requestedMode`, `reasons` and `refresh` were added later; see D-50. The `refresh.message`
+has any `user:password@` removed from URLs it contains.
 
 ### D-36 — Unregistered repositories fail startup (M1 gate)
 
@@ -519,3 +569,4 @@ providers (D-27).
 | Q-20 | Open (M3.3) | `Topology` is an injectable public bean, so business code could branch on a module's mode (INV-1, INV-6); should M3.3 add an ArchUnit rule forbidding module code from depending on `topolith-core` (only the `annotation` and `contract` packages allowed, D-43)? |
 | Q-21 | Open | Should a contract support checked exceptions (TL0027 rejects them) or carry exception payload beyond the message (fields, cause chain) across HTTP (D-43)? |
 | Q-22 | Open | Should a 404, 405 or 415, or a 401 or 403, without a Topolith problem become `ModuleUnavailableException` rather than an unspecified exception, and should a fixed JDK list (`IllegalArgumentException`, `IllegalStateException`, `UnsupportedOperationException`) count as declared (D-43)? |
+| Q-23 | Open | Should a refresh rebuild a group's Spring Cloud CircuitBreaker and retry settings (D-12, D-51), or stay restart-only? |

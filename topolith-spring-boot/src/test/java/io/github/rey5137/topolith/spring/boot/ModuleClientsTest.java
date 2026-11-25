@@ -37,7 +37,7 @@ class ModuleClientsTest {
     static class Customization {
         @Bean
         RestClientHttpServiceGroupConfigurer customClient() {
-            return ModuleClients.restClientBuilder("remote", builder -> builder.defaultHeader("X-Custom", "yes"));
+            return ModuleClients.configure("remote", builder -> builder.defaultHeader("X-Custom", "yes"));
         }
     }
 
@@ -137,7 +137,7 @@ class ModuleClientsTest {
             try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(temp)) {
                 new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(Host.class)
                         .withBean("custom", RestClientHttpServiceGroupConfigurer.class, () ->
-                                ModuleClients.restClientBuilder("remote", builder -> {
+                                ModuleClients.configure("remote", builder -> {
                                     if (setting.equals("baseUrl")) {
                                         builder.baseUrl("http://other");
                                     } else if (setting.equals("defaultUriVariables")) {
@@ -169,4 +169,32 @@ class ModuleClientsTest {
         }
     }
 
+
+    @Configuration(proxyBeanMethods = false)
+    @org.springframework.web.service.registry.ImportHttpServices(group = "remote",
+            types = io.github.rey5137.topolith.spring.boot.errorfixture.host.HostClient.class)
+    static class CollidingGroup {
+    }
+
+    @Test
+    void ac_ext_31_host_group_named_like_an_external_module_fails_with_tl0003() throws Exception {
+        descriptor("remote", RemoteContract.class);
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(temp)) {
+            new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(Host.class, CollidingGroup.class)
+                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.modules.remote.mode=external",
+                            "topolith.modules.remote.remote.url=http://localhost:1").run(context -> {
+                                Throwable failure = context.getStartupFailure();
+                                TopolithException diagnostic = null;
+                                while (failure != null) {
+                                    if (failure instanceof TopolithException found) {
+                                        diagnostic = found;
+                                    }
+                                    failure = failure.getCause();
+                                }
+                                assertNotNull(diagnostic);
+                                assertEquals(TopolithCode.TL0003, diagnostic.diagnostics().get(0).code());
+                                assertTrue(diagnostic.getMessage().contains("'remote'"), diagnostic.getMessage());
+                            });
+        }
+    }
 }

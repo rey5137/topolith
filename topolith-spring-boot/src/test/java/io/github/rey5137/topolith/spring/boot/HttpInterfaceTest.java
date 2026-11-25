@@ -71,7 +71,7 @@ class HttpInterfaceTest {
                         AtomicReference<String> header = new AtomicReference<>();
                         new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(ErrorHost.class)
                                 .withBean("custom", RestClientHttpServiceGroupConfigurer.class, () ->
-                                        ModuleClients.restClientBuilder("separate", builder -> builder
+                                        ModuleClients.configure("separate", builder -> builder
                                                 .defaultHeader("X-Custom", "yes")
                                                 .requestInterceptor((request, body, execution) -> {
                                                     path.set(request.getURI().getPath());

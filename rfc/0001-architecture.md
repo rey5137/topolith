@@ -157,11 +157,11 @@ A host is a normal Boot app that imports `topolith-platform` and depends on modu
 
 - **Contract:**
   - `user-api`'s `UserOperations` is annotated with `@HttpExchange`.
-  - In the module, a **service** (not the controller) implements it, and a thin `@RestController` exposes it.
+  - In the module, the `@RestController` implements it (delegating to a service if it likes); a service-only implementation needs a separate HTTP interface (D-53).
   - In external mode, the framework registers an HTTP service group named `user`.
   - Escape hatches:
     - keep a separate HTTP interface, so the contract has no dependency on `spring-web`;
-    - or provide a custom client configuration (`ModuleClients.restClientBuilder("user")`).
+    - or provide a custom client configuration (`ModuleClients.configure("user", customizer)`).
 - **Endpoint:**
   - `remote.url` maps to `spring.http.serviceclient.user.base-url`.
   - Alternatively, `remote.service-id` uses Spring Cloud LoadBalancer with `lb://` and any `DiscoveryClient` (Consul, Eureka, Kubernetes, simple). Spring Cloud is needed only for this.

@@ -2,6 +2,7 @@ package io.github.rey5137.topolith.spring.boot;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -122,6 +123,7 @@ final class TopologyResolver {
                 discovered.add(id);
             }
         });
+        unknownModules(binder, topology, problems);
         Set<String> exposed = exposed(env, binder, topology, problems);
         Map<String, Set<String>> contracts = new TreeMap<>();
         found.apis().forEach(api -> contracts.computeIfAbsent(api.id(), key -> new LinkedHashSet<>())
@@ -179,16 +181,16 @@ final class TopologyResolver {
         boolean discovered = false;
         if (!service.isBlank() && url.isBlank()) {
             discovered = true;
-            conflict(env, binder, prefix + "service-id", "spring.http.serviceclient." + id + ".base-url",
+            conflict(env, binder, prefix + "service-id", ExternalClientProperties.groupPrefix(id) + "base-url",
                     String.class, value -> normalizeUrl(ExternalClientProperties.serviceUrl(value) + "/" + id),
                     TopologyResolver::normalizeUrl, problems);
         } else if (!url.isBlank()) {
-            conflict(env, binder, prefix + "url", "spring.http.serviceclient." + id + ".base-url", String.class,
+            conflict(env, binder, prefix + "url", ExternalClientProperties.groupPrefix(id) + "base-url", String.class,
                     value -> normalizeUrl(ExternalClientProperties.baseUrl(value, id)),
                     TopologyResolver::normalizeUrl, problems);
         }
         for (String key : List.of("connect-timeout", "read-timeout")) {
-            conflict(env, binder, prefix + key, "spring.http.serviceclient." + id + "." + key, Duration.class,
+            conflict(env, binder, prefix + key, ExternalClientProperties.groupPrefix(id) + key, Duration.class,
                     value -> value, problems);
         }
         return discovered;
@@ -257,6 +259,37 @@ final class TopologyResolver {
             }
         }
         return true;
+    }
+
+    /**
+     * TL0003 for each {@code topolith.modules.<id>.expose.*} that names no known module, so a typo cannot silently leave
+     * the real module unexposed. Other settings of an absent module stay allowed (a shared configuration): a
+     * {@code mode} is TL0016 or TL0002 (raised by the topology), a {@code remote.http-interface} mapping is reported by
+     * {@link #httpInterfaces}, and a mistyped {@code remote.*} leaves the real external module without an endpoint
+     * (TL0003).
+     */
+    private static void unknownModules(Binder binder, Topology topology, List<Diagnostic> problems) {
+        Set<String> unknown = new TreeSet<>();
+        try {
+            Set<String> compact = new HashSet<>();
+            topology.known().forEach(id -> compact.add(id.replace("-", "")));
+            binder.bind(MODES, Bindable.mapOf(String.class, Object.class)).ifBound(bound -> bound.forEach((id, value) -> {
+                // an environment variable cannot carry a dash: ORDERSERVICE binds as "orderservice" (D-50 known limit)
+                if (!topology.known().contains(id) && !compact.contains(id.replace("-", "")) && exposes(value)) {
+                    unknown.add(id);
+                }
+            }));
+        } catch (BindException e) {
+            return;
+        }
+        unknown.forEach(id -> problems.add(new Diagnostic(TopolithCode.TL0003, "module '" + id
+                + "' is unknown, but " + MODES + "." + id + ".* is set.", "Correct the module id, or remove "
+                + MODES + "." + id + ".*.")));
+    }
+
+    /** Whether an id's settings carry {@code expose.*}, which would otherwise be dropped without a trace. */
+    private static boolean exposes(Object value) {
+        return value instanceof Map<?, ?> settings && settings.containsKey("expose");
     }
 
     /** The modules with {@code expose.enabled=true} (D-44); TL0003 if one is not internal or not a boolean. */

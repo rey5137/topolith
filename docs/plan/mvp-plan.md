@@ -69,7 +69,7 @@ M2.1 maps `remote.url` to Boot client properties and registers groups for `@Http
 `topolith-spring-cloud` and Spring Cloud LoadBalancer for `remote.service-id`, or fails with the missing starter.
 M2.3 translates API errors through ProblemDetail and uses `ModuleUnavailableException` for transport failures.
 M2.4 covers `/<id>`, `expose.enabled`, the `SecurityFilterChain` hook, D-2 propagation, the provider version endpoint
-and external readiness including endpoint failures (D-24). M2.5 covers `ModuleClients.restClientBuilder`, the
+and external readiness including endpoint failures (D-24). M2.5 covers `ModuleClients.configure`, the
 separate-HTTP-interface option and the hybrid-versus-monolith contract tests. M2.6 implements D-13 through D-15 and
 D-20 in the optional integration, and the missing-integration warning in the Boot module (D-23).
 

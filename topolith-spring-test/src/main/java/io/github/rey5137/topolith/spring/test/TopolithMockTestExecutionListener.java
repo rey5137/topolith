@@ -1,5 +1,6 @@
 package io.github.rey5137.topolith.spring.test;
 
+import io.github.rey5137.topolith.spring.boot.internal.FaultSequences;
 import org.springframework.test.context.TestContext;
 import org.springframework.test.context.TestContextAnnotationUtils;
 import org.springframework.test.context.support.AbstractTestExecutionListener;
@@ -20,6 +21,7 @@ final class TopolithMockTestExecutionListener extends AbstractTestExecutionListe
     @Override
     public void beforeTestMethod(TestContext context) {
         resetServers(context);
+        restartFaults(context);
         AssertionError failure = null;
         for (ByValueRecorder recorder : recorders(context)) {
             recorder.releaseKept();
@@ -29,6 +31,15 @@ final class TopolithMockTestExecutionListener extends AbstractTestExecutionListe
             }
         }
         if (failure != null) { throw failure; }
+    }
+
+    /** Restarts each loopback module's fault sequence, so a method fails the same calls alone or after others. */
+    private static void restartFaults(TestContext context) {
+        if (!context.hasApplicationContext()) { return; }
+        var beans = context.getApplicationContext();
+        for (String name : beans.getBeanNamesForType(FaultSequences.class, false, false)) {
+            beans.getBean(name, FaultSequences.class).restart();
+        }
     }
 
     /** Resets context-owned servers after each method, as Spring Boot's {@code MockReset} does for mock beans. */

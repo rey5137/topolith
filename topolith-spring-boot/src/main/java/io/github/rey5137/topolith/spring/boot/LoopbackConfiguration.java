@@ -1,5 +1,7 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import java.time.Duration;
+
 import java.util.Set;
 
 import io.github.rey5137.topolith.core.Diagnostic;
@@ -109,7 +111,8 @@ class LoopbackConfiguration {
     RestClientHttpServiceGroupConfigurer topolithLoopbackClients(Topology topology, LoopbackEndpoints endpoints,
             ObjectProvider<HttpServiceClientProperties> properties, ObjectProvider<SslBundles> sslBundles,
             ObjectProvider<HttpClientSettings> defaults, ObjectProvider<ClientHttpRequestFactoryBuilder<?>> factories,
-            BeanFactory beanFactory) {
+            BeanFactory beanFactory, Environment environment) {
+        Binder binder = Binder.get(environment);
         String[] loopbacks = topology.idsOf(Mode.LOOPBACK).toArray(String[]::new);
         ClassLoader loader = beanFactory instanceof ConfigurableBeanFactory c
                 && c.getBeanClassLoader() != null ? c.getBeanClassLoader() : getClass().getClassLoader();
@@ -119,7 +122,9 @@ class LoopbackConfiguration {
             HttpClientSettings settings = ExternalClientSwapConfiguration.settings(group.name(), properties,
                     sslBundles, defaults);
             endpoints.install(group.name(), builder, factories.getIfAvailable(
-                    () -> ClientHttpRequestFactoryBuilder.detect(loader)).build(settings));
+                    () -> ClientHttpRequestFactoryBuilder.detect(loader)).build(settings),
+                    LoopbackFaults.read(binder, group.name()), settings.readTimeout() == null
+                            ? LoopbackFaults.DEFAULT_READ_TIMEOUT : settings.readTimeout());
         });
     }
 

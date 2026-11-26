@@ -125,6 +125,7 @@ final class TopologyResolver {
         });
         topology.idsOf(Mode.LOOPBACK).forEach(id -> checkLoopback(env, binder, id, problems));
         unknownModules(binder, topology, problems);
+        LoopbackFaults.check(binder, topology, problems);
         Set<String> exposed = exposed(env, binder, topology, problems);
         Map<String, Set<String>> contracts = new TreeMap<>();
         found.apis().forEach(api -> contracts.computeIfAbsent(api.id(), key -> new LinkedHashSet<>())

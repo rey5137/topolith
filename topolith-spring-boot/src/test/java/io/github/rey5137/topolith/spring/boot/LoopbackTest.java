@@ -84,7 +84,7 @@ class LoopbackTest {
     }
 
     /** The API and module descriptors of {@code id} under {@link #LOOP}. */
-    private static void descriptors(Path root, String id, String... provides) throws IOException {
+    static void descriptors(Path root, String id, String... provides) throws IOException {
         String api = LOOP + "." + id + ".api";
         write(root, "apis/" + id, out -> Descriptors.write(ApiDescriptor.builder(id).apiPackages(List.of(api))
                 .apiVersion("1.0.0").provides(List.of(provides)).build(), out));
@@ -104,7 +104,7 @@ class LoopbackTest {
         }
     }
 
-    private static WebApplicationContextRunner server(Class<?> host) {
+    static WebApplicationContextRunner server(Class<?> host) {
         return new WebApplicationContextRunner(AnnotationConfigServletWebServerApplicationContext::new)
                 .withUserConfiguration(host)
                 .withPropertyValues("server.port=0", "spring.liquibase.enabled=false",
@@ -139,7 +139,7 @@ class LoopbackTest {
         return fail("no TopolithException in the cause chain of " + failure);
     }
 
-    private static TopolithException fails(Throwable startup, TopolithCode code, String... texts) {
+    static TopolithException fails(Throwable startup, TopolithCode code, String... texts) {
         TopolithException failure = failure(startup);
         assertEquals(List.of(code), failure.diagnostics().stream().map(d -> d.code()).distinct().toList(),
                 failure.getMessage());

@@ -1,0 +1,4 @@
+org.springframework.test.context.ContextCustomizerFactory=\
+io.github.rey5137.topolith.spring.test.TopolithContextCustomizerFactory
+org.springframework.test.context.TestExecutionListener=\
+io.github.rey5137.topolith.spring.test.TopolithMockTestExecutionListener

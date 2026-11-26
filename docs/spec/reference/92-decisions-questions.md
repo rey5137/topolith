@@ -68,6 +68,7 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-59 | Module code may depend only on Topolith annotation and contract packages; see below | Prevent topology-dependent business behavior | M3.3 owner decision; closes Q-20 |
 | D-60 | Host scans covering internal modules fail TL0018; module beans making auto-configuration back off fail TL0031; see below | Avoid duplicate registration and silent default replacement | M3.3 owner decision; closes Q-14 |
 | D-61 | Non-internal module entries in management imports fail TL0007; see below | Close activation paths outside the imports filter | M3.3 owner decision; answers Q-13 in part |
+| D-62 | Test modes use annotations or explicit properties with a per-module mock server; see below | Exercise both activation and external calls | M3.4 owner decision |
 
 ### D-49 — Separate HTTP interface (M2.5)
 
@@ -145,6 +146,16 @@ descriptor. `verify(ClassLoader)` finds the descriptors and the classes through 
   `java.util.stream.BaseStream` (so `Stream`), `java.io.InputStream`, `org.hibernate.proxy.HibernateProxy`,
   `org.hibernate.collection.spi.PersistentCollection` or `java.lang.reflect.Proxy`, or one annotated
   `jakarta.persistence.Entity`. All are matched by name, so no Spring Data, JPA or Hibernate dependency is needed.
+
+### D-62 — Test modes and mock servers (M3.4)
+
+`topolith-spring-test` offers repeatable `@TopolithModuleMode` annotations for Spring Boot tests and an explicit
+`TopolithTestModes` builder for an `ApplicationContextRunner` or `DynamicPropertyRegistry`. Unnamed modules remain
+unset. An external annotation creates a context-owned `TopolithMockServer` and `@TopolithMock` injects it into a test
+field. The context cache key includes the mode declarations. The builder accepts a server or a base URI; it only sets
+properties. Each server listens on an ephemeral loopback port, serves stubs under the fixed `/<id>` prefix, records
+requests, and can reset or close. Its problem responses use the provider's contract-exception format. Unstubbed paths
+return 404 without a Topolith problem. All new public types are incubating.
 
 ### D-61 — Other module registration resources (M3.3)
 

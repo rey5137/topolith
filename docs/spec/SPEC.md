@@ -1,7 +1,8 @@
 # Topolith — Specification Index
 
 **Topolith** lets a Spring Boot business module run **in-process** (`internal`), **remote** (`external`) or **not at
-all** (`none`), chosen per host in configuration, without changing the module's code. Modules come from one multi-module
+all** (`none`), chosen per host in configuration, without changing the module's code; `loopback` runs it in-process
+behind real HTTP, to test that it behaves the same once extracted. Modules come from one multi-module
 repo or from one-service-per-repo legacy repos, and any set of them can be bundled into one image or split back out.
 Topolith enforces module boundaries itself; Spring Modulith is an optional add-on.
 
@@ -60,7 +61,7 @@ Breaking an invariant is an architecture decision that needs an accepted RFC, ne
 | Id | Invariant |
 |---|---|
 | INV-1 | **Business code needs no Topolith type.** The only Topolith API a module may carry is the optional `@TopolithModule` on `package-info.java` and the types of `io.github.rey5137.topolith.contract`. |
-| INV-2 | **A module that is not `internal` contributes nothing to the host:** no bean, auto-configuration, entity, repository, migration, route, listener or scheduled task. |
+| INV-2 | **A module that is neither `internal` nor `loopback` (D-75) contributes nothing to the host:** no bean, auto-configuration, entity, repository, migration, route, listener or scheduled task. |
 | INV-3 | **Explicit topology.** A host states the mode of every module it knows; only a standalone `*-service` may default its own module to `internal` (D-8). |
 | INV-4 | **Loud over silent.** An unsatisfiable or ambiguous topology fails startup with a `TLnnnn` code and a fix-it message. Nothing falls back, picks a winner (`@Primary`) or drops a call or event silently. |
 | INV-5 | **Contracts only.** A module calls another only through a contract type that the callee `provides`. |

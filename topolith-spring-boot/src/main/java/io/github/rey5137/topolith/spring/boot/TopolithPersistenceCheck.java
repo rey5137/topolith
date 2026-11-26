@@ -134,7 +134,7 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                 for (String line : content.split("\\R")) {
                     String className = line.split("#", 2)[0].trim();
                     String id = resolution.topology().ownerOfClass(className).orElse(null);
-                    if (id != null && resolution.topology().mode(id) != Mode.INTERNAL) {
+                    if (id != null && !resolution.topology().internal().contains(id)) {
                         found.add(new Diagnostic(TopolithCode.TL0007, "module '" + id + "' lists "
                                 + className + " in " + url + ".",
                                 "Remove the registration or activate the module."));
@@ -184,7 +184,7 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                 continue;
             }
             ModuleBeans.owner(definition, resolution).ifPresent(id -> {
-                if (resolution.topology().mode(id) != Mode.INTERNAL) {
+                if (!resolution.topology().internal().contains(id)) {
                     found.add(new Diagnostic(TopolithCode.TL0007, "bean '" + name + "' declared by module '" + id
                             + "' (mode " + resolution.topology().mode(id).id() + ") was registered from "
                             + registrationSource(definition) + ".",
@@ -206,7 +206,7 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                 BeanDefinition definition = factory.getBeanDefinition(name);
                 boolean candidate = !(definition instanceof AbstractBeanDefinition abstractDefinition)
                         || abstractDefinition.isDefaultCandidate();
-                if (candidate && topology.mode(id) == Mode.INTERNAL && !id.equals(exempt)) {
+                if (candidate && topology.internal().contains(id) && !id.equals(exempt)) {
                     found.put(id + "/" + name, new Diagnostic(TopolithCode.TL0019, "module '" + id
                             + "' contributes the default-candidate bean '" + name + "' of type "
                             + simpleName(type) + ", which would replace the host's.",
@@ -274,7 +274,7 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                         continue;
                     }
                     ModuleBeans.owner(definition, resolution).ifPresent(id -> {
-                        if (resolution.topology().mode(id) != Mode.INTERNAL || persistenceBeans.contains(name)
+                        if (!resolution.topology().internal().contains(id) || persistenceBeans.contains(name)
                                 || resolution.topology().ownerOfClass(configName).filter(id::equals).isPresent()) {
                             return;
                         }
@@ -300,7 +300,7 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
         Map<String, List<String>> byOwner = new TreeMap<>();
         ModuleBeans.repositoryInterfaces(factory, loader, resolution, ModuleBeans.REPOSITORY_FACTORY_BEAN)
                 .forEach((name, owner) -> {
-                    if (!owner.isEmpty() && topology.mode(owner) != Mode.INTERNAL) {
+                    if (!owner.isEmpty() && !topology.internal().contains(owner)) {
                         byOwner.computeIfAbsent(owner, key -> new ArrayList<>()).add(name);
                     }
                 });

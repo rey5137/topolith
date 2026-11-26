@@ -5,7 +5,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.Topology;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
@@ -49,10 +48,13 @@ final class ExternalClientProperties {
     }
 
     static Map<String, Object> properties(Environment environment, Topology topology) {
-        return properties(environment, topology.idsOf(Mode.EXTERNAL));
+        return properties(environment, ExternalHttpServicesRegistrar.clientModules(topology));
     }
 
-    /** The mapped keys for the given external modules; a refresh recomputes one module's (D-50). */
+    /**
+     * The mapped keys for the given external or loopback modules; a refresh recomputes one external module's (D-50).
+     * A loopback module sets no {@code remote.url} or {@code remote.service-id} (TL0003), so it maps only timeouts.
+     */
     static Map<String, Object> properties(Environment environment, Collection<String> ids) {
         Map<String, Object> values = new LinkedHashMap<>();
         for (String id : ids) {

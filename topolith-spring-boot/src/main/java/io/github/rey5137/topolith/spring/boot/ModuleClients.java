@@ -18,15 +18,15 @@ import org.springframework.beans.factory.InitializingBean;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer;
 
-/** Factory for host customizations of external module clients. */
+/** Factory for host customizations of external and loopback module clients. */
 @Incubating
 public final class ModuleClients {
     private ModuleClients() {
     }
 
     /**
-     * Customize only the named external module's client. The Topolith base URL and request factory win: attempts to
-     * replace them are rejected. Replacing the URI factory, default URI variables, interceptor list or message converters and cloning the
+     * Customize only the named external or loopback module's client. The Topolith base URL and request factory win:
+     * attempts to replace them are rejected. Replacing the URI factory, default URI variables, interceptor list or message converters and cloning the
      * builder are also rejected to preserve those settings. A host status handler throwing its own exception bypasses Topolith's error
      * translation.
      * Declare the returned configurer as a Spring bean.
@@ -57,10 +57,12 @@ final class ModuleClientConfigurer implements RestClientHttpServiceGroupConfigur
     @Override
     public void afterPropertiesSet() {
         Topology topology = beanFactory.getBean(Topology.class);
-        if (!topology.known().contains(moduleId) || topology.mode(moduleId) != Mode.EXTERNAL) {
+        if (!topology.known().contains(moduleId)
+                || topology.mode(moduleId) != Mode.EXTERNAL && topology.mode(moduleId) != Mode.LOOPBACK) {
             String property = "topolith.modules." + moduleId + ".mode";
             throw new TopolithException(new Diagnostic(TopolithCode.TL0003, "client customization for module '"
-                    + moduleId + "' requires " + property + "=external.", "Set " + property + " to external."));
+                    + moduleId + "' requires " + property + "=external or loopback.", "Set " + property
+                    + " to external or loopback."));
         }
     }
 

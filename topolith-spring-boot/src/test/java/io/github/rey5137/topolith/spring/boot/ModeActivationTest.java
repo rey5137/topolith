@@ -24,6 +24,8 @@ import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.boot.web.server.servlet.context.AnnotationConfigServletWebServerApplicationContext;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
 
 import static io.github.rey5137.topolith.spring.boot.Fixtures.BASE;
@@ -269,6 +271,29 @@ class ModeActivationTest {
     }
 
     @Test
+    void ac_mode_40_a_loopback_modules_configuration_packages_and_auto_configurations_are_imported()
+            throws Exception {
+        try (RecordingLoader loader = new RecordingLoader(userRoot, paymentRoot, hostRoot)) {
+            new WebApplicationContextRunner(AnnotationConfigServletWebServerApplicationContext::new)
+                    .withClassLoader(loader).withUserConfiguration(Host.class)
+                    .withPropertyValues("server.port=0", "spring.liquibase.enabled=false",
+                            "topolith.modules.user.mode=loopback", "topolith.modules.payment.mode=none")
+                    .run(context -> {
+                        assertNull(context.getStartupFailure());
+                        for (String type : List.of("UserComponent", "UserController", "UserListener", "UserTask",
+                                "UserConfiguration")) {
+                            assertTrue(context.containsBean(USER + "." + type), type);
+                        }
+                        assertTrue(context.containsBean("userSharedService"));
+                        assertFalse(context.containsBean(USER_API + ".ApiComponent"));
+                        assertTrue(context.containsBean("userAutoConfigurationMarker"));
+                        context.publishEvent(new FixtureEvent());
+                        assertEquals(List.of("user"), FixtureEvent.RECEIVED);
+                    });
+        }
+    }
+
+    @Test
     void ac_mode_04_a_module_bean_is_seen_by_the_conditions_of_a_later_auto_configuration() throws Exception {
         run(List.of("topolith.modules.user.mode=internal", "topolith.modules.payment.mode=none",
                 "test.later.enabled=true"), (context, loader) ->
@@ -392,10 +417,10 @@ class ModeActivationTest {
 
     @Test
     void ac_mode_22_an_invalid_mode_value_fails_with_tl0001() throws Exception {
-        run(List.of("topolith.modules.user.mode=loopback", "topolith.modules.payment.mode=none"),
+        run(List.of("topolith.modules.user.mode=loop-back", "topolith.modules.payment.mode=none"),
                 (context, loader) -> {
                     assertEquals(List.of(TopolithCode.TL0001), codes(context));
-                    assertTrue(failure(context).getMessage().contains("'loopback'"), failure(context).getMessage());
+                    assertTrue(failure(context).getMessage().contains("'loop-back'"), failure(context).getMessage());
                 });
         run(List.of("topolith.modules.user.mode=", "topolith.modules.payment.mode=none"),
                 (context, loader) -> assertEquals(List.of(TopolithCode.TL0001), codes(context)));

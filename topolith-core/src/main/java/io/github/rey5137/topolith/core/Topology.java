@@ -75,7 +75,7 @@ public final class Topology {
             }
             ModuleDescriptor module = implementations.get(id);
             ApiDescriptor api = interfaces.get(id);
-            if (mode == Mode.INTERNAL && module != null && api != null && !module.provides().equals(api.provides())) {
+            if (activated(mode) && module != null && api != null && !module.provides().equals(api.provides())) {
                 Set<String> onlyModule = new TreeSet<>(module.provides());
                 onlyModule.removeAll(api.provides());
                 Set<String> onlyApi = new TreeSet<>(api.provides());
@@ -85,7 +85,7 @@ public final class Topology {
                         "Align the API JAR and implementation JAR versions."));
             }
             Set<String> contracts = new TreeSet<>();
-            if (module != null && (mode == Mode.INTERNAL || api == null)) {
+            if (module != null && (activated(mode) || api == null)) {
                 contracts.addAll(module.provides());
             }
             if (api != null) {
@@ -129,7 +129,7 @@ public final class Topology {
             if (value == null) {
                 if (!id.equals(standalone)) {
                     found.add(new Diagnostic(TopolithCode.TL0001, "no mode is declared for module '" + id + "'.",
-                            "Set topolith.modules." + id + ".mode to internal, external or none."));
+                            "Set topolith.modules." + id + ".mode to internal, external, loopback or none."));
                     continue;
                 }
                 mode = Mode.INTERNAL;
@@ -137,15 +137,16 @@ public final class Topology {
                 Optional<Mode> parsed = Mode.parse(value);
                 if (parsed.isEmpty()) {
                     found.add(new Diagnostic(TopolithCode.TL0001, "module '" + id + "' has the invalid mode '"
-                            + value + "'.", "Set topolith.modules." + id + ".mode to internal, external or none."));
+                            + value + "'.", "Set topolith.modules." + id
+                            + ".mode to internal, external, loopback or none."));
                     continue;
                 }
                 mode = parsed.get();
             }
-            if (mode == Mode.INTERNAL && graph.module(id).isEmpty() && !id.equals(standalone)) {
-                found.add(missingImplementation(id));
+            if (activated(mode) && graph.module(id).isEmpty() && !id.equals(standalone)) {
+                found.add(missingImplementation(id, mode));
             }
-            if (mode == Mode.INTERNAL && standalone != null && !id.equals(standalone) && graph.module(id).isPresent()) {
+            if (activated(mode) && standalone != null && !id.equals(standalone) && graph.module(id).isPresent()) {
                 found.add(new Diagnostic(TopolithCode.TL0025, "topolith.standalone is '" + standalone
                         + "' but module '" + id + "' is also internal: a standalone service hosts only its own module.",
                         "Remove topolith.standalone and declare every mode, or set topolith.modules." + id
@@ -156,8 +157,9 @@ public final class Topology {
         declared.forEach((id, value) -> {
             // a standalone id with no module descriptor is already reported above
             if (value != null && !known.contains(id) && !id.equals(standalone)) {
-                if (Mode.parse(value).filter(mode -> mode == Mode.INTERNAL).isPresent()) {
-                    found.add(missingImplementation(id));
+                Optional<Mode> parsed = Mode.parse(value).filter(Topology::activated);
+                if (parsed.isPresent()) {
+                    found.add(missingImplementation(id, parsed.get()));
                 } else {
                     found.add(new Diagnostic(TopolithCode.TL0016, "a mode is declared for module '" + id
                             + "', which has no module or API descriptor on the classpath.",
@@ -172,14 +174,19 @@ public final class Topology {
         return modes;
     }
 
-    private static Diagnostic missingImplementation(String id) {
-        return new Diagnostic(TopolithCode.TL0002, "module '" + id + "' is internal but has no implementation: "
-                + "META-INF/topolith/modules/" + id + ".properties is not on the classpath.",
+    private static Diagnostic missingImplementation(String id, Mode mode) {
+        return new Diagnostic(TopolithCode.TL0002, "module '" + id + "' is " + mode.id()
+                + " but has no implementation: META-INF/topolith/modules/" + id + ".properties is not on the classpath.",
                 "Add the JAR that carries META-INF/topolith/modules/" + id + ".properties, or set "
                         + "topolith.modules." + id + ".mode to external or none.");
     }
 
-    // D-21: only internal modules are checked; an external module counts as available.
+    /** Internal for activation (D-75): the module's implementation runs in the host. */
+    private static boolean activated(Mode mode) {
+        return mode == Mode.INTERNAL || mode == Mode.LOOPBACK;
+    }
+
+    // D-21: only internal (and loopback, D-75) modules are checked; an external module counts as available.
     private void checkRequirements() {
         Set<String> available = new LinkedHashSet<>(internal());
         modes.forEach((id, mode) -> {
@@ -189,14 +196,14 @@ public final class Topology {
         });
         List<Diagnostic> found = new ArrayList<>();
         graph.unmetRequirements(available).forEach((id, missing) -> {
-            if (modes.get(id) != Mode.INTERNAL) {
+            if (!activated(modes.get(id))) {
                 return;
             }
             for (String required : missing) {
                 String state = modes.containsKey(required) ? "its mode is " + modes.get(required).id()
                         : "it is not on the classpath";
-                found.add(new Diagnostic(TopolithCode.TL0004, "internal module '" + id + "' requires '" + required
-                        + "', which is not available: " + state + ".",
+                found.add(new Diagnostic(TopolithCode.TL0004, modes.get(id).id() + " module '" + id + "' requires '"
+                        + required + "', which is not available: " + state + ".",
                         "Set topolith.modules." + required + ".mode to internal or external, or set "
                                 + "topolith.modules." + id + ".mode to external or none."));
             }
@@ -225,9 +232,14 @@ public final class Topology {
         return mode;
     }
 
-    /** The ids of the internal modules, sorted. */
+    /**
+     * The ids of the modules that are internal for activation, sorted: {@code internal} and {@code loopback} modules,
+     * whose implementation runs in the host (D-75). {@link #idsOf(Mode)} tells the two apart.
+     */
     public Set<String> internal() {
-        return idsOf(Mode.INTERNAL);
+        Set<String> ids = new TreeSet<>(idsOf(Mode.INTERNAL));
+        ids.addAll(idsOf(Mode.LOOPBACK));
+        return Collections.unmodifiableSet(ids);
     }
 
     /** The ids of the modules with the given mode, sorted. */

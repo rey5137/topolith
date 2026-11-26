@@ -193,7 +193,7 @@ class TopologyTest {
 
     @Test
     void ac_mode_22_an_invalid_or_blank_mode_fails_with_tl0001() {
-        for (String value : List.of("loopback", "", "  ", "intern al")) {
+        for (String value : List.of("loop back", "", "  ", "intern al")) {
             TopolithException failure = fails(List.of(user), List.of(), modes("user", value), null);
             assertEquals(List.of(TopolithCode.TL0001), codes(failure), value);
             assertTrue(failure.getMessage().contains("invalid mode"), failure.getMessage());
@@ -264,5 +264,49 @@ class TopologyTest {
         assertEquals(List.of(TopolithCode.TL0006), codes(fails(List.of(user, twin), List.of(), modes(), null)));
         assertEquals(List.of(TopolithCode.TL0006), codes(fails(List.of(user), List.of(api("billing", "x.y"),
                 api("billing", "x.z")), modes(), null)));
+    }
+    @Test
+    void ac_mode_39_loopback_parses_trimmed_and_case_insensitive_and_needs_a_module_descriptor() {
+        assertEquals(Mode.LOOPBACK, Mode.parse(" LoopBack ").orElseThrow());
+        Topology topology = Topology.resolve(List.of(user, payment), List.of(), modes("user", "internal", "payment",
+                " LOOPBACK "), null);
+        assertEquals(Mode.LOOPBACK, topology.mode("payment"));
+        assertEquals(Set.of("payment"), topology.idsOf(Mode.LOOPBACK));
+        assertEquals(Set.of("user"), topology.idsOf(Mode.INTERNAL));
+        assertEquals(Set.of("payment", "user"), topology.internal());
+        TopolithException failure = fails(List.of(), List.of(api("user", "com.acme.user")), modes("user", "loopback"),
+                null);
+        assertEquals(List.of(TopolithCode.TL0002), codes(failure));
+        assertTrue(failure.getMessage().contains("is loopback"), failure.getMessage());
+        assertEquals(List.of(TopolithCode.TL0002), codes(fails(List.of(user), List.of(),
+                modes("user", "none", "usr", "loopback"), null)));
+    }
+
+    @Test
+    void ac_mode_51_a_loopback_module_with_an_unmet_requires_fails_with_tl0004() {
+        TopolithException failure = fails(List.of(user, payment), List.of(), modes("user", "none", "payment",
+                "loopback"), null);
+        assertEquals(List.of(TopolithCode.TL0004), codes(failure));
+        assertTrue(failure.getMessage().contains("loopback module 'payment' requires 'user'"), failure.getMessage());
+    }
+
+    @Test
+    void ac_mode_52_an_internal_module_requiring_a_loopback_module_starts() {
+        Topology topology = Topology.resolve(List.of(user, payment), List.of(), modes("user", "loopback", "payment",
+                "internal"), null);
+        assertEquals(Mode.LOOPBACK, topology.mode("user"));
+        assertEquals(Mode.INTERNAL, topology.mode("payment"));
+    }
+
+    @Test
+    void ac_mode_41_a_loopback_module_and_its_matching_api_are_not_two_providers() {
+        ModuleDescriptor provider = ModuleDescriptor.builder("pay").packageName("com.acme.pay")
+                .apiPackages(List.of("com.acme.pay.api")).provides(List.of("com.acme.pay.api.Pay")).apiVersion("1.0.0")
+                .source("jar:/pay.jar!/pay.properties").build();
+        ApiDescriptor api = ApiDescriptor.builder("pay").apiPackages(List.of("com.acme.pay.api"))
+                .provides(List.of("com.acme.pay.api.Pay")).apiVersion("1.0.0")
+                .source("jar:/pay-api.jar!/pay.properties").build();
+        assertEquals(Mode.LOOPBACK, Topology.resolve(List.of(provider), List.of(api), modes("pay", "loopback"), null)
+                .mode("pay"));
     }
 }

@@ -123,6 +123,7 @@ final class TopologyResolver {
                 discovered.add(id);
             }
         });
+        topology.idsOf(Mode.LOOPBACK).forEach(id -> checkLoopback(env, binder, id, problems));
         unknownModules(binder, topology, problems);
         Set<String> exposed = exposed(env, binder, topology, problems);
         Map<String, Set<String>> contracts = new TreeMap<>();
@@ -132,7 +133,9 @@ final class TopologyResolver {
                 .addAll(module.provides()));
         ExternalContracts.checkDiscovery(discovered, classLoader, problems);
         Map<String, Map<String, String>> mappings = httpInterfaces(binder, topology, contracts, problems);
-        ExternalContracts.check(topology.idsOf(Mode.EXTERNAL), contracts, mappings, classLoader, problems);
+        for (Mode mode : List.of(Mode.EXTERNAL, Mode.LOOPBACK)) {
+            ExternalContracts.check(mode, topology.idsOf(mode), contracts, mappings, classLoader, problems);
+        }
         Map<String, Set<String>> apiPackages = new TreeMap<>();
         found.apis().forEach(api -> apiPackages.computeIfAbsent(api.id(), key -> new TreeSet<>())
                 .addAll(api.apiPackages()));
@@ -146,7 +149,7 @@ final class TopologyResolver {
         }
         List<String> warnings = new ArrayList<>();
         for (ApiDescriptor api : found.apis()) {
-            if (topology.mode(api.id()) != Mode.INTERNAL) {
+            if (!topology.internal().contains(api.id())) {
                 continue;
             }
             for (ModuleDescriptor module : found.modules()) {
@@ -189,11 +192,36 @@ final class TopologyResolver {
                     value -> normalizeUrl(ExternalClientProperties.baseUrl(value, id)),
                     TopologyResolver::normalizeUrl, problems);
         }
-        for (String key : List.of("connect-timeout", "read-timeout")) {
-            conflict(env, binder, prefix + key, ExternalClientProperties.groupPrefix(id) + key, Duration.class,
-                    value -> value, problems);
-        }
+        timeoutConflicts(env, binder, id, problems);
         return discovered;
+    }
+
+    private static void timeoutConflicts(Environment env, Binder binder, String id, List<Diagnostic> problems) {
+        for (String key : List.of("connect-timeout", "read-timeout")) {
+            conflict(env, binder, MODES + "." + id + ".remote." + key, ExternalClientProperties.groupPrefix(id) + key,
+                    Duration.class, value -> value, problems);
+        }
+    }
+
+    /**
+     * The settings rules of loopback module {@code id} (R-MODE-06, TL0003): the client always targets the host's own
+     * server, so a non-blank {@code remote.url} or {@code remote.service-id} and an explicit Boot {@code base-url}
+     * contradict the mode. Its timeouts follow the external rules.
+     */
+    private static void checkLoopback(Environment env, Binder binder, String id, List<Diagnostic> problems) {
+        String prefix = MODES + "." + id + ".remote.";
+        for (String key : List.of(prefix + "url", prefix + "service-id")) {
+            if (!binder.bind(key, String.class).orElse("").isBlank()) {
+                problems.add(new Diagnostic(TopolithCode.TL0003, "loopback module '" + id + "' sets " + key
+                        + ", but a loopback module calls the host's own server.", "Remove " + key + "."));
+            }
+        }
+        String base = ExternalClientProperties.groupPrefix(id) + "base-url";
+        if (binder.bind(base, String.class).isBound()) {
+            problems.add(new Diagnostic(TopolithCode.TL0003, "loopback module '" + id + "' sets " + base
+                    + ", but a loopback module calls the host's own server.", "Remove " + base + "."));
+        }
+        timeoutConflicts(env, binder, id, problems);
     }
 
     private static Map<String, Map<String, String>> httpInterfaces(Binder binder, Topology topology,
@@ -210,8 +238,9 @@ final class TopologyResolver {
                             String reason = null;
                             if (!topology.known().contains(id)) {
                                 reason = "module '" + id + "' is unknown, not external";
-                            } else if (topology.mode(id) != Mode.EXTERNAL) {
-                                reason = "module '" + id + "' has mode " + topology.mode(id).id() + ", not external";
+                            } else if (topology.mode(id) != Mode.EXTERNAL && topology.mode(id) != Mode.LOOPBACK) {
+                                reason = "module '" + id + "' has mode " + topology.mode(id).id()
+                                        + ", not external or loopback";
                             } else if (!validClassName(contract)) {
                                 reason = "malformed contract key '" + contract + "'";
                             } else if (!contracts.getOrDefault(id, Set.of()).contains(contract)) {
@@ -223,7 +252,8 @@ final class TopologyResolver {
                             }
                             if (reason != null) {
                                 problems.add(new Diagnostic(TopolithCode.TL0003, "invalid mapping " + property
-                                        + ": " + reason + ".", "Map a provided contract of an external module."));
+                                        + ": " + reason + ".", "Map a provided contract of an external or "
+                                        + "loopback module."));
                             } else {
                                 result.computeIfAbsent(id, key -> new TreeMap<>()).put(contract, type);
                             }
@@ -292,13 +322,25 @@ final class TopologyResolver {
         return value instanceof Map<?, ?> settings && settings.containsKey("expose");
     }
 
-    /** The modules with {@code expose.enabled=true} (D-44); TL0003 if one is not internal or not a boolean. */
+    /**
+     * The modules whose routes are served: those with {@code expose.enabled=true} (D-44) and every loopback module,
+     * whose routes are always mapped (D-76). TL0003 if an exposed module is neither internal nor loopback, if a
+     * loopback module sets {@code expose.enabled=false}, or if the value is not a boolean.
+     */
     private static Set<String> exposed(Environment env, Binder binder, Topology topology, List<Diagnostic> problems) {
         Set<String> exposed = new TreeSet<>();
         for (String id : topology.known()) {
             String key = MODES + "." + id + ".expose.enabled";
             try {
-                if (binder.bind(key, Boolean.class).orElse(false)) {
+                if (topology.mode(id) == Mode.LOOPBACK) {
+                    if (binder.bind(key, Boolean.class).orElse(true)) {
+                        exposed.add(id);
+                    } else {
+                        problems.add(new Diagnostic(TopolithCode.TL0003, "loopback module '" + id + "' sets " + key
+                                + "=false, but a loopback module's routes are always served.", "Remove " + key
+                                + ", or set topolith.modules." + id + ".mode to internal."));
+                    }
+                } else if (binder.bind(key, Boolean.class).orElse(false)) {
                     if (topology.mode(id) == Mode.INTERNAL) {
                         exposed.add(id);
                     } else {

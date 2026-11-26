@@ -87,12 +87,19 @@ final class TopolithModuleImportSelector
         if (!resolution.exposed().isEmpty()) {
             imports.add("io.github.rey5137.topolith.spring.boot.ReactiveExposureConfiguration");
         }
-        if (!topology.idsOf(Mode.EXTERNAL).isEmpty() && ClassUtils.isPresent(
+        boolean externals = !topology.idsOf(Mode.EXTERNAL).isEmpty();
+        boolean loopbacks = !topology.idsOf(Mode.LOOPBACK).isEmpty();
+        if ((externals || loopbacks) && ClassUtils.isPresent(
                 "org.springframework.web.service.registry.AbstractHttpServiceRegistrar", classLoader)) {
             imports.add("io.github.rey5137.topolith.spring.boot.ExternalHttpServicesRegistrar");
             imports.add("io.github.rey5137.topolith.spring.boot.ExternalErrorsConfiguration");
             if (ClassUtils.isPresent("org.springframework.boot.http.client.HttpClientSettings", classLoader)) {
-                imports.add("io.github.rey5137.topolith.spring.boot.ExternalClientSwapConfiguration");
+                if (externals) {
+                    imports.add("io.github.rey5137.topolith.spring.boot.ExternalClientSwapConfiguration");
+                }
+                if (loopbacks) {
+                    imports.add("io.github.rey5137.topolith.spring.boot.LoopbackConfiguration");
+                }
             }
         }
         return imports.toArray(String[]::new);
@@ -110,7 +117,7 @@ final class TopolithModuleImportSelector
             String className = definition instanceof ScannedGenericBeanDefinition ? definition.getBeanClassName()
                     : null;
             String owner = className == null ? null : topology.ownerOfClass(className).orElse(null);
-            if (owner != null && topology.mode(owner) != Mode.INTERNAL) {
+            if (owner != null && !topology.internal().contains(owner)) {
                 scanned.computeIfAbsent(owner, key -> new ArrayList<>()).add(className);
             }
         }
@@ -193,7 +200,7 @@ final class TopolithModuleImportSelector
                                         || modulePackage.startsWith(base + "."))) {
                             return;
                         }
-                        boolean internal = topology.mode(id) == Mode.INTERNAL;
+                        boolean internal = topology.internal().contains(id);
                         if (!internal && annotation.endsWith("ComponentScan")
                                 && !annotation.endsWith("ServletComponentScan")) {
                             return; // Existing registration check accounts for component-scan filters.

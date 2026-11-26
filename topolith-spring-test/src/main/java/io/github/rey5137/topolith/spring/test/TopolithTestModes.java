@@ -66,6 +66,13 @@ public final class TopolithTestModes {
         /** Selects none mode. */
         public Builder none() { return mode("none", null); }
 
+        /**
+         * Selects loopback mode (R-MODE-06): the module runs in the test's context and its callers reach it over HTTP,
+         * so the context needs a listening server ({@code webEnvironment = RANDOM_PORT}). It clears the host's
+         * {@code remote.url} and {@code remote.service-id}.
+         */
+        public Builder loopback() { return mode("loopback", null); }
+
         /** Selects external mode at a base URL. */
         public Builder external(URI uri) { return mode("external", uri.toString()); }
 
@@ -75,7 +82,7 @@ public final class TopolithTestModes {
         private void requireModes() {
             if (!unset.isEmpty()) {
                 throw new IllegalStateException("No mode selected for module(s) " + unset
-                        + "; call internal(), external(...) or none() after module(id)");
+                        + "; call internal(), external(...), loopback() or none() after module(id)");
             }
         }
 

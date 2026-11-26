@@ -28,6 +28,16 @@ class TopolithTestModesTest {
     static class Host { }
 
     @Test
+    void ac_test_16_builder_loopback_clears_the_remote_keys_and_never_the_boot_base_url() {
+        var values = new java.util.HashMap<String, java.util.function.Supplier<Object>>();
+        TopolithTestModes.module("payment").loopback().applyTo((key, value) -> values.put(key, value));
+        assertEquals("loopback", values.get("topolith.modules.payment.mode").get());
+        assertEquals("", values.get("topolith.modules.payment.remote.url").get());
+        assertEquals("", values.get("topolith.modules.payment.remote.service-id").get());
+        assertEquals(3, values.size(), values.keySet().toString());
+    }
+
+    @Test
     void ac_test_01_programmatic_modes_and_dynamic_registry() {
         var values = new java.util.HashMap<String, java.util.function.Supplier<Object>>();
         TopolithTestModes.module("a").internal().module("b").external(java.net.URI.create("http://localhost:42"))

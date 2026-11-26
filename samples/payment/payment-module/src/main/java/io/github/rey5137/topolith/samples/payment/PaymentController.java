@@ -12,9 +12,11 @@ import io.github.rey5137.topolith.samples.payment.api.PaymentNotFoundException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.RestController;
 
+// snippet:start payment-controller-header
 /** Serves the payment contract under the module's fixed {@code /payment} prefix. */
 @RestController
 public class PaymentController implements PaymentApi {
+// snippet:end payment-controller-header
     private static final String TAG_SEPARATOR = "\n";
 
     private final JdbcTemplate jdbc;

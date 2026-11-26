@@ -6,6 +6,7 @@ import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
 import org.springframework.web.service.annotation.PostExchange;
 
+// snippet:start payment-api
 /** The payment contract every topology consumes. */
 @HttpExchange
 public interface PaymentApi {
@@ -17,3 +18,4 @@ public interface PaymentApi {
     @GetExchange("/charges/{id}")
     ChargeResult find(@PathVariable("id") String id);
 }
+// snippet:end payment-api

@@ -8,9 +8,11 @@ spring:
     consul:
       # Standalone runs and the hybrid fixed-URL case stay discovery-free; the Consul test enables it (D-69).
       enabled: false
+# snippet:start payment-service-modes
 topolith:
   standalone: payment
   modules:
     payment:
       expose:
         enabled: true
+# snippet:end payment-service-modes

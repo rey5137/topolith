@@ -30,6 +30,12 @@ topolith:
 
 Java 21+, Spring Boot 4.2+. Spring Cloud is needed only for service discovery.
 
+## Documentation
+
+- [Getting Started](docs/guide/getting-started.md)
+- [Legacy Service Adoption Checklist](docs/guide/legacy-adoption.md)
+- [Configuration Reference](docs/guide/configuration.md)
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -18,11 +18,39 @@ final class TopolithMockTestExecutionListener extends AbstractTestExecutionListe
 
     /** Clears what the context recorded before the test, such as the startup version handshake. */
     @Override
-    public void beforeTestMethod(TestContext context) { resetServers(context); }
+    public void beforeTestMethod(TestContext context) {
+        resetServers(context);
+        AssertionError failure = null;
+        for (ByValueRecorder recorder : recorders(context)) {
+            recorder.releaseKept();
+            // a violation recorded before the method (context start, a hook) must not be lost with it
+            for (AssertionError violation : recorder.drainViolations()) {
+                if (failure == null) { failure = violation; } else { failure.addSuppressed(violation); }
+            }
+        }
+        if (failure != null) { throw failure; }
+    }
 
     /** Resets context-owned servers after each method, as Spring Boot's {@code MockReset} does for mock beans. */
     @Override
-    public void afterTestMethod(TestContext context) { resetServers(context); }
+    public void afterTestMethod(TestContext context) {
+        resetServers(context);
+        AssertionError failure = null;
+        for (ByValueRecorder recorder : recorders(context)) {
+            for (AssertionError violation : recorder.finish()) {
+                if (failure == null) { failure = violation; } else { failure.addSuppressed(violation); }
+            }
+        }
+        // a by-value violation fails the method even when the code under test caught the error (R-TEST-04)
+        if (failure != null) { throw failure; }
+    }
+
+    private static java.util.List<ByValueRecorder> recorders(TestContext context) {
+        if (!context.hasApplicationContext()) { return java.util.List.of(); }
+        var beans = context.getApplicationContext();
+        return beans.getBeanNamesForType(ByValueRecorder.class, false, false).length == 0 ? java.util.List.of()
+                : java.util.List.of(beans.getBean(ByValue.RECORDER, ByValueRecorder.class));
+    }
 
     /** Only the servers the customizer registered, found without eager init so no lazy bean is created. */
     private static void resetServers(TestContext context) {

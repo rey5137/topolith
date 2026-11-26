@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.Set;
 
 import io.github.rey5137.topolith.core.Mode;
@@ -42,7 +43,27 @@ final class TopolithContextCustomizerFactory implements ContextCustomizerFactory
     public ContextCustomizer createContextCustomizer(Class<?> testClass, List<ContextConfigurationAttributes> config) {
         var modes = new TreeMap<String, Mode>();
         collectModes(testClass, modes, new HashSet<>());
-        return modes.isEmpty() ? null : new Customizer(Map.copyOf(modes));
+        var byValue = new ArrayList<TopolithByValue>();
+        collectByValue(testClass, byValue, new HashSet<>());
+        Set<String> ids = null;
+        if (!byValue.isEmpty()) {
+            ids = new TreeSet<>();
+            for (TopolithByValue annotation : byValue) { ids.addAll(List.of(annotation.value())); }
+            // an annotation with no ids selects every internal module
+            if (byValue.stream().anyMatch(annotation -> annotation.value().length == 0)) { ids.clear(); }
+            ids = Set.copyOf(ids);
+        }
+        return modes.isEmpty() && ids == null ? null : new Customizer(Map.copyOf(modes), ids);
+    }
+
+    private static void collectByValue(Class<?> type, List<TopolithByValue> found, Set<Class<?>> visited) {
+        if (type == null || !visited.add(type)) { return; }
+        TopolithByValue declared = type.getDeclaredAnnotation(TopolithByValue.class);
+        if (declared != null) { found.add(declared); }
+        collectByValue(type.getSuperclass(), found, visited);
+        if (TestContextAnnotationUtils.searchEnclosingClass(type)) {
+            collectByValue(type.getEnclosingClass(), found, visited);
+        }
     }
 
     private static void collectModes(Class<?> type, Map<String, Mode> modes, Set<Class<?>> visited) {
@@ -121,9 +142,12 @@ final class TopolithContextCustomizerFactory implements ContextCustomizerFactory
         }
     }
 
-    private record Customizer(Map<String, Mode> modes) implements ContextCustomizer {
+    /** {@code byValue} is null without {@link TopolithByValue}, and empty for every internal module. */
+    private record Customizer(Map<String, Mode> modes, Set<String> byValue) implements ContextCustomizer {
         @Override
         public void customizeContext(ConfigurableApplicationContext context, MergedContextConfiguration configuration) {
+            if (byValue != null) { ByValue.install(context, byValue); }
+            if (modes.isEmpty()) { return; }
             Map<String, Object> properties = new LinkedHashMap<>();
             DefaultListableBeanFactory beans = (DefaultListableBeanFactory) context.getBeanFactory();
             modes.forEach((id, mode) -> {

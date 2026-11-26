@@ -6,8 +6,10 @@ import java.net.URLClassLoader;
 final class FixtureLoader {
     private FixtureLoader() { }
 
-    static URLClassLoader create() {
-        URL root = FixtureLoader.class.getClassLoader().getResource("test-descriptors/");
+    static URLClassLoader create() { return create("test-descriptors/"); }
+
+    static URLClassLoader create(String directory) {
+        URL root = FixtureLoader.class.getClassLoader().getResource(directory);
         return new URLClassLoader(new URL[] { root }, FixtureLoader.class.getClassLoader());
     }
 }

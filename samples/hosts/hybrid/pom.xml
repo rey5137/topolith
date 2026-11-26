@@ -21,6 +21,7 @@
             <groupId>io.github.rey5137</groupId>
             <artifactId>topolith-spring-cloud</artifactId>
         </dependency>
+        <!-- snippet:start hybrid-module-deps -->
         <dependency>
             <groupId>io.github.rey5137</groupId>
             <artifactId>user-api</artifactId>
@@ -36,6 +37,7 @@
             <artifactId>payment-api</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- snippet:end hybrid-module-deps -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

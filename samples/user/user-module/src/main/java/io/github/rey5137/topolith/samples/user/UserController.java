@@ -14,6 +14,7 @@ import io.github.rey5137.topolith.samples.user.api.UserOrderNotFoundException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.RestController;
 
+// snippet:start user-place-order
 /** Serves the user contract under the module's fixed {@code /user} prefix and calls payment through its api. */
 @RestController
 public class UserController implements UserApi {
@@ -34,6 +35,7 @@ public class UserController implements UserApi {
                 id, charge.id(), request.reference(), amount);
         return new OrderView(id, charge.id(), request.reference(), amount);
     }
+// snippet:end user-place-order
 
     @Override
     public OrderView findOrder(String id) {

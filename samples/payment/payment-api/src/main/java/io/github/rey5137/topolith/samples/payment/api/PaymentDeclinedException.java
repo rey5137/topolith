@@ -3,6 +3,7 @@ package io.github.rey5137.topolith.samples.payment.api;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ResponseStatus;
 
+// snippet:start payment-declined
 /** A declined charge; a declared contract exception crossing HTTP as ProblemDetail. */
 @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
 public class PaymentDeclinedException extends RuntimeException {
@@ -10,3 +11,4 @@ public class PaymentDeclinedException extends RuntimeException {
         super(message);
     }
 }
+// snippet:end payment-declined

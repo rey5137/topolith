@@ -4,6 +4,7 @@ server:
 spring:
   datasource:
     url: jdbc:h2:mem:user-service;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+# snippet:start user-service-modes
 topolith:
   standalone: user
   modules:
@@ -16,3 +17,4 @@ topolith:
         url: http://localhost:8081
         connect-timeout: 2s
         read-timeout: 5s
+# snippet:end user-service-modes

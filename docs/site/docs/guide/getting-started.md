@@ -203,3 +203,9 @@ class MonolithMockPaymentTest {
     }
 }
 ```
+
+## Next
+
+The [Worked example](worked-example.md) walks through every piece of the samples step by step: contract values,
+declared exceptions, the calling module, each host's configuration, recorded requests and responses, and the shared
+tests.

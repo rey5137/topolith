@@ -53,6 +53,7 @@ nav:
   - Why Topolith: why.md
   - Start here:
       - Getting started: guide/getting-started.md
+      - Worked example: guide/worked-example.md
       - How it fits together: architecture.md
   - Concepts:
       - Modes: modes.md

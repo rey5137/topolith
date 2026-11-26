@@ -9,7 +9,8 @@ import java.util.TreeSet;
 
 import javax.sql.DataSource;
 
-import io.github.rey5137.topolith.samples.payment.tests.AbstractPaymentTest;
+import io.github.rey5137.topolith.core.Mode;
+import io.github.rey5137.topolith.samples.paymenttests.AbstractPaymentTest;
 import io.github.rey5137.topolith.samples.user.UserAutoConfiguration;
 import io.github.rey5137.topolith.samples.user.api.UserApi;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,11 @@ class PaymentHostPaymentTest extends AbstractPaymentTest {
 
     @Autowired
     RequestMappingHandlerMapping handlerMapping;
+
+    @Override
+    protected Mode paymentMode() {
+        return Mode.INTERNAL;
+    }
 
     @Test
     void ac_test_06_user_module_leaves_no_bean_route_table_or_auto_configuration() throws Exception {

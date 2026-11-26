@@ -1,6 +1,7 @@
 package io.github.rey5137.topolith.samples.hosts.hybrid;
 
-import io.github.rey5137.topolith.samples.payment.tests.AbstractPaymentTest;
+import io.github.rey5137.topolith.core.Mode;
+import io.github.rey5137.topolith.samples.paymenttests.AbstractPaymentTest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,11 @@ class HybridPaymentTest extends AbstractPaymentTest {
         registry.add("topolith.modules.payment.remote.url", () -> "http://localhost:" + PAYMENT_PORT);
     }
 // snippet:end hybrid-payment-test
+
+    @Override
+    protected Mode paymentMode() {
+        return Mode.EXTERNAL;
+    }
 
     @AfterAll
     static void stopPaymentService() {

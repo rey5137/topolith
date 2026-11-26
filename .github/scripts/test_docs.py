@@ -4,7 +4,15 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-GUIDE = ROOT / 'docs' / 'guide'
+SITE = ROOT / 'docs' / 'site'
+SITE_DOCS = SITE / 'docs'
+GUIDE = SITE_DOCS / 'guide'
+MKDOCS = SITE / 'mkdocs.yml'
+DOCS_WORKFLOW = ROOT / '.github' / 'workflows' / 'docs.yml'
+CI_WORKFLOW = ROOT / '.github' / 'workflows' / 'ci.yml'
+BANNER = SITE_DOCS / 'assets' / 'banner.png'
+INDEX = SITE_DOCS / 'index.md'
+DIAGNOSTICS = SITE_DOCS / 'diagnostics.md'
 CATALOG = ROOT / 'docs' / 'spec' / 'reference' / '90-catalog.md'
 RFC = ROOT / 'rfc' / '0001-architecture.md'
 
@@ -12,7 +20,7 @@ GETTING_STARTED = GUIDE / 'getting-started.md'
 LEGACY_ADOPTION = GUIDE / 'legacy-adoption.md'
 CONFIGURATION = GUIDE / 'configuration.md'
 
-SHELL_LANGS = {'bash', 'sh', 'shell', 'console', 'text'}
+SHELL_LANGS = {'bash', 'sh', 'shell', 'console', 'text', 'mermaid'}
 MARKER_RE = re.compile(r'^<!--\s*snippet:\s*([^#\s]+)#([A-Za-z0-9_.-]+)\s*-->$')
 BACKTICK_OPEN_RE = re.compile(r'^(`{3,})(.*)$')
 TILDE_FENCE_RE = re.compile(r'^~{3,}')
@@ -45,6 +53,9 @@ REQUIRED_CONFIG_KEYS = (
     'topolith.modules.<id>.remote.http-interface.<contract FQN>',
     'topolith.modules.<id>.expose.enabled',
 )
+
+NAV_PAGE_RE = re.compile(r'^\s*-\s+(?:[^:#]+:\s+)?([A-Za-z0-9_./-]+\.md)\s*$')
+TL_CODE_RE = re.compile(r'\bTL\d{4}\b')
 
 CATALOG_TERMS = ('Internal', 'External', 'None', 'Restart pending')
 
@@ -92,7 +103,7 @@ def extract_guide_snippets(md_text, source_name='<memory>'):
     while index < len(lines):
         stripped = lines[index].strip()
         if TILDE_FENCE_RE.match(stripped):
-            raise AssertionError(f'{source_name}:{index + 1}: tilde (~~~) code fences are forbidden in docs/guide')
+            raise AssertionError(f'{source_name}:{index + 1}: tilde (~~~) code fences are forbidden in docs/site/docs')
         marker_match = MARKER_RE.match(stripped)
         if marker_match:
             if pending_marker is not None:
@@ -111,7 +122,7 @@ def extract_guide_snippets(md_text, source_name='<memory>'):
             while index < len(lines) and lines[index].strip() != ticks:
                 if TILDE_FENCE_RE.match(lines[index].strip()):
                     raise AssertionError(
-                        f'{source_name}:{index + 1}: tilde (~~~) code fences are forbidden in docs/guide'
+                        f'{source_name}:{index + 1}: tilde (~~~) code fences are forbidden in docs/site/docs'
                     )
                 body.append(lines[index])
                 index += 1
@@ -264,11 +275,20 @@ class DocsTest(unittest.TestCase):
 
     def test_ac_build_12_each_snippet_matches_marked_source_region(self):
         total = 0
-        for page in (GETTING_STARTED, LEGACY_ADOPTION, CONFIGURATION):
-            snippets = verify_markdown_snippets(page.read_text(), page.name)
-            self.assertGreater(len(snippets), 0, f'{page.name} has no verified snippets')
+        pages = sorted(SITE_DOCS.rglob('*.md'))
+        self.assertTrue({GETTING_STARTED, LEGACY_ADOPTION, CONFIGURATION} <= set(pages), pages)
+        for page in pages:
+            name = str(page.relative_to(SITE_DOCS))
+            snippets = verify_markdown_snippets(page.read_text(), name)
+            if page in (GETTING_STARTED, LEGACY_ADOPTION, CONFIGURATION):
+                self.assertGreater(len(snippets), 0, f'{name} has no verified snippets')
             total += len(snippets)
         self.assertGreaterEqual(total, 5)
+
+        with self.assertRaisesRegex(AssertionError, 'shell .mermaid. block must not have'):
+            verify_markdown_snippets(
+                '<!-- snippet: samples/pom.xml#x -->\n```mermaid\nflowchart LR\n```\n', 'marked.md')
+        self.assertEqual([], verify_markdown_snippets('```mermaid\nflowchart LR\n```\n', 'diagram.md'))
 
         for lang_fence in ('```java', '```yml', '```json', '```kotlin', '```java title=Example.java', '```'):
             with self.assertRaisesRegex(AssertionError, 'missing preceding <!-- snippet:'):
@@ -306,3 +326,68 @@ class DocsTest(unittest.TestCase):
 
         config_meanings = parse_markdown_table(CONFIGURATION.read_text(), CATALOG_TERMS)
         self.assertEqual(catalog_meanings, config_meanings)
+
+    def test_ac_build_16_mkdocs_is_strict_and_lists_every_page_in_nav(self):
+        config = MKDOCS.read_text()
+        self.assertRegex(config, r'(?m)^strict:\s*true\s*$')
+        self.assertRegex(config, r'(?m)^docs_dir:\s*docs\s*$')
+        nav_text = config.split('\nnav:', 1)[1] if '\nnav:' in config else ''
+        nav_pages = [m.group(1) for m in map(NAV_PAGE_RE.match, nav_text.splitlines()) if m]
+        self.assertEqual(len(nav_pages), len(set(nav_pages)), f'duplicate nav entries: {nav_pages}')
+        pages = {str(page.relative_to(SITE_DOCS)) for page in SITE_DOCS.rglob('*.md')}
+        self.assertTrue(pages, 'no pages under docs/site/docs')
+        self.assertEqual(pages, set(nav_pages), 'pages and nav entries differ')
+        for page in ('index.md', 'guide/getting-started.md', 'guide/legacy-adoption.md', 'guide/configuration.md'):
+            self.assertIn(page, pages)
+
+    def test_ac_build_16_diagnostics_page_lists_exactly_the_catalog_codes(self):
+        catalog_codes = set(TL_CODE_RE.findall(CATALOG.read_text()))
+        self.assertGreaterEqual(len(catalog_codes), 31, catalog_codes)
+        catalog_severity = {}
+        for line in CATALOG.read_text().splitlines():
+            cells = [cell.strip() for cell in line.strip().strip('|').split('|')]
+            if len(cells) >= 3 and re.fullmatch(r'TL\d{4}', cells[0]):
+                catalog_severity[cells[0]] = cells[-2]
+        self.assertEqual(catalog_codes, set(catalog_severity))
+        page_codes = set(TL_CODE_RE.findall(DIAGNOSTICS.read_text()))
+        self.assertEqual(catalog_codes, page_codes)
+        rows = [line for line in DIAGNOSTICS.read_text().splitlines() if re.match(r'^\|\s*`TL\d{4}`', line)]
+        self.assertEqual(len(catalog_codes), len(rows), 'each code needs exactly one table row')
+        for row in rows:
+            cells = [cell.strip() for cell in row.strip('|').split('|')]
+            self.assertEqual(4, len(cells), row)
+            self.assertTrue(all(cells), f'empty cell in {row}')
+            code = TL_CODE_RE.search(cells[0]).group(0)
+            self.assertEqual(catalog_severity[code], cells[2], f'{code} severity differs from the catalog')
+
+    def test_ac_build_16_workflows_build_strictly_and_deploy_from_main(self):
+        docs = DOCS_WORKFLOW.read_text()
+        self.assertRegex(docs, r"branches:\s*\[main\]")
+        self.assertIn("'docs/site/**'", docs)
+        self.assertIn('workflow_dispatch', docs)
+        self.assertIn('mkdocs build --strict -f docs/site/mkdocs.yml', docs)
+        self.assertIn('path: target/docs-site', docs)
+        self.assertIn('actions/deploy-pages', docs)
+        self.assertIn("if: github.ref == 'refs/heads/main'", docs.split('\n  deploy:', 1)[1])
+        self.assertIn('pip install -r docs/site/requirements.txt', docs)
+        self.assertIn(
+            '../../target/docs-site', MKDOCS.read_text(), 'site_dir must match the path the workflow uploads')
+
+        ci = CI_WORKFLOW.read_text()
+        self.assertRegex(ci, r'(?m)^  docs-site:\s*$')
+        job = ci.split('\n  docs-site:', 1)[1]
+        job = re.split(r'\n  [A-Za-z0-9_-]+:\s*\n', job, maxsplit=1)[0]
+        self.assertIn('mkdocs build --strict -f docs/site/mkdocs.yml', job)
+        self.assertIn('pip install -r docs/site/requirements.txt', job)
+        self.assertIn("python-version: '3.13'", job)
+        self.assertIn('cache-dependency-path: docs/site/requirements.txt', job)
+        self.assertNotIn('paths:', job)
+
+    def test_ac_build_16_home_page_shows_the_cover_banner(self):
+        self.assertTrue(BANNER.is_file(), f'missing {BANNER}')
+        self.assertGreater(BANNER.stat().st_size, 1000)
+        self.assertEqual(b'\x89PNG\r\n\x1a\n', BANNER.read_bytes()[:8])
+        lines = INDEX.read_text().splitlines()
+        self.assertTrue(lines[0].startswith('# '), lines[:1])
+        self.assertIn('](assets/banner.png)', '\n'.join(lines[1:4]))
+        self.assertIn('docs/site/docs/assets/banner.png', (ROOT / 'README.md').read_text())

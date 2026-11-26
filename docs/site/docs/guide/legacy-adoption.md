@@ -1,8 +1,7 @@
 # Legacy Service Adoption Checklist
 
-This checklist covers the seven steps in RFC 0001 §4.3 for refactoring an existing one-service-per-repo Spring Boot
-application into a Topolith module that can run as its own standalone service or bundled inside a composed host
-(R-BUILD-05). Before step 7, or whenever a service is not ready to bundle in-JVM, other hosts consume it as `external`
+This checklist covers the seven steps for refactoring an existing one-service-per-repo Spring Boot
+application into a Topolith module that can run as its own standalone service or bundled inside a composed host. Before step 7, or whenever a service is not ready to bundle in-JVM, other hosts consume it as `external`
 from day one (it only needs to publish `<id>-api`, or consumers write a client). In 0.1 the refactor is manual; a
 `topolith-maven-plugin` `adopt` goal mentioned in RFC 0001 §4.3 is planned for a later release.
 
@@ -88,7 +87,7 @@ public class PaymentProperties {
   `classpath:db/modules/<id>` so each internal module runs its own migrations with its own tracking table after the
   host's migrations and those of required modules. Note: 0.1 uses `db/modules/<id>` in place of RFC 0001 §4.3's
   `db/migration/<id>` because Flyway scans `db/migration` recursively by default and would otherwise run `none`
-  modules' scripts (`D-32`).
+  modules' scripts.
 - **How to check:** Any module migration that would not run exactly once (missing runner or `DataSource`, both tools
   present, or a host migration location reaching `db/modules/<id>`) fails startup with `TL0020`. A `none` or `external`
   module runs no migrations and creates no tables.

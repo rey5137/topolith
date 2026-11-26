@@ -1,5 +1,7 @@
 # Topolith
 
+![Topolith: one codebase, any topology](docs/site/docs/assets/banner.png)
+
 *Write modules once. Choose your topology in config.*
 
 Topolith lets a Spring Boot business module run **in-process**, **remote** or **not at all**, chosen per host in
@@ -32,9 +34,10 @@ Java 21+, Spring Boot 4.2+. Spring Cloud is needed only for service discovery.
 
 ## Documentation
 
-- [Getting Started](docs/guide/getting-started.md)
-- [Legacy Service Adoption Checklist](docs/guide/legacy-adoption.md)
-- [Configuration Reference](docs/guide/configuration.md)
+- [Documentation site](https://rey5137.github.io/topolith/)
+- [Getting Started](docs/site/docs/guide/getting-started.md)
+- [Legacy Service Adoption Checklist](docs/site/docs/guide/legacy-adoption.md)
+- [Configuration Reference](docs/site/docs/guide/configuration.md)
 
 ## Contributing
 

@@ -1,0 +1,71 @@
+site_name: Topolith
+site_url: https://rey5137.github.io/topolith/
+repo_url: https://github.com/rey5137/topolith
+docs_dir: docs
+# Built in CI on every PR and published to GitHub Pages from main (D-73). Kept under target/ so it stays out of git.
+site_dir: ../../target/docs-site
+strict: true
+
+theme:
+  name: material
+  features:
+    - content.tabs.link
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - content.code.copy
+    - toc.follow
+
+plugins:
+  - search
+  - redirects
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+  links:
+    not_found: warn
+    absolute_links: warn
+    unrecognized_links: warn
+    anchors: warn
+
+
+nav:
+  - Home: index.md
+  - Why Topolith: why.md
+  - Start here:
+      - Getting started: guide/getting-started.md
+      - How it fits together: architecture.md
+  - Concepts:
+      - Modes: modes.md
+      - External mode: external-mode.md
+      - Semantic parity: parity.md
+      - Events: events.md
+      - Boundaries: boundaries.md
+  - Guides:
+      - Legacy adoption: guide/legacy-adoption.md
+      - Testing: testing.md
+      - Samples: samples.md
+  - Reference:
+      - Configuration: guide/configuration.md
+      - Diagnostic codes: diagnostics.md
+      - Roadmap: roadmap.md
+      - API stability: stability.md

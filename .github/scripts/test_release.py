@@ -207,7 +207,7 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn('MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}', workflow)
         self.assertIn('-Prelease', workflow)
         self.assertIn('deploy', workflow)
-        self.assertIn('-DskipPublishing=true', workflow)
+        self.assertIn('-DskipUpload=true', workflow)
         self.assertIn('CHANGELOG.md', workflow)
 
         changelog = CHANGELOG.read_text()

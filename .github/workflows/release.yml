@@ -74,7 +74,7 @@ jobs:
           fi
           extra_args=()
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.dry_run }}" == "true" ]]; then
-            extra_args+=("-DskipPublishing=true")
+            extra_args+=("-DskipUpload=true")
           fi
           echo "RELEASE_VERSION=${version}" >> "$GITHUB_ENV"
           ./mvnw -B -ntp -Prelease -Drevision="${version}" "${extra_args[@]}" deploy

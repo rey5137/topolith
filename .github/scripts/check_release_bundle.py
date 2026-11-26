@@ -131,17 +131,17 @@ def check_bundle(staging_dir, expected_version=EXPECTED_VERSION):
 
 def main(argv=None):
     args = argv if argv is not None else sys.argv[1:]
-    if len(args) != 1:
-        print('Usage: check_release_bundle.py <staging-dir>', file=sys.stderr)
+    if len(args) not in (1, 2):
+        print('Usage: check_release_bundle.py <staging-dir> [<version>]', file=sys.stderr)
         return 2
+    version = args[1] if len(args) == 2 else EXPECTED_VERSION
     try:
-        check_bundle(Path(args[0]))
+        check_bundle(Path(args[0]), version)
     except ValueError as exc:
         print(f'ERROR: {exc}', file=sys.stderr)
         return 1
-    print(f'Release bundle OK: {len(PUBLISHED_ARTIFACTS)} artifacts verified in {args[0]}')
+    print(f'Release bundle OK: {len(PUBLISHED_ARTIFACTS)} artifacts at {version} verified in {args[0]}')
     return 0
-
 
 if __name__ == '__main__':
     sys.exit(main())

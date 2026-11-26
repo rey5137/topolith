@@ -1,6 +1,10 @@
 spring:
   datasource:
     url: jdbc:h2:mem:hybrid;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+  cloud:
+    consul:
+      # The fixed URL is the default; the Consul test enables discovery (D-69).
+      enabled: false
 topolith:
   modules:
     user:
@@ -10,7 +14,7 @@ topolith:
     payment:
       mode: external
       remote:
-        # payment-service's port (8081); HybridPaymentTest overrides it with the in-JVM service's random port
+        # payment-service's port (8081); HybridPaymentTest overrides it with the container's mapped port
         url: http://localhost:8081
         connect-timeout: 2s
         read-timeout: 5s

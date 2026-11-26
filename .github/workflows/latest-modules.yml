@@ -1,0 +1,35 @@
+name: Latest modules
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: latest-modules-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  latest-modules:
+    name: Rebuild hosts against latest modules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - name: Install modules and samples except the hosts
+        run: >
+          ./mvnw -B -ntp install -DskipTests
+          -pl '!samples/hosts,!samples/hosts/monolith,!samples/hosts/hybrid,!samples/hosts/payment-host'
+      - name: Rebuild every host alone against the installed modules
+        run: ./mvnw -B -ntp -U -f samples/hosts/pom.xml verify

@@ -1,32 +1,33 @@
 package io.github.rey5137.topolith.samples.hosts.hybrid;
 
-import io.github.rey5137.topolith.samples.payment.service.PaymentServiceApplication;
 import io.github.rey5137.topolith.samples.payment.tests.AbstractPaymentTest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
-import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.GenericContainer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Starts payment-service in this JVM (D-67). Its JAR is on the test classpath only for that; until M4.2 swaps in
- * containers, the payment module being present must leave no trace in the host context (INV-2).
+ * Runs payment-service as its Boot fat JAR in a container and reaches it over the fixed URL (D-69). The payment module
+ * is not on the test classpath at all, so the host context can hold no trace of it (INV-2).
  */
 @SpringBootTest(classes = HybridApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class HybridPaymentTest extends AbstractPaymentTest {
     private static final String PAYMENT_PACKAGE = "io.github.rey5137.topolith.samples.payment.";
+    private static final int PAYMENT_PORT = PaymentServiceContainers.freePort();
 
-    private static ConfigurableApplicationContext paymentService;
+    private static GenericContainer<?> paymentService;
 
     @Autowired
     ConfigurableApplicationContext context;
@@ -34,22 +35,28 @@ class HybridPaymentTest extends AbstractPaymentTest {
     @DynamicPropertySource
     static void paymentServiceUrl(DynamicPropertyRegistry registry) {
         if (paymentService == null) {
-            paymentService = new SpringApplicationBuilder(PaymentServiceApplication.class)
-                    .properties("spring.config.location=classpath:/config/payment-service/",
-                            "server.port=0",
-                            "topolith.modules.user.mode=none")
-                    .run();
+            paymentService = PaymentServiceContainers.paymentService(PAYMENT_PORT);
+            paymentService.start();
         }
-        String port = paymentService.getEnvironment().getProperty("local.server.port");
-        registry.add("topolith.modules.payment.remote.url", () -> "http://localhost:" + port);
+        registry.add("topolith.modules.payment.remote.url", () -> "http://localhost:" + PAYMENT_PORT);
     }
 
     @AfterAll
     static void stopPaymentService() {
         if (paymentService != null) {
-            paymentService.close();
+            paymentService.stop();
             paymentService = null;
         }
+    }
+
+    @Test
+    void ac_test_07_fixed_url_reaches_the_payment_service_container() {
+        assertTrue(paymentService.isRunning(), "payment-service container");
+        assertEquals(PAYMENT_PORT, paymentService.getMappedPort(PaymentServiceContainers.PAYMENT_PORT));
+        assertEquals("http://localhost:" + PAYMENT_PORT,
+                environment.getProperty("topolith.modules.payment.remote.url"));
+        assertEquals(200, PaymentServiceContainers.status(
+                "http://localhost:" + PAYMENT_PORT + "/payment/.topolith/api-version"));
     }
 
     @Test
@@ -66,5 +73,8 @@ class HybridPaymentTest extends AbstractPaymentTest {
         // The only payment-shaped bean is the contract client the framework builds from the descriptor.
         assertEquals(1, factory.getBeanNamesForType(io.github.rey5137.topolith.samples.payment.api.PaymentApi.class)
                 .length);
+        // The module JAR is not a test dependency, so even its classes are unloadable (D-67, D-69).
+        assertThrows(ClassNotFoundException.class,
+                () -> Class.forName("io.github.rey5137.topolith.samples.payment.PaymentConfiguration"));
     }
 }

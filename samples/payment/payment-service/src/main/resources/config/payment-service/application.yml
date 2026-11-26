@@ -4,6 +4,10 @@ server:
 spring:
   datasource:
     url: jdbc:h2:mem:payment-service;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+  cloud:
+    consul:
+      # Standalone runs and the hybrid fixed-URL case stay discovery-free; the Consul test enables it (D-69).
+      enabled: false
 topolith:
   standalone: payment
   modules:

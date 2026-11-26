@@ -42,14 +42,21 @@ class BuildSmokeTest {
                 .evaluate("/project/dependencyManagement", document, XPathConstants.NODE);
         var dependencies = management.getElementsByTagName("dependency");
         Set<String> artifacts = new HashSet<>();
+        Set<String> imports = new HashSet<>();
         for (int i = 0; i < dependencies.getLength(); i++) {
             var dependency = (Element) dependencies.item(i);
             var group = dependency.getElementsByTagName("groupId").item(0).getTextContent();
-            assertFalse(group.startsWith("org.springframework"));
+            var artifact = dependency.getElementsByTagName("artifactId").item(0).getTextContent();
             if (group.equals("io.github.rey5137")) {
-                artifacts.add(dependency.getElementsByTagName("artifactId").item(0).getTextContent());
+                artifacts.add(artifact);
+            } else {
+                // D-68: besides the Topolith entries the BOM only imports the Boot and Cloud platforms.
+                imports.add(artifact);
+                assertEquals("pom", dependency.getElementsByTagName("type").item(0).getTextContent(), artifact);
+                assertEquals("import", dependency.getElementsByTagName("scope").item(0).getTextContent(), artifact);
             }
         }
+        assertEquals(Set.of("spring-boot-dependencies", "spring-cloud-dependencies"), imports);
         assertTrue(artifacts.containsAll(Set.of("topolith-core", "topolith-spring-boot", "topolith-spring-cloud",
                 "topolith-processor", "topolith-spring-test")));
         assertFalse(artifacts.contains("topolith-samples"));

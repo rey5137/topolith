@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:payment-host;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+topolith:
+  modules:
+    payment:
+      mode: internal
+    user:
+      mode: none

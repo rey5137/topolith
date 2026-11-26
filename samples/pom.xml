@@ -15,5 +15,21 @@
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
     </properties>
-    <!-- Sample modules arrive in M4.1. -->
+    <modules>
+        <module>user</module>
+        <module>payment</module>
+        <module>payment-tests</module>
+        <module>hosts</module>
+    </modules>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.github.rey5137</groupId>
+                <artifactId>topolith-bom</artifactId>
+                <version>${project.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 </project>

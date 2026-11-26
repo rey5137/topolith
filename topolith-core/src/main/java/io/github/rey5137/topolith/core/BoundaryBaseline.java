@@ -1,9 +1,7 @@
 package io.github.rey5137.topolith.core;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Collection;
@@ -14,8 +12,8 @@ import java.util.TreeSet;
 /**
  * The packaged baseline of frozen boundary violations of one module, {@code META-INF/topolith/baseline/<id>.txt}
  * (D-25, D-57). One line per violation, {@code <referencing class> -> <referenced class>}, with binary class names;
- * blank lines and lines starting with {@code #} are ignored. The M3.2 tooling writes it and the startup boundary
- * check reads it.
+ * blank lines and lines starting with {@code #} are ignored. {@code TopolithBaseline.generate} writes it and the
+ * startup boundary check reads it.
  */
 @Incubating
 public final class BoundaryBaseline {
@@ -74,8 +72,8 @@ public final class BoundaryBaseline {
 
     /** Parses a baseline resource as UTF-8 and closes the stream. */
     public static Set<Violation> parse(InputStream in) {
-        try (in; BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
-            return parse(String.join("\n", reader.lines().toList()));
+        try (in) {
+            return parse(new String(in.readAllBytes(), StandardCharsets.UTF_8));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

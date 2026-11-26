@@ -2,7 +2,11 @@ package io.github.rey5137.topolith.spring.boot;
 
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
@@ -18,6 +22,7 @@ import org.springframework.asm.AnnotationVisitor;
 import org.springframework.asm.ClassReader;
 import org.springframework.asm.ClassVisitor;
 import org.springframework.asm.FieldVisitor;
+import org.springframework.asm.Handle;
 import org.springframework.asm.MethodVisitor;
 import org.springframework.asm.Opcodes;
 import org.springframework.beans.BeansException;
@@ -50,9 +55,17 @@ final class TopolithBoundaryCheck implements BeanFactoryPostProcessor, Environme
                 if (root == null) {
                     continue;
                 }
-                Set<Violation> frozen = baseline(loader, id);
+                Set<String> roots = descriptorRoots(loader, id);
+                if (roots.isEmpty()) {
+                    throw new IllegalStateException("Internal module '" + id + "' has no descriptor root on the class "
+                            + "path (META-INF/topolith/modules/" + id + ".properties); its classes cannot be scanned.");
+                }
+                Set<Violation> frozen = baseline(loader, id, roots);
                 String pattern = "classpath*:" + root.replace('.', '/') + "/**/*.class";
                 for (Resource resource : resolver.getResources(pattern)) {
+                    if (!inRoot(resource.getURL().toString(), roots)) {
+                        continue;
+                    }
                     ClassReader reader;
                     try (var in = resource.getInputStream()) {
                         reader = new ClassReader(in);
@@ -73,53 +86,94 @@ final class TopolithBoundaryCheck implements BeanFactoryPostProcessor, Environme
             throw new IllegalStateException("Cannot read module classes or baselines", e);
         }
         if (!violations.isEmpty()) {
-            throw new TopolithException(java.util.List.of(new Diagnostic(TopolithCode.TL0012,
-                    "Cross-module access to non-API classes: " + violations + ".", "Use the target module's API.")));
+            throw new TopolithException(List.of(new Diagnostic(TopolithCode.TL0012,
+                    "Cross-module access to non-API classes: " + violations + ".", "Use the target module's API, or freeze it with TopolithArchitecture.verifyFrozen and "
+                            + "TopolithBaseline.generate.")));
         }
     }
 
-    private static Set<Violation> baseline(ClassLoader loader, String id) throws IOException {
+    /** The class-path roots (URL prefixes) that hold the module's descriptor (D-63). */
+    static Set<String> descriptorRoots(ClassLoader loader, String id) throws IOException {
+        Set<String> roots = new HashSet<>();
+        var found = loader.getResources(DescriptorDiscovery.MODULES + id + ".properties");
+        for (URL url : Collections.list(found)) {
+            roots.add(DescriptorDiscovery.root(url.toString(), DescriptorDiscovery.MODULES));
+        }
+        return roots;
+    }
+
+    static boolean inRoot(String url, Set<String> roots) {
+        return roots.stream().anyMatch(url::startsWith);
+    }
+
+    /**
+     * The module's baseline: the copy in its descriptor root, or in a directory root that holds no module descriptor
+     * (a resource directory); a copy anywhere else, or a second accepted copy, is TL0030 (D-63).
+     */
+    private static Set<Violation> baseline(ClassLoader loader, String id, Set<String> roots) throws IOException {
         String name = BoundaryBaseline.resource(id);
+        URL accepted = null;
+        for (URL url : Collections.list(loader.getResources(name))) {
+            String root = DescriptorDiscovery.root(url.toString(), name);
+            if (!inRoot(url.toString(), roots) && !descriptorlessDirectory(root)) {
+                throw new TopolithException(List.of(new Diagnostic(TopolithCode.TL0030,
+                        "Baseline '" + name + "' at " + url + " is not in the descriptor root of module '" + id
+                                + "' (" + String.join(", ", roots) + ") or in a directory root without a module "
+                                + "descriptor.",
+                        "Remove the copy, or regenerate it in the module's own build with "
+                                + "TopolithBaseline.generate(...).")));
+            }
+            if (accepted != null) {
+                throw new TopolithException(List.of(new Diagnostic(TopolithCode.TL0030,
+                        "Baseline '" + name + "' of module '" + id + "' exists twice: " + accepted
+                                + " and " + url + ".",
+                        "Keep one copy; startup never merges baselines.")));
+            }
+            accepted = url;
+        }
         Set<Violation> frozen = new HashSet<>();
-        var resources = loader.getResources(name);
-        while (resources.hasMoreElements()) {
-            URL url = resources.nextElement();
-            try {
-                frozen.addAll(BoundaryBaseline.parse(url.openStream()));
+        if (accepted != null) {
+            try (var in = accepted.openStream()) {
+                frozen.addAll(BoundaryBaseline.parse(in));
             } catch (IllegalArgumentException e) {
-                throw new TopolithException(java.util.List.of(new Diagnostic(TopolithCode.TL0030,
-                        "Malformed baseline '" + name + "' at " + url + ": " + e.getMessage(),
-                        "Regenerate the baseline with the M3.2 tooling.")));
+                throw new TopolithException(List.of(new Diagnostic(TopolithCode.TL0030,
+                        "Malformed baseline '" + name + "' at " + accepted + ": " + e.getMessage(),
+                        "Regenerate it with TopolithBaseline.generate(...).")));
             }
         }
         return frozen;
     }
 
+    /** A {@code file:} directory root with no {@code META-INF/topolith/modules/*.properties}; never a JAR. */
+    private static boolean descriptorlessDirectory(String root) {
+        if (!root.startsWith("file:")) {
+            return false;
+        }
+        try {
+            Path modules = Path.of(new java.net.URI(root)).resolve(DescriptorDiscovery.MODULES);
+            if (!Files.isDirectory(modules)) {
+                return true;
+            }
+            try (var files = Files.list(modules)) {
+                return files.noneMatch(file -> file.getFileName().toString().endsWith(".properties"));
+            }
+        } catch (java.net.URISyntaxException | IOException e) {
+            throw new IllegalStateException("Cannot inspect class-path root " + root, e);
+        }
+    }
+
     private static Set<String> references(ClassReader reader) {
         Set<String> names = new HashSet<>();
-        char[] buffer = new char[reader.getMaxStringLength()];
-        for (int i = 1; i < reader.getItemCount(); i++) {
-            int offset = reader.getItem(i);
-            if (offset == 0) {
-                continue;
-            }
-            int tag = reader.readByte(offset - 1);
-            if (tag == 7) {
-                String name = reader.readUTF8(offset, buffer);
-                if (name.startsWith("[")) {
-                    addTypes(names, name);
-                } else {
-                    names.add(name.replace('/', '.'));
-                }
-            } else if (tag == 12 || tag == 16) {
-                String descriptor = reader.readUTF8(offset + (tag == 12 ? 2 : 0), buffer);
-                addTypes(names, descriptor);
-            }
-        }
         reader.accept(new ClassVisitor(Opcodes.ASM9) {
             @Override
             public void visit(int version, int access, String name, String signature, String superName,
                     String[] interfaces) {
+                if (superName != null) {
+                    names.add(superName.replace('/', '.'));
+                }
+                for (String type : interfaces) {
+                    names.add(type.replace('/', '.'));
+                }
                 if (signature != null) {
                     addTypes(names, signature);
                 }
@@ -166,7 +220,56 @@ final class TopolithBoundaryCheck implements BeanFactoryPostProcessor, Environme
                 if (signature != null) {
                     addTypes(names, signature);
                 }
+                if (exceptions != null) {
+                    for (String type : exceptions) {
+                        names.add(type.replace('/', '.'));
+                    }
+                }
                 return new MethodVisitor(Opcodes.ASM9) {
+                    @Override
+                    public void visitFieldInsn(int opcode, String owner, String name, String descriptor) {
+                        addOwner(names, owner);
+                    }
+
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String name, String descriptor,
+                            boolean isInterface) {
+                        addOwner(names, owner);
+                    }
+
+                    @Override
+                    public void visitTypeInsn(int opcode, String type) {
+                        if (opcode == Opcodes.INSTANCEOF) {
+                            addOwner(names, type);
+                        }
+                    }
+
+                    @Override
+                    public void visitLdcInsn(Object value) {
+                        if (value instanceof org.springframework.asm.Type type
+                                && type.getSort() != org.springframework.asm.Type.METHOD) {
+                            addTypes(names, type.getDescriptor());
+                        }
+                    }
+
+                    @Override
+                    public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrap,
+                            Object... arguments) {
+                        for (Object argument : arguments) {
+                            if (argument instanceof Handle handle) {
+                                addOwner(names, handle.getOwner());
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void visitTryCatchBlock(org.springframework.asm.Label start,
+                            org.springframework.asm.Label end, org.springframework.asm.Label handler, String type) {
+                        if (type != null) {
+                            addOwner(names, type);
+                        }
+                    }
+
                     @Override
                     public AnnotationVisitor visitAnnotationDefault() {
                         return annotationValues(names);
@@ -191,7 +294,7 @@ final class TopolithBoundaryCheck implements BeanFactoryPostProcessor, Environme
                     }
                 };
             }
-        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         return names;
     }
 
@@ -217,6 +320,13 @@ final class TopolithBoundaryCheck implements BeanFactoryPostProcessor, Environme
                 return this;
             }
         };
+    }
+
+    /** An instruction's owner or type operand: a class name in internal form, or an array descriptor (skipped). */
+    private static void addOwner(Set<String> names, String internalName) {
+        if (!internalName.startsWith("[")) {
+            names.add(internalName.replace('/', '.'));
+        }
     }
 
     private static void addTypes(Set<String> names, String descriptor) {

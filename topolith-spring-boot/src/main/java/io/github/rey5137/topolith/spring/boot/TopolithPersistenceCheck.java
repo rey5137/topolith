@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -13,6 +14,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 
 import io.github.rey5137.topolith.core.Diagnostic;
 import io.github.rey5137.topolith.core.Mode;
@@ -39,6 +41,7 @@ import org.springframework.context.annotation.ClassPathScanningCandidateComponen
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.util.ClassUtils;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.core.type.filter.AssignableTypeFilter;
 import org.springframework.core.env.Environment;
@@ -53,6 +56,10 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
     private static final List<String> OWN_TYPES = List.of(ModuleBeans.DATA_SOURCE, ModuleBeans.ENTITY_MANAGER_FACTORY,
             ModuleBeans.TRANSACTION_MANAGER, ModuleBeans.FLYWAY, ModuleBeans.FLYWAY_INITIALIZER,
             ModuleBeans.LIQUIBASE, ModuleBeans.JDBC_CONFIGURATION);
+
+    private static final Pattern QUOTED = Pattern.compile("'([^']+)'");
+    private static final Pattern TYPED = Pattern.compile(
+            "found beans? of type '[^']+' (.*?)(?= and found bean|$)");
 
     private Environment environment;
 
@@ -110,7 +117,7 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
 
     /** TL0007: management imports can activate in a child context outside this factory. */
     private static List<Diagnostic> resourceRegistrations(ClassLoader loader, Resolution resolution) {
-        if (!org.springframework.util.ClassUtils.isPresent(
+        if (!ClassUtils.isPresent(
                 "org.springframework.boot.actuate.autoconfigure.web.server.ManagementContextAutoConfiguration", loader)) {
             return List.of();
         }
@@ -218,11 +225,11 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
             return List.of();
         }
         Map<String, Diagnostic> found = new TreeMap<>();
-        Set<String> persistenceBeans = new java.util.HashSet<>();
+        Set<String> persistenceBeans = new HashSet<>();
         for (String type : OWN_TYPES) {
             persistenceBeans.addAll(ModuleBeans.ownedBy(factory, loader, resolution, type).keySet());
         }
-        Set<String> autoConfigurations = new java.util.HashSet<>();
+        Set<String> autoConfigurations = new HashSet<>();
         ImportCandidates.load(AutoConfiguration.class, loader).forEach(autoConfigurations::add);
         report.getConditionAndOutcomesBySource().forEach((source, outcomes) -> {
             String configName = source.split("#", 2)[0];
@@ -246,14 +253,13 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                         || !message.contains("found bean")) {
                     return;
                 }
-                Set<String> names = new java.util.HashSet<>();
+                Set<String> names = new HashSet<>();
                 String details = message.substring(message.indexOf("found bean"));
-                var quoted = java.util.regex.Pattern.compile("'([^']+)'").matcher(details);
+                var quoted = QUOTED.matcher(details);
                 while (quoted.find()) {
                     names.add(quoted.group(1));
                 }
-                var typed = java.util.regex.Pattern.compile(
-                        "found beans? of type '[^']+' (.*?)(?= and found bean|$)").matcher(details);
+                var typed = TYPED.matcher(details);
                 while (typed.find()) {
                     for (String name : typed.group(1).split("[,\\s]+")) {
                         names.add(name.startsWith("&") ? name.substring(1) : name);
@@ -333,8 +339,11 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
             }
         });
         where.remove("");
+        if (where.values().stream().allMatch(String::isEmpty)) {
+            return List.of();
+        }
         ClassPathScanningCandidateComponentProvider scanner = interfaceScanner(loader, environment);
-        if (scanner == null || where.values().stream().allMatch(String::isEmpty)) {
+        if (scanner == null) {
             return List.of();
         }
         Set<String> covered = new LinkedHashSet<>(ModuleBeans.registeredInterfaceNames(factory, loader,

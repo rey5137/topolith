@@ -12,5 +12,5 @@ import io.github.rey5137.topolith.core.Incubating;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface TopolithMock {
     /** Module id. */
-    String value();
+    String id();
 }

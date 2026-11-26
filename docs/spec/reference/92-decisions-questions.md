@@ -64,11 +64,16 @@ owner (`Q-n`). Rules live in the child specs; this file says why. A later decisi
 | D-53 | The contract's server-side implementation is the module's `@RestController`; see below | A service-only implementation uses a D-49 separate HTTP interface | M2 gate F2; amends D-3 and RFC 0001 §5 |
 | D-54 | INV-1 allows the types of `io.github.rey5137.topolith.contract` in business code; see below | Contract exceptions are Topolith types a module must throw and catch | M2 gate F4; amends INV-1; Q-20 |
 | D-55 | INV-6's "same exception types" covers declared contract exceptions and `ModuleUnavailableException`; see below | Undeclared exceptions are outside the guarantee in 0.1 | M2 gate F5; amends INV-6; Q-22 |
+| D-56 | `TopolithArchitecture` derives its ArchUnit rules from descriptors; see below | One descriptor-driven source of boundary rules | M3.1 owner decision |
+| D-57 | `verifyFrozen` and `TopolithBaseline.generate` freeze and write the baseline; see below | Adopted repos need a frozen, shrinking baseline | M3.2 owner decision |
 | D-58 | A malformed packaged baseline fails with TL0030; see below | Invalid freeze data must not silently weaken startup checks | M3.3 owner decision |
 | D-59 | Module code may depend only on Topolith annotation and contract packages; see below | Prevent topology-dependent business behavior | M3.3 owner decision; closes Q-20 |
 | D-60 | Host scans covering internal modules fail TL0018; module beans making auto-configuration back off fail TL0031; see below | Avoid duplicate registration and silent default replacement | M3.3 owner decision; closes Q-14 |
 | D-61 | Non-internal module entries in management imports fail TL0007; see below | Close activation paths outside the imports filter | M3.3 owner decision; answers Q-13 in part |
 | D-62 | Test modes use annotations or explicit properties with a per-module mock server; see below | Exercise both activation and external calls | M3.4 owner decision |
+| D-63 | A baseline and the startup scan belong to the class-path root holding the module descriptor; see below | One owner per baseline; test roots and other JARs neither add violations nor waive them | M3 gate owner decision; amends D-25, D-57, D-58 |
+| D-64 | Stable architecture rule names; see below | The freeze store is keyed by the description; position and prose are not a stable key | M3 gate owner decision; amends D-56, D-57 |
+| D-65 | The mock server serves but does not record the readiness version check; see below | Deterministic `requests()` without a public readiness hook | M3 gate; owner |
 
 ### D-49 — Separate HTTP interface (M2.5)
 
@@ -122,14 +127,16 @@ the P-2 switch. Amends INV-6; Q-22 stays open.
 ### D-56 — Descriptor-driven architecture rules (M3.1)
 
 `TopolithArchitecture` (`topolith-spring-test`, `@Incubating`) has `verify()` (descriptors from the context class
-loader), `verify(ClassLoader)`, `verify(modules, apis, JavaClasses)` and `rules(modules, apis)`, which returns five
-`ArchRule`s in order (non-API access, undeclared dependency, `requires` cycles, descriptor consistency, contract types)
-for M3.2 to freeze one by one. Every rule fails by default (D-4), so `verify()` also fails when it finds no module
+loader), `verify(ClassLoader)`, `verify(modules, apis, JavaClasses)` and `rules(modules, apis)`, which returns the six
+`ArchRule`s in `TopolithArchitecture.Rule` order (non-API access, undeclared dependency, `requires` cycles, descriptor
+consistency, Topolith dependency, contract types); `rule(Rule, modules, apis)` finds one by constant (D-64). Every rule fails by default (D-4), so `verify()` also fails when it finds no module
 descriptor. `verify(ClassLoader)` finds the descriptors and the classes through that loader, and test classes
 (`ImportOption.DoNotIncludeTests`) are not checked.
 
 - **Owner.** A class is owned by the module whose descriptor lists its package as an api package (exact match, also
-  outside that module's `package`); otherwise by the module with the longest `package` containing it; otherwise by none.
+  outside that module's `package`); otherwise by the one module whose `package` contains it; otherwise by none. Nested module packages, or another
+  module's api package under a module's package, are a TL0017 failure of the consistency rule (the check startup
+  uses, shared through `Descriptors.nesting`), never resolved by longest match: such a class has no owner.
   Classes owned by none, and the `contract` and `annotation` packages (D-54), are never checked as targets.
 - **Access.** A dependency from module A to module B's class outside B's api packages fails; to B's api package it
   fails unless B is in A's `requires` or `optional`. A module's own classes, a controller implementing its own contract
@@ -147,42 +154,10 @@ descriptor. `verify(ClassLoader)` finds the descriptors and the classes through 
   `org.hibernate.collection.spi.PersistentCollection` or `java.lang.reflect.Proxy`, or one annotated
   `jakarta.persistence.Entity`. All are matched by name, so no Spring Data, JPA or Hibernate dependency is needed.
 
-### D-62 — Test modes and mock servers (M3.4)
-
-`topolith-spring-test` offers repeatable `@TopolithModuleMode` annotations for Spring Boot tests and an explicit
-`TopolithTestModes` builder for an `ApplicationContextRunner` or `DynamicPropertyRegistry`. Unnamed modules remain
-unset. An external annotation creates a context-owned `TopolithMockServer` and `@TopolithMock` injects it into a test
-field. The context cache key includes the mode declarations. The builder accepts a server or a base URI; it only sets
-properties. Each server listens on an ephemeral loopback port, serves stubs under the fixed `/<id>` prefix, records
-requests, and can reset or close. Its problem responses use the provider's contract-exception format. Unstubbed paths
-return 404 without a Topolith problem. All new public types are incubating.
-
-### D-61 — Other module registration resources (M3.3)
-
-A bean definition is owned first by its declaring or factory-method class; API package classes are shared and do not
-confer module ownership. Otherwise, its resource belongs to a
-module when its path lies under that module’s package directory, or when it is inside a JAR containing only that
-module’s descriptor. A directory classpath root alone does not confer resource ownership.
-
-Boot 3 and later ignore the `META-INF/spring.factories` EnableAutoConfiguration key, so it is not checked. When actuator management auto-configuration is present, startup reads `META-INF/spring/*ManagementContextConfiguration.imports` resources and fails TL0007 naming the resource if an entry belongs to a non-internal module. The resource is checked directly because the management child context is never seen by the main context's bean-factory post-processor. The guard for excluding Topolith auto-configuration while a module is internal remains open past 0.1 (Q-13).
-
-### D-60 — Host scans and auto-configuration back-off (M3.3)
-
-A host component, servlet-component or configuration-properties scan at or above an internal module package fails TL0018, except for the standalone module's own package and scans that exclude the module's components. An internal module default-candidate bean that makes an auto-configuration's `@ConditionalOnMissingBean` back off fails TL0031 naming the module, bean and auto-configuration. Declare the bean `@Bean(defaultCandidate = false)` and inject it with a qualifier, or move it to the host. Persistence beans covered by TL0019 stay TL0019.
-
-### D-59 — Topolith dependencies in module code (M3.3)
-
-ArchUnit rejects dependencies from module or API code to `io.github.rey5137.topolith..` except its `annotation..` and `contract..` packages (D-43, D-54).
-
-### D-58 — Malformed packaged baselines (M3.3)
-
-A malformed packaged boundary baseline fails startup with TL0030 naming the resource and bad line. Regenerate it
-with the M3.2 tooling.
-
 ### D-57 — Frozen verify and baseline generation API (M3.2)
 
-`TopolithArchitecture` (`@Incubating`) adds `frozenRules(modules, apis)` (each of the five D-56 rules wrapped in
-ArchUnit's `FreezingArchRule`, store entry keyed by the rule text) and `verifyFrozen()`, `verifyFrozen(ClassLoader)`
+`TopolithArchitecture` (`@Incubating`) adds `frozenRules(modules, apis)` (each of the six D-56 rules except descriptor consistency (D-64) wrapped
+in ArchUnit's `FreezingArchRule`, store entry keyed by the rule's fixed description) and `verifyFrozen()`, `verifyFrozen(ClassLoader)`
 and `verifyFrozen(modules, apis, JavaClasses)`. The store is ArchUnit's, configured in `archunit.properties`
 (`freeze.store.default.path`); `allowStoreCreation` stays false and `allowStoreUpdate` true, so a new violation fails
 and a fixed one is dropped.
@@ -193,7 +168,7 @@ and a fixed one is dropped.
   rule and `freeze.store.default.allowStoreCreation=true`; nothing is recorded silently.
 - **Opt-in:** `allowStoreCreation=true` for one run records the first baseline (and adds missing rules).
   `freeze.refreeze=true` only re-records an existing store; it does not create one.
-- The cycle and consistency rules report from `finish` and freeze by message text.
+- The cycle rule reports from `finish` and freezes by message text; the consistency rule is never frozen (D-64).
 - A custom `freeze.store` class is used by `verifyFrozen` as configured, without the missing-rule check.
 
 `TopolithBaseline.generate(modules, apis, outputDir)` (and `generate(outputDir)` for the descriptors on the context
@@ -206,6 +181,151 @@ dependencies are skipped (the component dependency is reported separately). `gen
 descriptor is found. The format reader and writer are the JDK-only
 `io.github.rey5137.topolith.core.BoundaryBaseline`, in `topolith-core` so `topolith-spring-boot` (M3.3) can read the
 resource without depending on ArchUnit.
+
+### D-58 — Malformed packaged baselines (M3.3)
+
+A malformed packaged boundary baseline fails startup with TL0030 naming the resource and bad line. Regenerate it
+with `TopolithBaseline.generate`. The baseline is read only from the descriptor's root (D-63).
+
+### D-59 — Topolith dependencies in module code (M3.3)
+
+ArchUnit rejects dependencies from module or API code to `io.github.rey5137.topolith..` except its `annotation..` and `contract..` packages (D-43, D-54).
+
+### D-60 — Host scans and auto-configuration back-off (M3.3)
+
+A host component, servlet-component or configuration-properties scan at or above an internal module package fails TL0018, except for the standalone module's own package and scans that exclude the module's components. An internal module default-candidate bean that makes an auto-configuration's `@ConditionalOnMissingBean` back off fails TL0031 naming the module, bean and auto-configuration. Declare the bean `@Bean(defaultCandidate = false)` and inject it with a qualifier, or move it to the host. Persistence beans covered by TL0019 stay TL0019.
+
+### D-61 — Other module registration resources (M3.3)
+
+A bean definition is owned first by its declaring or factory-method class; API package classes are shared and do not
+confer module ownership. Otherwise, its resource belongs to a
+module when its path lies under that module’s package directory, or when it is inside a JAR containing only that
+module’s descriptor. A directory classpath root alone does not confer resource ownership.
+
+Boot 3 and later ignore the `META-INF/spring.factories` EnableAutoConfiguration key, so it is not checked. When actuator management auto-configuration is present, startup reads `META-INF/spring/*ManagementContextConfiguration.imports` resources and fails TL0007 naming the resource if an entry belongs to a non-internal module. The resource is checked directly because the management child context is never seen by the main context's bean-factory post-processor. The guard for excluding Topolith auto-configuration while a module is internal remains open past 0.1 (Q-13).
+
+### D-62 — Test modes and mock servers (M3.4)
+
+`topolith-spring-test` offers repeatable `@TopolithModuleMode` annotations for Spring Boot tests and an explicit
+`TopolithTestModes` builder for an `ApplicationContextRunner` or `DynamicPropertyRegistry`. Unnamed modules remain
+unset. An external annotation creates a context-owned `TopolithMockServer` and `@TopolithMock` injects it into a test
+field. The context cache key includes the mode declarations. The builder accepts a server or a base URI; it only sets
+properties. Each server listens on an ephemeral loopback port, serves stubs under the fixed `/<id>` prefix, records
+requests, and can reset or close. Its problem responses use the provider's contract-exception format. Unstubbed paths
+return 404 without a Topolith problem. All new public types are incubating.
+
+**M3 gate amendment.**
+- *External selection and a host service id (A8).* The annotation and the builder's `external(...)` also set
+  `topolith.modules.<id>.remote.service-id` to the empty string. Boot treats a blank value as unset (TL0003,
+  `ExternalClientProperties`), so a discovery host does not fail TL0003 and the mock URL wins. `internal` and `none`
+  leave the host's service id untouched. The key strings are built in one package-private function shared by the
+  annotation and the builder, and the builder's mode methods drop an earlier selection of the same module.
+- *Precedence (A9).* The annotation's property source stays first, so it overrides application config (INV-3: the host
+  states every mode). It overrides application config only. After every context customizer has run, a
+  `BeanFactoryPostProcessor` inspects the test-level property sources: `Inlined Test Properties`
+  (`@SpringBootTest(properties)`, `@TestPropertySource(properties)`) and `Dynamic Test Properties`
+  (`@DynamicPropertySource`, `TopolithTestModes.applyTo(registry)`), found by name, and each `@TestPropertySource` file,
+  read again from the merged descriptors with placeholders resolved against the context's environment and the declared
+  `factory`, so a placeholder location or a custom factory is covered whatever name the source gets. A
+  `DynamicPropertyRegistrar` bean registers only while singletons are created, so the same check runs again on
+  `ContextRefreshedEvent` (the refresh then fails). If one sets a
+  key the annotation also sets (`mode`; for `external` also `remote.url` and `remote.service-id`) to a different value
+  (compared trimmed, case-insensitive), it throws `IllegalStateException` naming the module, the key, both values and
+  the source. For `external` the annotation's URL is a fresh port, so any test-level `remote.url` conflicts. With
+  `TopolithTestModes.applyTo(registry)` alongside the annotation, an equal `mode` passes and anything else fails.
+  Annotations on a superclass or enclosing class take part in the same check.
+- *Mock problems (A10).* `problem(method, path, type, message)` derives the status as `ModuleExceptionResolver` does
+  (merged `@ResponseStatus`, else 500; a non-error status becomes 500). The explicit-status overload throws
+  `IllegalArgumentException` outside 400-599, and, with spring-web present, when the type's merged `@ResponseStatus`
+  derives another status. Both overloads reject `ModuleUnavailableException` with `IllegalArgumentException` pointing
+  to `unavailable(...)`, which is the only way to stub the provider's 503. `unavailable(method, path, downstreamModuleId)` writes 503, the
+  downstream module id and the provider's fixed detail. The provider's logic is package-private in
+  `topolith-spring-boot`, so it is copied, not widened (a parity test guards it); `spring-web` is an optional
+  dependency and without it the derived status is 500. The mock writes the exception class it is given, while the
+  provider writes the declared contract type (`ContractExceptions.declared`); a test passes the declared type. Left
+  open at the gate: mapping to the declared type.
+- *Reset between tests (A11).* Tests with the same mode declarations share one cached context and so one mock server.
+  `TopolithMockTestExecutionListener` calls `reset()` on every context-owned `TopolithMockServer` (stubs and recorded
+  requests) both before and after each test method, as Spring Boot's `MockReset` does for mock beans. The reset before
+  the method clears what the context recorded while starting. The api-version request of the readiness check is made
+  from a daemon thread (`VersionReadiness`) and can land after any reset, so the mock serves but never records it
+  (D-65); `requests()` holds only the test's own calls. The reset runs before the user's `@BeforeEach`,
+  so `@BeforeEach` stubs survive; a stub made in `@BeforeAll` is gone before the first method. The mock serves no
+  built-in endpoint: `reset()` removes only stubs and requests, and an unstubbed path (including
+  `/<id>/.topolith/api-version`) answers 404 before and after. The listener finds only the servers the customizer
+  registered, by name and without eager init, so it creates no lazy bean; a `TopolithMockServer` bean a test declares
+  itself is not reset.
+- *Public surface (A12).* `TopolithContextCustomizerFactory` and `TopolithMockTestExecutionListener` are
+  package-private (Spring loads them reflectively through `spring.factories`; a test covers it). The module id
+  attribute is `id` on both `@TopolithModuleMode` and `@TopolithMock` (the former has two attributes, so `value` was not
+  available there): `@TopolithMock("x")` becomes `@TopolithMock(id = "x")`, an accepted pre-0.1 break. A
+  `TopolithTestModes` module named without a mode makes `applyTo` throw `IllegalStateException` naming it.
+- *Problem title (parity).* The mock adds a `title` member, the status's HTTP reason phrase, as the provider's problem
+  converter does (omitted when the status has no standard phrase or spring-web is absent for a non-500 status).
+
+### D-63 — Baseline and startup-scan scope (M3 gate)
+
+A module's packaged baseline is the `META-INF/topolith/baseline/<id>.txt` in the class-path root that holds
+`META-INF/topolith/modules/<id>.properties`. `TopolithBaseline.generate` writes `<id>.txt` only into an output
+directory holding that module's descriptor, skips modules whose descriptor is elsewhere, and fails with
+`IllegalArgumentException` when the directory holds no module descriptor at all. The startup check (R-ARCH-05) reads
+only that copy, fails TL0030 on a copy in another root, and scans only that root's classes for the module, so test
+roots and other JARs neither add violations nor waive them. An internal module with no descriptor root fails with
+`IllegalStateException`. Trade-off: a module whose classes span several main roots (for example Gradle
+`classes/java/main` and `classes/kotlin/main`) has only its descriptor root scanned at startup; ArchUnit still covers
+every root in the build. The startup reference set equals ArchUnit's dependency set for the non-API rule, proven by the end-to-end freeze ->
+generate -> start test; neither checks called-member signature types, an accessed field's type, casts, array creation or
+inlined constants, and `BoundaryParityTest` keeps them in step.
+Amended at M3 gate step 2: the startup check reads `<id>.txt` from the module's descriptor root, or from a directory
+root (never a JAR or nested JAR) that holds no module descriptor at all, so a committed `src/main/resources` copy works
+on Gradle, where resources and classes are separate directories. This is a development-run allowance: a packaged app
+(JAR, fat JAR) accepts only the descriptor root, so no JAR can widen another module's baseline; a test-resources
+directory could also carry a baseline, but only in test runs. A copy in another module's descriptor root or in a
+non-descriptor JAR fails TL0030, and two accepted copies fail TL0030 naming both; startup never merges them. The class
+scan stays descriptor-root only. `TopolithBaseline.generate(outputDir, String... moduleIds)` writes the named modules
+into any directory, deletes only their stale files and throws on an unknown id; the descriptor-gated
+`generate(outputDir)` is kept unchanged.
+Amends D-25, D-57, D-58, R-ARCH-03, R-ARCH-05 and AC-ARCH-15.
+Alternatives: merge every copy (lets any JAR widen another module's baseline, P-4); mirror ArchUnit's test-location
+patterns (does not solve the baseline owner and duplicates a path heuristic).
+
+### D-64 — Stable architecture rule names (M3 gate)
+
+`TopolithArchitecture.Rule` (`@Incubating` enum) lists the rules: `NON_API_ACCESS`, `UNDECLARED_DEPENDENCY`,
+`REQUIRES_CYCLE`, `DESCRIPTOR_CONSISTENCY`, `TOPOLITH_DEPENDENCY`, `CONTRACT_TYPES`. `rule(Rule, modules, apis)` finds
+one; `rules(modules, apis)` keeps returning all six in enum order, and `TopolithBaseline` looks up `NON_API_ACCESS`.
+Each rule's description is a fixed key that carries no spec id: `topolith: non-API access`,
+`topolith: undeclared dependency`, `topolith: requires cycle`, `topolith: descriptor consistency`,
+`topolith: Topolith dependency`, `topolith: contract types`. ArchUnit's freeze store is keyed by the description, so the
+keys are a compatibility surface: renaming one is a breaking change listed in the release notes, and moving to these
+keys invalidates stores recorded under the earlier prose descriptions (re-record with `allowStoreCreation=true`).
+Amends D-56 and D-57.
+- **Consistency is never frozen.** `frozenRules` and `verifyFrozen` run `DESCRIPTOR_CONSISTENCY` unfrozen, and a store
+  need not hold an entry for it: startup refuses those topologies (duplicate ids, contested api packages, TL0017
+  nesting), so they are never legacy debt, and freezing them would let nested packages pass with every other rule
+  skipping the ambiguous classes.
+- **Nesting (TL0017).** The consistency rule reports TL0017 through `Descriptors.nesting(modules, apis)` (public in
+  core, covered by the class-level `@Incubating`), the check `Topology` runs at startup. `Ownership` returns no owner
+  for a package inside more than one module package; it never picks the longest.
+- **`importPackages`** is package-private (only `verify(ClassLoader)` needs it); adopters with their own `JavaClasses`
+  use `verify(modules, apis, JavaClasses)`.
+Alternative: keep `List<ArchRule>` by position (already shifted once in M3.3; index-coupled tooling).
+
+### D-65 — The version check is invisible to `requests()` (M3 gate)
+
+The api-version request of R-VAL-04 comes from a daemon thread at `ApplicationReadyEvent`, and again after a client
+refresh (D-50). It can therefore arrive after any reset (A11).
+
+`TopolithMockServer` answers `GET /<id>/.topolith/api-version` from its stubs (404 when unstubbed, as before) but does
+not add it to `requests()`. Every other request is recorded, including other methods and other `/.topolith/...` paths.
+The path is copied from the boot module and guarded by a test.
+
+Rejected:
+- A public `@Incubating` readiness wait in `topolith-spring-boot`. It is a blocking primitive only tests need, it would
+  miss D-50 re-checks, and it invites gating startup on a warning-only check (D-24, D-34).
+- Holding Boot readiness until the check ends, which contradicts D-24 and D-34.
+- Reflection from spring-test into the package-private `VersionReadiness`.
+- Documentation only.
 
 ### D-50 — Client refresh mechanism (M2.6)
 
@@ -426,7 +546,7 @@ remains up.
 
 ### D-25 — Packaged startup baseline (review 6)
 
-M3.2 baseline tooling generates `META-INF/topolith/baseline/<id>.txt` in the referencing module from the frozen
+`TopolithBaseline.generate` writes `META-INF/topolith/baseline/<id>.txt` in the referencing module's descriptor root (D-63) from the frozen
 ArchUnit store. Each violation is a line formatted `<referencing class FQN> -> <referenced class FQN>`; blank lines and
 lines starting with `#` are ignored. The startup boundary check reads the packaged resource to recognize violations.
 
@@ -663,3 +783,4 @@ providers (D-27).
 | Q-21 | Open | Should a contract support checked exceptions (TL0027 rejects them) or carry exception payload beyond the message (fields, cause chain) across HTTP (D-43)? |
 | Q-22 | Open | Should a 404, 405 or 415, or a 401 or 403, without a Topolith problem become `ModuleUnavailableException` rather than an unspecified exception, and should a fixed JDK list (`IllegalArgumentException`, `IllegalStateException`, `UnsupportedOperationException`) count as declared (D-43)? |
 | Q-23 | Open | Should a refresh rebuild a group's Spring Cloud CircuitBreaker and retry settings (D-12, D-51), or stay restart-only? |
+| Q-24 | Open | The remote version check's TL0015/TL0023 can be logged after a test method starts, or after its cached context closes, so a test that asserts on those log lines in external mode races. Does a test need a supported wait (a spring-test call over a boot `@Incubating` method), or is a per-context log assertion enough? |

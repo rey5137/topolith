@@ -13,7 +13,9 @@ is used only for discovery and refresh in the optional Cloud module. Implements 
 
 - AC-BUILD-01 (M0.2): A clean checkout builds core, Spring Boot, optional Cloud, processor, Spring test and samples;
   the BOM includes the Cloud integration.
-- AC-BUILD-02 (M0.2): The platform selects the Java and Spring baseline and supplies Topolith BOM entries.
+- AC-BUILD-02 (M0.2): The platform selects the Java and Spring baseline and supplies Topolith BOM entries. The BOM
+  also imports `spring-boot-dependencies` and `spring-cloud-dependencies`, so a host importing only it gets Boot,
+  Cloud and Topolith versions (D-68).
 
 ### R-BUILD-02 — Dependency boundaries
 

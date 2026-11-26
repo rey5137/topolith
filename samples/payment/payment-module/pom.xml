@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.github.rey5137</groupId>
+        <artifactId>topolith-sample-payment</artifactId>
+        <version>${revision}</version>
+    </parent>
+    <artifactId>payment-module</artifactId>
+    <name>Topolith Sample Payment Module</name>
+    <description>Payment module implementation</description>
+    <dependencies>
+        <dependency>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>payment-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>topolith-core</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency><!-- reactor ordering only: the processor itself runs from annotationProcessorPaths -->
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>topolith-processor</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>io.github.rey5137</groupId>
+                            <artifactId>topolith-processor</artifactId>
+                            <version>${project.version}</version>
+                        </path>
+                        <path>
+                            <groupId>io.github.rey5137</groupId>
+                            <artifactId>topolith-core</artifactId>
+                            <version>${project.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                    <compilerArgs>
+                        <arg>-Atopolith.apiVersion=${project.version}</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

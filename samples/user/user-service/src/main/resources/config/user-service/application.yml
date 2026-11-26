@@ -1,0 +1,18 @@
+# Port scheme: user-service 8080, payment-service 8081; the hybrid host's payment url and user-service's agree.
+server:
+  port: 8080
+spring:
+  datasource:
+    url: jdbc:h2:mem:user-service;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+topolith:
+  standalone: user
+  modules:
+    user:
+      expose:
+        enabled: true
+    payment:
+      mode: external
+      remote:
+        url: http://localhost:8081
+        connect-timeout: 2s
+        read-timeout: 5s

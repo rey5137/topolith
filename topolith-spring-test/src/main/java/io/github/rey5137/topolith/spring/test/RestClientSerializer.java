@@ -34,7 +34,7 @@ final class RestClientSerializer implements ByValueSerializer {
         // a copy of the host's builder, so its converters and mapper are used but not its interceptors, initializers
         // or observation, and the host's own builder keeps its request factory
         RestClient.Builder copy = builder.clone().requestInterceptors(List::clear).requestInitializers(List::clear)
-                .requestFactory((uri, method) -> new Echo(uri, method));
+                .requestFactory(Echo::new);
         ClassLoader loader = builder.getClass().getClassLoader();
         if (ClassUtils.isPresent("io.micrometer.observation.ObservationRegistry", loader)) {
             NoObservation.apply(copy);

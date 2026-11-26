@@ -30,6 +30,10 @@ import org.springframework.context.ApplicationContextAware;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.core.PriorityOrdered;
+import org.springframework.core.annotation.MergedAnnotations;
+import org.springframework.core.annotation.MergedAnnotations.SearchStrategy;
 import org.springframework.core.env.Environment;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer;
@@ -46,6 +50,7 @@ import org.springframework.web.client.support.RestClientHttpServiceGroupConfigur
 class LoopbackConfiguration {
     private static final String SERVLET_SERVER =
             "org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext";
+    private static final String PRIORITY = "jakarta.annotation.Priority";
     private static final String DISPATCHER_SERVLET_PATH =
             "org.springframework.boot.webmvc.autoconfigure.DispatcherServletPath";
 
@@ -80,12 +85,22 @@ class LoopbackConfiguration {
      * web server, so a server that SSL settings or a missing port would break never hides the TL0026.
      */
     @Bean
-    static BeanFactoryPostProcessor topolithLoopbackCandidates() {
+    static Startup topolithLoopbackCandidates() {
         return new Startup();
     }
 
-    private static final class Startup implements BeanFactoryPostProcessor, ApplicationContextAware {
+    /**
+     * {@link PriorityOrdered}, so the resolver is in place before Spring's bean-override post-processor (an Ordered
+     * one) picks the target of a {@code @MockitoBean} or {@code @MockitoSpyBean} by type (AC-TEST-19). The resolution
+     * singleton is registered while the configuration classes are parsed, which precedes every other post-processor.
+     */
+    static final class Startup implements BeanFactoryPostProcessor, PriorityOrdered, ApplicationContextAware {
         private ApplicationContext context;
+
+        @Override
+        public int getOrder() {
+            return Ordered.LOWEST_PRECEDENCE;
+        }
 
         @Override
         public void setApplicationContext(ApplicationContext context) {
@@ -98,6 +113,46 @@ class LoopbackConfiguration {
                     .topology();
             checkServer(context, context.getEnvironment(), topology.idsOf(Mode.LOOPBACK));
             LoopbackCandidateResolver.install(factory);
+        }
+    }
+
+    /**
+     * Not ordered, so it runs after the {@code PriorityOrdered} {@link Startup} and after every post-processor that
+     * could still mark a provider {@code @Primary} (D-84). A provider declared through an interface-typed
+     * {@code @Bean} return is checked by that declared type only.
+     */
+    @Bean
+    static BeanFactoryPostProcessor topolithLoopbackProviderCheck() {
+        return factory -> checkProviders(factory, factory.getBean(TopologyResolver.RESOLUTION_BEAN,
+                TopologyResolver.Resolution.class).topology().idsOf(Mode.LOOPBACK));
+    }
+
+    /**
+     * TL0003 (D-84): a loopback provider that is {@code @Primary} or carries {@code @Priority} would win a by-type
+     * lookup from outside the module, handing the caller the in-process bean instead of the client.
+     */
+    static void checkProviders(ConfigurableListableBeanFactory factory, Set<String> ids) {
+        TopologyResolver.Resolution resolution = factory.getBean(TopologyResolver.RESOLUTION_BEAN,
+                TopologyResolver.Resolution.class);
+        ClassLoader loader = factory.getBeanClassLoader() != null ? factory.getBeanClassLoader()
+                : LoopbackConfiguration.class.getClassLoader();
+        for (String id : ids) {
+            for (String contract : resolution.contracts().getOrDefault(id, Set.of())) {
+                ModuleBeans.ownedBy(factory, loader, resolution, contract).forEach((name, owner) -> {
+                    if (!owner.equals(id)) {
+                        return;
+                    }
+                    Class<?> type = factory.getType(name, false);
+                    String marker = factory.getBeanDefinition(name).isPrimary() ? "@Primary"
+                            : type != null && MergedAnnotations.from(type, SearchStrategy.TYPE_HIERARCHY).isPresent(PRIORITY) ? "@Priority" : null;
+                    if (marker != null) {
+                        throw new TopolithException(new Diagnostic(TopolithCode.TL0003, "provider bean '" + name
+                                + "' of loopback module '" + id + "' is " + marker + ", so a by-type lookup from "
+                                + "outside the module would return it instead of the client.", "Remove " + marker
+                                + " from the provider, or set topolith.modules." + id + ".mode to internal."));
+                    }
+                });
+            }
         }
     }
 

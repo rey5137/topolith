@@ -263,21 +263,24 @@ final class ByValue {
         /** The copy, after checking that it serializes as the original did. */
         private ByValueSerializer.Copy copy(ByValueRecorder recorder, String label, String part, Object value,
                 Type type) {
-            String where = "module '" + module + "', " + label + ", " + part + " (" + type.getTypeName() + ")";
             ByValueSerializer.Copy copy;
             String path;
             try {
                 copy = recorder.serializer().copy(value, type);
                 path = ByValueJson.diff(copy.tree(), recorder.serializer().tree(copy.copy(), type), "$");
             } catch (RuntimeException e) {
-                throw recorder.record(new AssertionError("By-value proxy: " + where
+                throw recorder.record(new AssertionError("By-value proxy: " + where(label, part, type)
                         + " does not survive the JSON round trip: " + e.getMessage(), e));
             }
             if (path != null) {
-                throw recorder.record(new AssertionError("By-value proxy: " + where
+                throw recorder.record(new AssertionError("By-value proxy: " + where(label, part, type)
                         + " does not survive the JSON round trip: the copy differs from the original at " + path));
             }
             return copy;
+        }
+
+        private String where(String label, String part, Type type) {
+            return "module '" + module + "', " + label + ", " + part + " (" + type.getTypeName() + ")";
         }
 
         /** The contract method with its types resolved against the contract, as an HTTP interface resolves them. */

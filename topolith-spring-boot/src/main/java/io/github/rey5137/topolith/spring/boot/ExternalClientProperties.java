@@ -2,9 +2,12 @@ package io.github.rey5137.topolith.spring.boot;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
+import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.Topology;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
@@ -18,6 +21,8 @@ final class ExternalClientProperties {
     static final String SOURCE_NAME = "topolithExternalClients";
     /** A service id maps to this base URL, which Spring Cloud LoadBalancer resolves (AC-EXT-05, D-42). */
     static final String LB_SCHEME = "lb://";
+    /** The base URL a loopback group carries until its client targets the started server (AC-MODE-53). */
+    static final String PLACEHOLDER_BASE = "http://localhost/";
     static final String CONNECT_TIMEOUT_DEFAULT = "2s";
     static final String READ_TIMEOUT_DEFAULT = "5s";
 
@@ -47,18 +52,33 @@ final class ExternalClientProperties {
         }
     }
 
+    /**
+     * The mapped keys for every external and loopback module. A loopback module sets no {@code remote.url} or
+     * {@code remote.service-id} (TL0003), so it maps its timeouts and a placeholder base URL (AC-MODE-53).
+     */
     static Map<String, Object> properties(Environment environment, Topology topology) {
-        return properties(environment, ExternalHttpServicesRegistrar.clientModules(topology));
+        return properties(environment, ExternalHttpServicesRegistrar.clientModules(topology),
+                new HashSet<>(topology.idsOf(Mode.LOOPBACK)));
     }
 
     /**
-     * The mapped keys for the given external or loopback modules; a refresh recomputes one external module's (D-50).
-     * A loopback module sets no {@code remote.url} or {@code remote.service-id} (TL0003), so it maps only timeouts.
+     * The mapped keys for the given external modules; a refresh recomputes one external module's (D-50). For external
+     * ids only: a loopback id passed here would lose its placeholder base URL.
      */
     static Map<String, Object> properties(Environment environment, Collection<String> ids) {
+        return properties(environment, ids, Set.of());
+    }
+
+    private static Map<String, Object> properties(Environment environment, Collection<String> ids,
+            Set<String> loopback) {
         Map<String, Object> values = new LinkedHashMap<>();
         for (String id : ids) {
             String target = groupPrefix(id);
+            if (loopback.contains(id)) {
+                // the loopback URI factory replaces it; a base URL without the lb scheme keeps Spring Cloud
+                // LoadBalancer's group configurer off the group (it would treat the host as a service id)
+                values.put(target + "base-url", PLACEHOLDER_BASE + id);
+            }
             String source = TopologyResolver.MODES + "." + id + ".remote.";
             String url = environment.getProperty(source + "url");
             if (url != null && !url.isBlank()) {

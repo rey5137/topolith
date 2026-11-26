@@ -95,7 +95,9 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
                     && differs(key, id, current.computeIfAbsent(id, this::loopbackSettings))) {
                 LOG.warn(new Diagnostic(TopolithCode.TL0010, "loopback module '" + id + "' keeps its client "
                         + "settings: the refreshed " + key + " applies only after a restart.",
-                        "Restart the application to apply it, or restore the running value.").toString());
+                        "Restart the application to apply it, or restore the running value"
+                        + (urlKey(key, id) ? "; remote.url and remote.service-id are not allowed on a loopback "
+                        + "module (the next start fails with TL0003)." : ".")).toString());
             }
         }
         modes.forEach((id, requested) -> {
@@ -128,6 +130,12 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
         return dot > 0 ? key.substring(PREFIX.length(), dot) : null;
     }
 
+    /** Whether {@code key} is loopback module {@code id}'s {@code remote.url} or {@code remote.service-id}. */
+    private static boolean urlKey(String key, String id) {
+        String rest = relaxed(key.substring(PREFIX.length() + id.length() + 1));
+        return rest.equals("remote.url") || rest.equals("remote.serviceid");
+    }
+
     /** Whether the refreshed {@code key} of loopback module {@code id} differs from its running value (D-77). */
     private boolean differs(String key, String id, Map<String, String> current) {
         String wanted = relaxed(key.substring(PREFIX.length() + id.length() + 1));
@@ -150,8 +158,9 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
 
     /** Whether {@code key} is one of loopback module {@code id}'s restart-only client settings (D-77). */
     private static boolean loopbackKey(String key, String id) {
-        String rest = key.substring(PREFIX.length() + id.length() + 1).replace("-", "").toLowerCase(Locale.ROOT);
+        String rest = relaxed(key.substring(PREFIX.length() + id.length() + 1));
         return rest.equals("remote.connecttimeout") || rest.equals("remote.readtimeout")
+                || rest.equals("remote.url") || rest.equals("remote.serviceid")
                 || rest.startsWith("remote.httpinterface.") || rest.startsWith("loopback.");
     }
 
@@ -162,6 +171,13 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
         for (String key : List.of("remote.connect-timeout", "remote.read-timeout")) {
             String value = environment.getProperty(prefix + key);
             if (value != null) {
+                settings.put(key, value);
+            }
+        }
+        // a loopback module sets neither (TL0003): a refreshed value logs, and the next start would fail
+        for (String key : List.of("remote.url", "remote.service-id")) {
+            String value = environment.getProperty(prefix + key);
+            if (value != null && !value.isBlank()) {
                 settings.put(key, value);
             }
         }

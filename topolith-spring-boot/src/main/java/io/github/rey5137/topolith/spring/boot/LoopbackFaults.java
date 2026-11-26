@@ -1,5 +1,6 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
@@ -162,8 +163,8 @@ final class LoopbackFaults {
                         }
                     }
                     case RATE -> {
-                        java.math.BigDecimal decimal = new java.math.BigDecimal(text.trim());
-                        if (decimal.signum() < 0 || decimal.compareTo(java.math.BigDecimal.ONE) > 0) {
+                        BigDecimal decimal = new BigDecimal(text.trim());
+                        if (decimal.signum() < 0 || decimal.compareTo(BigDecimal.ONE) > 0) {
                             throw new IllegalArgumentException("outside [0, 1]");
                         }
                         rate = decimal.doubleValue();

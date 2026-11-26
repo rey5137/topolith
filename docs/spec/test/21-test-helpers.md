@@ -128,11 +128,21 @@ or its host's configuration; `topolith-spring-test` adds no matrix runner (D-80)
 proxy for the module under test (R-TEST-04), the loopback run uses a listening server (`RANDOM_PORT`, R-MODE-06), and
 the external run reaches a real provider or a `TopolithMockServer`. The samples run the shared payment tests of
 `samples/payment-tests` (R-TEST-03) as the matrix: the monolith host with payment internal under the by-value proxy and
-again with payment loopback, and the hybrid host with payment external against the payment service. Implements INV-6,
-P-2, D-74 and D-80.
+again with payment loopback, and the hybrid host with payment external against the payment service. The matrix checks
+contract-call parity only: events, persistence and listeners behave as in `internal` mode, and event parity is RFC 0001
+§7 (0.3) (Q-27). In a loopback run a test class must be outside the module's package: "inside the module" is the package
+alone (package = module, by design), so a test class in the module's package or a subpackage fails with
+TL0032, because it would get the provider and never cross HTTP (D-85). Implements INV-6, P-2, D-74, D-80 and D-85.
 
 - AC-TEST-14 (M5.5): The shared payment test cases pass with payment internal under the by-value proxy, loopback, and
   external against the payment service, and each run asserts that payment runs in the mode it names.
+- AC-TEST-19 (M5 gate): In a loopback context, a `@MockitoBean` and a `@MockitoSpyBean` of the module's contract in a test
+  class outside the module's package apply to the module's group client and the context starts: a caller outside the
+  module reaches the mock, or the spy, which still calls through HTTP, and the provider and its routes stay. A by-name
+  override that names the provider's bean still targets the provider (D-84); it is not covered.
+- AC-TEST-20 (M5 gate): A test class in a loopback module's package, a subpackage or a static nested class there fails
+  with TL0032 naming the class and the module when its instance is prepared; a test class outside every module package, in a
+  sibling package sharing the module's name prefix, or in an `internal` or `external` module's package does not.
 - AC-TEST-15 (M5.5): A deliberately mutable payment fixture, whose provider changes an argument or a result it
   returned, fails the by-value run with R-TEST-04's `AssertionError`; a fixture contract returning `Page` fails both
   `TopolithArchitecture.verify()` (R-ARCH-02) and the by-value round trip.

@@ -1,5 +1,6 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import io.github.rey5137.topolith.core.Incubating;
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.Topology;
 
@@ -17,6 +18,7 @@ import org.springframework.core.env.Environment;
  * Classes owned by no module are left alone. It reads names only and loads no class. Registered in
  * {@code META-INF/spring.factories}.
  */
+@Incubating
 public class TopolithAutoConfigurationFilter
         implements AutoConfigurationImportFilter, BeanFactoryAware, EnvironmentAware, BeanClassLoaderAware {
     private BeanFactory beanFactory;

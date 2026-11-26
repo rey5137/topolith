@@ -2,6 +2,7 @@ package io.github.rey5137.topolith.spring.boot;
 
 import java.util.Set;
 
+import io.github.rey5137.topolith.core.Incubating;
 import org.springframework.core.Ordered;
 import org.springframework.boot.sql.init.dependency.AbstractBeansOfTypeDatabaseInitializerDetector;
 
@@ -12,6 +13,7 @@ import org.springframework.boot.sql.init.dependency.AbstractBeansOfTypeDatabaseI
  * module runners come after all of them, so a module's migrations run after every host runner, scripts included, and
  * a host Flyway never meets a schema a module has already filled.
  */
+@Incubating
 public final class ModuleRunnerDetector extends AbstractBeansOfTypeDatabaseInitializerDetector {
     /**
      * After Flyway's {@code FlywayMigrationInitializer} detector (1) and Boot's script initializers

@@ -25,6 +25,7 @@ import io.github.rey5137.topolith.annotation.TopolithModule;
 import io.github.rey5137.topolith.core.ApiDescriptor;
 import io.github.rey5137.topolith.core.Descriptors;
 import io.github.rey5137.topolith.core.Diagnostic;
+import io.github.rey5137.topolith.core.Incubating;
 import io.github.rey5137.topolith.core.ModuleDescriptor;
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
@@ -34,6 +35,7 @@ import io.github.rey5137.topolith.core.TopolithException;
  * {@code apis/<id>.properties} (D-29). Elements are not kept across rounds: the rounds only record names, and the
  * work happens in the last round against the final symbol table. Problems are compile errors, never exceptions.
  */
+@Incubating
 public final class TopolithModuleProcessor extends AbstractProcessor {
     static final String API_VERSION_OPTION = "topolith.apiVersion";
     private static final String DIRECTORY = "META-INF/topolith/";

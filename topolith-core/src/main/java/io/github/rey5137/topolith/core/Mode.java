@@ -10,6 +10,11 @@ public enum Mode {
     INTERNAL,
     /** The module is called through a remote client. */
     EXTERNAL,
+    /**
+     * The module's implementation runs in the host, as for {@link #INTERNAL}, but code outside it calls its contracts
+     * over HTTP on the host's own server (R-MODE-06).
+     */
+    LOOPBACK,
     /** The module and its client are not activated. */
     NONE;
 
@@ -18,7 +23,7 @@ public enum Mode {
         return name().toLowerCase(Locale.ROOT);
     }
 
-    /** Parses a configured value, trimmed and case-insensitive; empty when it is none of the three modes. */
+    /** Parses a configured value, trimmed and case-insensitive; empty when it is none of the modes. */
     public static Optional<Mode> parse(String value) {
         if (value != null) {
             String trimmed = value.trim();

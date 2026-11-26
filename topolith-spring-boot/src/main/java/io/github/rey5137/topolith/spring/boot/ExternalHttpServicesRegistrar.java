@@ -1,9 +1,11 @@
 package io.github.rey5137.topolith.spring.boot;
 
-import java.util.Set;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 import io.github.rey5137.topolith.core.Mode;
+import io.github.rey5137.topolith.core.Topology;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.core.env.Environment;
 import org.springframework.core.type.AnnotationMetadata;
@@ -11,9 +13,10 @@ import org.springframework.web.service.registry.AbstractHttpServiceRegistrar;
 import org.springframework.web.service.registry.HttpServiceGroup.ClientType;
 
 /**
- * Registers one HTTP service group per external module, named for the module id, holding the contract interfaces
- * from its descriptors' {@code provides} that carry {@code @HttpExchange} (R-EXT-01). The group's client settings come
- * from {@code spring.http.serviceclient.<id>.*} (R-EXT-02, R-EXT-03). Only imported when {@code spring-web} is present.
+ * Registers one HTTP service group per external or loopback module (R-MODE-06), named for the module id, holding the
+ * contract interfaces from its descriptors' {@code provides} that carry {@code @HttpExchange} (R-EXT-01). The group's
+ * client settings come from {@code spring.http.serviceclient.<id>.*} (R-EXT-02, R-EXT-03). Only imported when
+ * {@code spring-web} is present.
  */
 final class ExternalHttpServicesRegistrar extends AbstractHttpServiceRegistrar {
     private BeanFactory beanFactory;
@@ -41,7 +44,7 @@ final class ExternalHttpServicesRegistrar extends AbstractHttpServiceRegistrar {
     @Override
     protected void registerHttpServices(GroupRegistry registry, AnnotationMetadata importingClassMetadata) {
         TopologyResolver.Resolution resolution = TopologyResolver.resolve(beanFactory, environment, classLoader);
-        for (String id : resolution.topology().idsOf(Mode.EXTERNAL)) {
+        for (String id : clientModules(resolution.topology())) {
             Class<?>[] contracts = resolution.contracts().getOrDefault(id, Set.of()).stream()
                     .map(name -> load(resolution.httpInterfaces().getOrDefault(id, Map.of()).getOrDefault(name, name)))
                     .toArray(Class<?>[]::new);
@@ -51,7 +54,14 @@ final class ExternalHttpServicesRegistrar extends AbstractHttpServiceRegistrar {
         }
     }
 
-    /** The resolver already checked (TL0026) that every contract of an external module loads. */
+    /** The modules whose callers get an HTTP client: the external and the loopback ones, sorted. */
+    static Set<String> clientModules(Topology topology) {
+        Set<String> ids = new TreeSet<>(topology.idsOf(Mode.EXTERNAL));
+        ids.addAll(topology.idsOf(Mode.LOOPBACK));
+        return ids;
+    }
+
+    /** The resolver already checked (TL0026) that every contract of an external or loopback module loads. */
     private Class<?> load(String name) {
         try {
             return Class.forName(name, false, classLoader);

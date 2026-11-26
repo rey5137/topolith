@@ -2,8 +2,10 @@ package io.github.rey5137.topolith.spring.boot;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -17,6 +19,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.BeanClassLoaderAware;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.context.properties.bind.BindException;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 
 /**
@@ -24,6 +30,8 @@ import org.springframework.core.env.Environment;
  * the changed property keys of an {@code EnvironmentChangeEvent}; it holds no Spring Cloud type, so the logic is
  * testable without one. A changed mode or a URL/service-id switch only logs TL0010 and marks restart pending: the
  * running topology never changes (INV-9). A changed URL, service id or timeout rebuilds that external module's client.
+ * A loopback module's client settings are restart-only (D-77): a change logs TL0010 and keeps restart pending until
+ * every such key again matches its running value.
  */
 @Incubating
 public final class TopolithRefresh implements BeanClassLoaderAware {
@@ -35,6 +43,7 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
     private final TopolithRefreshStatus status;
     private final ObjectProvider<ExternalClientEndpoints> endpoints;
     private final Map<String, Boolean> runningBalanced = new HashMap<>();
+    private final Map<String, Map<String, String>> runningLoopback = new HashMap<>();
     private ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
 
     TopolithRefresh(Environment environment, Topology topology, TopolithRefreshStatus status,
@@ -44,6 +53,7 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
         this.status = status;
         this.endpoints = endpoints;
         topology.idsOf(Mode.EXTERNAL).forEach(id -> runningBalanced.put(id, balanced(id)));
+        topology.idsOf(Mode.LOOPBACK).forEach(id -> runningLoopback.put(id, loopbackSettings(id)));
     }
 
     @Override
@@ -72,7 +82,22 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
                 wiring.add(id);
             }
         }
+        for (String id : topology.idsOf(Mode.LOOPBACK)) {
+            if (!modes.containsKey(id) && !loopbackSettings(id).equals(runningLoopback.get(id))) {
+                wiring.add(id);
+            }
+        }
         status.update(modes, wiring);
+        Map<String, Map<String, String>> current = new HashMap<>();
+        for (String key : new TreeSet<>(changedKeys)) {
+            String id = moduleOf(key);
+            if (id != null && wiring.contains(id) && runningLoopback.containsKey(id) && loopbackKey(key, id)
+                    && differs(key, id, current.computeIfAbsent(id, this::loopbackSettings))) {
+                LOG.warn(new Diagnostic(TopolithCode.TL0010, "loopback module '" + id + "' keeps its client "
+                        + "settings: the refreshed " + key + " applies only after a restart.",
+                        "Restart the application to apply it, or restore the running value.").toString());
+            }
+        }
         modes.forEach((id, requested) -> {
             if (standalone || changed.getOrDefault(id, Set.of()).contains("mode")) {
                 LOG.warn(new Diagnostic(TopolithCode.TL0010, "module '" + id + "' runs in mode "
@@ -84,7 +109,7 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
         ExternalClientEndpoints clients = endpoints.getIfAvailable();
         changed.forEach((id, rests) -> {
             boolean target = rests.contains("remote.url") || rests.contains("remote.serviceid");
-            if (wiring.contains(id) && target) {
+            if (wiring.contains(id) && target && runningBalanced.containsKey(id)) {
                 LOG.warn(new Diagnostic(TopolithCode.TL0010, "external module '" + id + "' was switched between "
                         + "remote.url and remote.service-id; the running client keeps its wiring.",
                         "Restart the application to apply it.").toString());
@@ -96,6 +121,62 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
                 clients.rebuild(id);
             }
         });
+    }
+
+    private String moduleOf(String key) {
+        int dot = key.startsWith(PREFIX) ? key.indexOf('.', PREFIX.length()) : -1;
+        return dot > 0 ? key.substring(PREFIX.length(), dot) : null;
+    }
+
+    /** Whether the refreshed {@code key} of loopback module {@code id} differs from its running value (D-77). */
+    private boolean differs(String key, String id, Map<String, String> current) {
+        String wanted = relaxed(key.substring(PREFIX.length() + id.length() + 1));
+        return !Objects.equals(valueOf(current, wanted), valueOf(runningLoopback.get(id), wanted));
+    }
+
+    /** A setting's value by its relaxed name, so {@code readTimeout} and {@code read-timeout} name one key. */
+    private static String valueOf(Map<String, String> settings, String relaxedKey) {
+        for (Map.Entry<String, String> entry : settings.entrySet()) {
+            if (relaxed(entry.getKey()).equals(relaxedKey)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private static String relaxed(String key) {
+        return key.replace("-", "").toLowerCase(Locale.ROOT);
+    }
+
+    /** Whether {@code key} is one of loopback module {@code id}'s restart-only client settings (D-77). */
+    private static boolean loopbackKey(String key, String id) {
+        String rest = key.substring(PREFIX.length() + id.length() + 1).replace("-", "").toLowerCase(Locale.ROOT);
+        return rest.equals("remote.connecttimeout") || rest.equals("remote.readtimeout")
+                || rest.startsWith("remote.httpinterface.") || rest.startsWith("loopback.");
+    }
+
+    /** Loopback module {@code id}'s client settings, by key: its timeouts, HTTP interfaces and {@code loopback.*}. */
+    private Map<String, String> loopbackSettings(String id) {
+        Map<String, String> settings = new TreeMap<>();
+        String prefix = PREFIX + id + ".";
+        for (String key : List.of("remote.connect-timeout", "remote.read-timeout")) {
+            String value = environment.getProperty(prefix + key);
+            if (value != null) {
+                settings.put(key, value);
+            }
+        }
+        if (environment instanceof ConfigurableEnvironment configurable) {
+            Binder binder = Binder.get(configurable);
+            for (String group : List.of("remote.http-interface", "loopback")) {
+                try {
+                    binder.bind(prefix + group, Bindable.mapOf(String.class, String.class))
+                            .ifBound(values -> values.forEach((key, value) -> settings.put(group + "." + key, value)));
+                } catch (BindException e) {
+                    settings.put(group, "invalid: " + e.getMessage());
+                }
+            }
+        }
+        return settings;
     }
 
     /**

@@ -6,12 +6,16 @@ import java.util.Map;
 import java.util.Set;
 
 import io.github.rey5137.topolith.core.Diagnostic;
+import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.TopolithCode;
 import org.springframework.core.annotation.MergedAnnotations;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.service.annotation.HttpExchange;
 
-/** TL0026 (D-41): an external module needs the HTTP client stack and {@code @HttpExchange} contracts it can load. */
+/**
+ * TL0026 (D-41): an external or loopback module needs the HTTP client stack and {@code @HttpExchange} contracts it can
+ * load.
+ */
 final class ExternalContracts {
     static final String REGISTRAR = "org.springframework.web.service.registry.AbstractHttpServiceRegistrar";
     static final String CLIENT_AUTO_CONFIGURATION =
@@ -25,8 +29,8 @@ final class ExternalContracts {
     private ExternalContracts() {
     }
 
-    /** Adds a TL0026 diagnostic for every external module that has no usable client. */
-    static void check(Set<String> externals, Map<String, Set<String>> contracts,
+    /** Adds a TL0026 diagnostic for every external or loopback module ({@code mode}) that has no usable client. */
+    static void check(Mode mode, Set<String> externals, Map<String, Set<String>> contracts,
             Map<String, Map<String, String>> mappings, ClassLoader loader,
             List<Diagnostic> problems) {
         if (externals.isEmpty()) {
@@ -37,7 +41,7 @@ final class ExternalContracts {
         for (String id : externals) {
             if (!web || !boot) {
                 String missing = web ? "Spring Boot's HTTP service-client auto-configuration" : "spring-web";
-                problems.add(new Diagnostic(TopolithCode.TL0026, "external module '" + id
+                problems.add(new Diagnostic(TopolithCode.TL0026, mode.id() + " module '" + id
                         + "' has no HTTP client: " + missing + " is not on the classpath.",
                         "Add spring-boot-starter-restclient to the host."));
                 continue;
@@ -47,7 +51,7 @@ final class ExternalContracts {
                 try {
                     type = Class.forName(name, false, loader);
                 } catch (ClassNotFoundException | LinkageError e) {
-                    problems.add(new Diagnostic(TopolithCode.TL0026, "external module '" + id + "' provides "
+                    problems.add(new Diagnostic(TopolithCode.TL0026, mode.id() + " module '" + id + "' provides "
                             + name + ", which cannot be loaded.", "Add the module's API JAR to the host classpath."));
                     continue;
                 }
@@ -59,14 +63,14 @@ final class ExternalContracts {
                             throw new IllegalArgumentException();
                         }
                     } catch (ClassNotFoundException | LinkageError | IllegalArgumentException e) {
-                        problems.add(new Diagnostic(TopolithCode.TL0026, "external module '" + id + "' contract "
+                        problems.add(new Diagnostic(TopolithCode.TL0026, mode.id() + " module '" + id + "' contract "
                                 + name + " has invalid HTTP interface " + mapped + ".", "Map a loadable interface "
                                 + "extending the contract and carrying @HttpExchange."));
                     }
                 } else if (!exchange(type)) {
-                    problems.add(new Diagnostic(TopolithCode.TL0026, "contract " + name + " of external module '" + id
-                            + "' carries no @HttpExchange.", "Annotate the contract or its methods with "
-                            + "@HttpExchange (or @GetExchange and the like)."));
+                    problems.add(new Diagnostic(TopolithCode.TL0026, "contract " + name + " of " + mode.id()
+                            + " module '" + id + "' carries no @HttpExchange.", "Annotate the contract or its methods "
+                            + "with @HttpExchange (or @GetExchange and the like)."));
                 }
             }
         }

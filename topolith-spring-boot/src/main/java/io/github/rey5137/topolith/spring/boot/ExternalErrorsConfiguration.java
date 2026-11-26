@@ -7,9 +7,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer;
 
 /**
- * Adds the {@link ContractCallTranslator} to every external module's service proxy, and to no other group (D-43), and
- * keeps those groups' client builders for the readiness version check.
- * Imported beside {@link ExternalHttpServicesRegistrar}, only when a module is external (INV-2).
+ * Adds the {@link ContractCallTranslator} to every external and loopback module's service proxy, and to no other group
+ * (D-43, R-EXT-09), and keeps the external groups' client builders for the readiness version check.
+ * Imported beside {@link ExternalHttpServicesRegistrar}, only when a module is external or loopback (INV-2).
  */
 @Configuration(proxyBeanMethods = false)
 class ExternalErrorsConfiguration {
@@ -23,9 +23,10 @@ class ExternalErrorsConfiguration {
     @Bean
     RestClientHttpServiceGroupConfigurer topolithContractErrors(Topology topology, ExternalClientBuilders clients) {
         String[] externals = topology.idsOf(Mode.EXTERNAL).toArray(String[]::new);
+        String[] callers = ExternalHttpServicesRegistrar.clientModules(topology).toArray(String[]::new);
         return groups -> {
             groups.filterByName(externals).forEachClient((group, builder) -> clients.put(group.name(), builder));
-            groups.filterByName(externals).forEachProxyFactory((group, factory) -> factory
+            groups.filterByName(callers).forEachProxyFactory((group, factory) -> factory
                     .proxyFactoryCustomizer((proxy, service) -> proxy.addAdvice(0, new ContractCallTranslator(
                             group.name(), topology.apiPackages(), service.getClassLoader()))));
         };

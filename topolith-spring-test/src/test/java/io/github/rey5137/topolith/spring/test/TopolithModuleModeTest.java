@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.env.Environment;
 
@@ -151,6 +152,56 @@ class TopolithModuleModeTest {
             server.stub("GET", "/ping", 200, "pong");
             assertEquals("pong", client.ping());
             assertTrue(server.requests().stream().anyMatch(request -> request.path().equals("/payment/ping")));
+        }
+    }
+
+    @Nested
+    @SpringBootTest(classes = TopolithTestModesTest.Host.class, webEnvironment = WebEnvironment.RANDOM_PORT)
+    @org.springframework.test.context.ActiveProfiles("svc")
+    @TopolithModuleMode(id = "payment", mode = Mode.LOOPBACK)
+    @TopolithByValue("payment")
+    class Loopback {
+        @Autowired Payment client;
+        @Autowired PaymentImpl provider;
+        @Autowired Environment environment;
+
+        @Test
+        void ac_test_16_annotation_selects_loopback_over_a_host_service_id() {
+            assertEquals("loopback", environment.getProperty("topolith.modules.payment.mode"));
+            assertEquals("", environment.getProperty("topolith.modules.payment.remote.service-id"));
+            assertEquals("", environment.getProperty("topolith.modules.payment.remote.url"));
+            assertFalse(client instanceof PaymentImpl, "the test class is outside the module: it gets the client");
+            assertEquals("internal", client.ping());
+        }
+
+        @Test
+        void ac_test_17_a_loopback_module_named_by_value_gets_no_proxy() {
+            for (Object bean : java.util.List.of(client, provider)) {
+                if (bean instanceof org.springframework.aop.framework.Advised advised) {
+                    for (var advisor : advised.getAdvisors()) {
+                        assertFalse(advisor.getAdvice() instanceof ByValue.Advice, bean.getClass().getName());
+                    }
+                }
+            }
+            assertEquals("internal", client.ping());
+        }
+    }
+
+    @Nested
+    @SpringBootTest(classes = TopolithTestModesTest.Host.class, webEnvironment = WebEnvironment.RANDOM_PORT)
+    @org.springframework.test.context.ActiveProfiles("svc")
+    class LoopbackBuilder {
+        @org.springframework.test.context.DynamicPropertySource
+        static void modes(org.springframework.test.context.DynamicPropertyRegistry registry) {
+            TopolithTestModes.module("payment").loopback().applyTo(registry);
+        }
+
+        @Autowired Payment client;
+
+        @Test
+        void ac_test_16_builder_selects_loopback_over_a_host_service_id() {
+            assertFalse(client instanceof PaymentImpl);
+            assertEquals("internal", client.ping());
         }
     }
 
@@ -351,6 +402,21 @@ class TopolithModuleModeTest {
     @TopolithModuleMode(id = "payment", mode = Mode.EXTERNAL)
     static class ServiceIdConflict { }
 
+    @SpringBootTest(classes = TopolithTestModesTest.Host.class,
+            properties = "topolith.modules.payment.remote.url=http://localhost:1")
+    @TopolithModuleMode(id = "payment", mode = Mode.LOOPBACK)
+    static class LoopbackUrlConflict { }
+
+    @SpringBootTest(classes = TopolithTestModesTest.Host.class)
+    @org.springframework.test.context.ActiveProfiles("baseurl")
+    @TopolithModuleMode(id = "payment", mode = Mode.LOOPBACK)
+    static class LoopbackBaseUrl { }
+
+    @SpringBootTest(classes = TopolithTestModesTest.Host.class)
+    @org.springframework.test.context.ActiveProfiles("baseurl")
+    @TopolithModuleMode(id = "payment", mode = Mode.EXTERNAL)
+    static class ExternalBaseUrl { }
+
     @TopolithModuleMode(id = "payment", mode = Mode.NONE)
     static class ConflictBase { }
 
@@ -524,5 +590,22 @@ class TopolithModuleModeTest {
     @Test
     void ac_test_01_dynamic_url_of_another_server_fails() {
         assertConflict(DynamicUrlConflict.class, "remote.url", "sets 'http://localhost:1'");
+    }
+
+    @Test
+    void ac_test_16_a_conflicting_remote_url_under_loopback_fails() {
+        assertConflict(LoopbackUrlConflict.class, "remote.url", "sets 'http://localhost:1'");
+    }
+
+    @Test
+    void ac_test_18_a_host_base_url_is_never_cleared() {
+        String loopback = failure(LoopbackBaseUrl.class);
+        assertNotNull(loopback, "context loaded");
+        assertTrue(loopback.contains("TL0003")
+                && loopback.contains("Remove spring.http.serviceclient.payment.base-url"), loopback);
+        String external = failure(ExternalBaseUrl.class);
+        assertNotNull(external, "context loaded");
+        assertTrue(external.contains("TL0003") && external.contains("topolith.modules.payment.remote.url")
+                && external.contains("spring.http.serviceclient.payment.base-url"), external);
     }
 }

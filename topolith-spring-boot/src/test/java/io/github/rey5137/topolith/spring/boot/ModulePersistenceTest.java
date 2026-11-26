@@ -63,6 +63,8 @@ import org.springframework.boot.flyway.autoconfigure.FlywayMigrationInitializer;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.boot.web.server.servlet.context.AnnotationConfigServletWebServerApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.JpaTransactionManager;
@@ -282,6 +284,25 @@ class ModulePersistenceTest {
             assertTrue(managed.contains(LedgerEntry.class.getName()) && managed.contains(BillingEntry.class.getName())
                     && managed.contains(HostEntity.class.getName()), managed.toString());
         });
+    }
+
+    @Test
+    void ac_mode_40_a_loopback_module_registers_its_entities_repositories_and_migrations() throws Exception {
+        try (RecordingLoader loader = new RecordingLoader(ledgerRoot, billingRoot, hostRoot)) {
+            new WebApplicationContextRunner(AnnotationConfigServletWebServerApplicationContext::new)
+                    .withClassLoader(loader).withUserConfiguration(Host.class)
+                    .withPropertyValues("server.port=0", "spring.liquibase.enabled=false", VALIDATE,
+                            "topolith.modules.ledger.mode=loopback", "topolith.modules.billing.mode=none")
+                    .run(context -> {
+                        assertNull(context.getStartupFailure());
+                        assertEquals(Set.of("HostEntity", "LedgerEntry"),
+                                entities(context.getBean(EntityManagerFactory.class)));
+                        assertTrue(context.containsBean(LedgerRepository.class.getName()));
+                        JdbcTemplate jdbc = new JdbcTemplate(context.getBean(DataSource.class));
+                        assertEquals(List.of("V1__init.sql"), scripts(jdbc, "flyway_schema_history_ledger"));
+                        assertFalse(context.containsBean(BillingRepository.class.getName()));
+                    });
+        }
     }
 
     @Test

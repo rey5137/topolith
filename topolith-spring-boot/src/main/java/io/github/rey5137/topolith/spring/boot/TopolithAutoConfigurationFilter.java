@@ -1,7 +1,6 @@
 package io.github.rey5137.topolith.spring.boot;
 
 import io.github.rey5137.topolith.core.Incubating;
-import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.Topology;
 
 import org.springframework.beans.factory.BeanClassLoaderAware;
@@ -37,7 +36,7 @@ public class TopolithAutoConfigurationFilter
                 continue;
             }
             String owner = topology.ownerOfClass(name).orElse(resolution.importOwners().get(name));
-            keep[i] = owner == null || topology.mode(owner) == Mode.INTERNAL;
+            keep[i] = owner == null || topology.internal().contains(owner);
         }
         return keep;
     }

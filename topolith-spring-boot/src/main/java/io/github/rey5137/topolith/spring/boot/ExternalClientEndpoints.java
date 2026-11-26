@@ -172,7 +172,7 @@ final class ExternalClientEndpoints {
         return uri.toString();
     }
 
-    private record SwappableUriBuilderFactory(AtomicReference<UriBuilderFactory> target) implements UriBuilderFactory {
+    record SwappableUriBuilderFactory(AtomicReference<UriBuilderFactory> target) implements UriBuilderFactory {
         @Override
         public UriBuilder uriString(String uriTemplate) {
             return target.get().uriString(uriTemplate);

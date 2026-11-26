@@ -17,8 +17,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
- * Decides which routes of the internal modules a servlet host serves (D-44): the handlers of an exposed module are
- * mapped under its fixed {@code /<id>} prefix, those of every other internal module are not mapped at all. Imported by
+ * Decides which routes of the internal modules a servlet host serves (D-44): the handlers of an exposed or loopback
+ * module (D-76) are mapped under its fixed {@code /<id>} prefix, those of every other internal module are not mapped at
+ * all. Imported by
  * the topology selector only when a module is internal and {@code DispatcherServlet} is present (INV-2). It is
  * ordered first, because the first path prefix whose predicate matches wins and a host's own prefix must not take
  * an exposed module's handlers from {@code /<id>}.

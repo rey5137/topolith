@@ -9,7 +9,6 @@ import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.github.rey5137.topolith.core.Diagnostic;
-import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.core.Topology;
@@ -211,7 +210,7 @@ class JpaModulesAutoConfiguration {
                     String className = type.getJavaType().getName();
                     managedBy.merge(className, 1, Integer::sum);
                     String owner = ModuleBeans.ownerOfClass(className, resolution).orElse(null);
-                    if (owner != null && topology.mode(owner) != Mode.INTERNAL) {
+                    if (owner != null && !topology.internal().contains(owner)) {
                         foreign.computeIfAbsent(owner, key -> new ArrayList<>()).add(className);
                     }
                 }

@@ -8,8 +8,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 
 /**
- * TL0028: exposure is served by Spring MVC only, so an exposed module on a reactive host fails startup (D-43, D-44).
- * Imported only when a module is exposed. Eager, so lazy initialization cannot skip it.
+ * TL0028: exposure is served by Spring MVC only, so an exposed or loopback module on a reactive host fails startup
+ * (D-43, D-44, D-76). Imported only when a module is exposed or loopback. Eager, so lazy initialization cannot skip it.
  */
 @Configuration(proxyBeanMethods = false)
 @Lazy(false)
@@ -18,8 +18,9 @@ class ReactiveExposureConfiguration {
     ReactiveExposureConfiguration(TopologyResolver.Resolution resolution) {
         if (!resolution.exposed().isEmpty()) {
             throw new TopolithException(new Diagnostic(TopolithCode.TL0028, "module(s) " + resolution.exposed()
-                    + " are exposed, but this is a reactive (WebFlux) application and exposure needs Spring MVC.",
-                    "Remove topolith.modules.<id>.expose.enabled, or run the provider as a servlet application."));
+                    + " are exposed or loopback, but this is a reactive (WebFlux) application and their routes need "
+                    + "Spring MVC.", "Remove topolith.modules.<id>.expose.enabled, set a loopback module's mode to "
+                    + "internal, or run the provider as a servlet application."));
         }
     }
 }

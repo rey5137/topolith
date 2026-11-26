@@ -135,8 +135,9 @@ unchanged, and INV-2's non-internal module is one that is neither `internal` nor
 - **Callers.** Topolith registers one HTTP service group named `<id>` for the module's provided contracts, as R-EXT-01
   does for an external module. The provider bean stays a default candidate; Topolith installs a delegating
   `AutowireCandidateResolver`, only when a loopback module exists, that excludes the provider from a dependency typed
-  as one of the module's provided contracts at an injection point outside the module's `package` (D-81). Code outside
-  the module, the host included, therefore gets the HTTP client for the contract, while the module's own injections
+  as one of the module's provided contracts at an injection point outside the module's `package`, and the group's
+  client from such a dependency at an injection point inside it (D-81). Code outside the module, the host included,
+  therefore gets the HTTP client for the contract, while the module's own injections
   of its contract, any injection of the provider's concrete class and collections of its other interfaces still get
   the provider. The provider's routes are mapped, R-EXT-07's boundary applies to it, and it is not a second provider
   for TL0005. Nothing is marked `@Primary` and nothing falls back to the bean (INV-4).
@@ -144,9 +145,11 @@ unchanged, and INV-2's non-internal module is one that is neither `internal` nor
   belong to `ExposedEndpoints` and `ExposedRequestMatcher`, so the host's `SecurityFilterChain` sees them and applies to
   loopback calls as to any other request. `expose.enabled` unset or `true` changes nothing; an explicit `false`
   contradicts the mode and fails with TL0003.
-- **Base URL.** The client's base URL is `http://<host>:<port><context-path>/<id>`: `<port>` is the embedded servlet
-  web server's actual local port, read once the server has started; `<host>` is `server.address` (an IPv6 address in
-  brackets), or `localhost` when it is unset or a wildcard address; `<context-path>` is `server.servlet.context-path`.
+- **Base URL.** The client's base URL is `http://<host>:<port><context-path><servlet-path>/<id>`: `<port>` is the
+  embedded servlet web server's actual local port, read once the server has started; `<host>` is `server.address` (an
+  IPv6 address in brackets), or `localhost` when it is unset or a wildcard address; `<context-path>` is
+  `server.servlet.context-path`; `<servlet-path>` is the path of Boot's resolved `DispatcherServletPath`
+  (`spring.mvc.servlet.path`), empty when it is `/` or Boot registers none (D-82).
   A call made before the server listens fails as a call to a remote that is not listening does: it raises
   `ModuleUnavailableException` with kind `connection failure`. A loopback module needs a servlet web server listening
   on a port: a non-web application, a context that is not a `WebServerApplicationContext` (a `@SpringBootTest` in the
@@ -167,7 +170,7 @@ unchanged, and INV-2's non-internal module is one that is neither `internal` nor
 - **Where.** Loopback is allowed in any host. It is chosen explicitly per module (INV-3), so no host gets it by
   accident, and Topolith logs no warning for it (D-76).
 
-Implements INV-2, INV-3, INV-4, INV-6, INV-8, P-3, D-74, D-75, D-76, D-77 and D-81.
+Implements INV-2, INV-3, INV-4, INV-6, INV-8, P-3, D-74, D-75, D-76, D-77, D-81, D-82 and D-83.
 
 - AC-MODE-40 (M5.3): A loopback module's configuration, packages, auto-configurations, entities and migrations are
   imported as for an internal module.
@@ -182,7 +185,8 @@ Implements INV-2, INV-3, INV-4, INV-6, INV-8, P-3, D-74, D-75, D-76, D-77 and D-
 - AC-MODE-42 (M5.3): A loopback module's routes are served under `/<id>` with `expose.enabled` unset or `true` and are
   matched by `ExposedRequestMatcher`; an explicit `expose.enabled=false` fails with TL0003.
 - AC-MODE-43 (M5.3): The loopback client calls the started server's local port under `server.address` (a wildcard
-  becomes `localhost`, an IPv6 address is bracketed) and the context path; a call before the server listens raises
+  becomes `localhost`, an IPv6 address is bracketed), the context path and the dispatcher servlet path
+  (`spring.mvc.servlet.path`); a call before the server listens raises
   `ModuleUnavailableException` with kind `connection failure`.
 - AC-MODE-44 (M5.3): A loopback module in a non-web application, in a `MOCK` web environment, with `server.port=-1` or
   with SSL on (by `server.ssl.enabled` or by `server.ssl.bundle` alone) fails with TL0026, and in a reactive application

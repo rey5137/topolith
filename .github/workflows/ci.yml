@@ -76,7 +76,7 @@ jobs:
           export MAVEN_GPG_PASSPHRASE=""
           version="$(sed -n 's:.*<revision>\(.*\)-SNAPSHOT</revision>.*:\1:p' pom.xml)"
           echo "RELEASE_VERSION=${version}" >> "$GITHUB_ENV"
-          ./mvnw -B -ntp -Prelease -DskipTests -Drevision="${version}" -DskipPublishing=true deploy
+          ./mvnw -B -ntp -Prelease -DskipTests -Drevision="${version}" -DskipUpload=true deploy
       - name: Verify release bundle
         run: python3 .github/scripts/check_release_bundle.py target/central-staging "${RELEASE_VERSION}"
 

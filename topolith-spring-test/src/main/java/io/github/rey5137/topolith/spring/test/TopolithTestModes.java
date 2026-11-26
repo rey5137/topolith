@@ -23,6 +23,7 @@ public final class TopolithTestModes {
     public static final class Builder {
         private final Map<String, String> values = new LinkedHashMap<>();
         private final Set<String> unset = new LinkedHashSet<>();
+        private final Set<String> byValue = new LinkedHashSet<>();
         private String id;
 
         private Builder() { }
@@ -37,6 +38,7 @@ public final class TopolithTestModes {
 
         private Builder mode(String value, String url) {
             unset.remove(id);
+            byValue.remove(id);
             values.keySet().removeIf(key -> key.startsWith(ModeProperties.key(id, "")));
             values.putAll(ModeProperties.of(id, value, url));
             return this;
@@ -44,6 +46,22 @@ public final class TopolithTestModes {
 
         /** Selects internal mode. */
         public Builder internal() { return mode("internal", null); }
+
+        /**
+         * Puts the by-value proxy (R-TEST-04) in front of the module's contracts; call it after {@code internal()}.
+         * It takes effect through {@link #applyTo(ApplicationContextRunner)}; a Spring test selects it with
+         * {@link TopolithByValue}.
+         *
+         * @throws IllegalStateException when no mode was selected for the module yet
+         */
+        public Builder byValue() {
+            if (id == null || unset.contains(id)) {
+                throw new IllegalStateException("byValue() needs a mode first; call internal() after module("
+                        + (id == null ? "..." : "\"" + id + "\"") + ") and then byValue()");
+            }
+            byValue.add(id);
+            return this;
+        }
 
         /** Selects none mode. */
         public Builder none() { return mode("none", null); }
@@ -68,17 +86,24 @@ public final class TopolithTestModes {
          */
         public ApplicationContextRunner applyTo(ApplicationContextRunner runner) {
             requireModes();
-            return runner.withPropertyValues(values.entrySet().stream()
+            ApplicationContextRunner configured = runner.withPropertyValues(values.entrySet().stream()
                     .map(e -> e.getKey() + "=" + e.getValue()).toArray(String[]::new));
+            Set<String> ids = Set.copyOf(byValue);
+            return ids.isEmpty() ? configured : configured.withInitializer(context -> ByValue.install(context, ids));
         }
 
         /**
          * Adds these properties to a dynamic registry.
          *
-         * @throws IllegalStateException when a module was named without a mode
+         * @throws IllegalStateException when a module was named without a mode, or {@code byValue()} was called: a
+         *     property registry cannot install the proxy, so use {@link TopolithByValue}
          */
         public void applyTo(DynamicPropertyRegistry registry) {
             requireModes();
+            if (!byValue.isEmpty()) {
+                throw new IllegalStateException("byValue() for module(s) " + byValue
+                        + " cannot be applied to a property registry; use @TopolithByValue on the test class");
+            }
             values.forEach((key, value) -> registry.add(key, () -> value));
         }
     }

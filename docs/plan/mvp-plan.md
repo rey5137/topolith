@@ -4,8 +4,9 @@ The working plan: how each milestone breaks into slices. `docs/spec/delivery/62-
 definitions and exit criteria once M0.1 writes it; until then, RFC 0001 §10 does. This file holds what to build, never
 progress: status is read from git (`mN-<name>` branches, slice commits, `mN-verified` tags).
 
-Milestones M0–M4 make up release **0.1.0** (RFC 0001 §10, "0.1 (MVP)"). Later releases are planned as milestones only
-when 0.1.0 ships.
+Milestones M0–M8 make up release **0.1.0**: M0–M4 cover RFC 0001 §10's "0.1 (MVP)"; M5–M7 add its "0.2: Parity and
+loopback" row and the resilience deferred by D-16; M8 hardens and releases. Later releases are planned as milestones
+only when 0.1.0 ships.
 
 ---
 
@@ -106,3 +107,56 @@ configuration and mock-server wiring for external dependencies.
 M4.1 supplies user and payment `*-api`, `*-module` and `*-service` artifacts, plus monolith, hybrid and `none` hosts.
 M4.2 exercises hybrid fixed-URL and Consul discovery with Testcontainers. M4.4 supplies the `0.1.0` changelog.
 M4.5 publishes the user guide as a MkDocs site on GitHub Pages.
+
+## 6. M5 — Parity and loopback
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M5.1 | Spec for loopback mode, by-value proxy, fault injection and the mode matrix; 0.1.0 scope amended | M5 rules and ACs written; `R-ROAD-01` and exclusions amended |
+| M5.2 | By-value (JSON round-trip) test proxy in `topolith-spring-test` | M5.2-owned ACs |
+| M5.3 | `loopback` mode: in-process module, calls through real HTTP serialization and error mapping | M5.3-owned ACs, including INV-2 |
+| M5.4 | Latency and fault injection for loopback | M5.4-owned ACs |
+| M5.5 | Mode-matrix parity test over internal, loopback and external (AC-TEST-05, AC-TEST-06) | Sample Payment tests pass in every mode |
+
+**Model:** `opus` / `high` for M5.1, M5.3 and M5.5 (mode semantics, activation, INV-6 parity).
+
+**Exit:** a deliberately mutable DTO or `Page` return fails the tests.
+
+The RFC's "mutation proxy" (§6) is the by-value proxy of M5.2.
+
+## 7. M6 — Call context and observability
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M6.1 | Spec for the outgoing-auth SPI, context propagation and Observation conventions | M6 rules and ACs written |
+| M6.2 | One `topolith.module.call` Observation in both modes, tags `module.id`, `module.mode`, `caller.module` | M6.2-owned ACs |
+| M6.3 | MDC and tenant context propagation across external calls | M6.3-owned ACs |
+| M6.4 | Outgoing-auth hook per group, default token relay; the local path carries the same `Authentication` | M6.4-owned ACs |
+
+**Model:** `opus` / `high` for M6.1 and M6.4 (public SPI, parity).
+
+**Exit:** the same span name and tags in internal and external mode, and a token relayed end to end.
+
+## 8. M7 — Resilience
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M7.1 | Spec for per-group retry and circuit breaker and the idempotency declaration; reverses D-16, answers Q-23 | M7 rules and ACs written |
+| M7.2 | Idempotency declaration in the annotation, processor and descriptor | M7.2-owned ACs |
+| M7.3 | Per-group retry and circuit breaker through Spring Cloud; only idempotent calls retried (D-51 holds) | M7.3-owned ACs |
+| M7.4 | Refresh behaviour, sample and docs | M7.4-owned ACs |
+
+**Model:** `opus` / `high` for M7.1 and M7.2 (descriptor format, public annotation).
+
+**Exit:** a non-idempotent call is never retried, and declared exception types survive a breaker.
+
+## 9. M8 — Hardening and 0.1.0
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M8.1 | Owner answers to Q-11, Q-13, Q-16–Q-19, Q-21, Q-22, Q-24 written into the spec; code for those that need it | No open Q left unanswered or explicitly deferred |
+| M8.2 | Untested paths: fat-JAR nested resources, `java -jar`, DevTools, exploded war, Gradle layout, AOT, load-time weaving | Each has a test or a documented deferral |
+| M8.3 | CI runs the getting-started commands; RFC/spec migration-path conflict resolved; Dependabot PRs handled | CI green |
+| M8.4 | Docs-site pages for M5–M7, CHANGELOG, `v0.1.0` tag | 0.1.0 published |
+
+**Exit:** 0.1.0 published.

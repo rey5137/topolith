@@ -38,6 +38,10 @@ class HostBuildAc09Test {
         // The revision is a literal here, so it must not drift from the reactor's.
         assertEquals(XPATH.evaluate("/project/properties/revision", parse(ROOT_POM)),
                 XPATH.evaluate("/project/properties/revision", hosts), "revision of " + HOSTS_POM);
+        // So is the Boot plugin version: it must follow the reactor's Spring Boot.
+        assertEquals(XPATH.evaluate("/project/properties/spring-boot.version", parse(ROOT_POM)),
+                XPATH.evaluate("//plugin[artifactId='spring-boot-maven-plugin']/version", hosts),
+                "spring-boot-maven-plugin version in " + HOSTS_POM);
 
         for (String host : List.of("monolith", "hybrid", "payment-host")) {
             Path pom = BASEDIR.resolve("../" + host + "/pom.xml").normalize();

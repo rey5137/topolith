@@ -74,7 +74,9 @@ jobs:
           gpg --batch --passphrase '' --quick-gen-key "Topolith CI <ci@example.com>" rsa3072 sign 1d
           export MAVEN_GPG_KEY="$(gpg --armor --export-secret-keys)"
           export MAVEN_GPG_PASSPHRASE=""
-          ./mvnw -B -ntp -Prelease -DskipTests -Drevision=0.1.0 -DskipPublishing=true deploy
+          version="$(sed -n 's:.*<revision>\(.*\)-SNAPSHOT</revision>.*:\1:p' pom.xml)"
+          echo "RELEASE_VERSION=${version}" >> "$GITHUB_ENV"
+          ./mvnw -B -ntp -Prelease -DskipTests -Drevision="${version}" -DskipPublishing=true deploy
       - name: Verify release bundle
-        run: python3 .github/scripts/check_release_bundle.py target/central-staging
+        run: python3 .github/scripts/check_release_bundle.py target/central-staging "${RELEASE_VERSION}"
 

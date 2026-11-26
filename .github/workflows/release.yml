@@ -67,7 +67,7 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             version="${GITHUB_REF_NAME#v}"
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.dry_run }}" == "true" ]]; then
-            version="0.1.0"
+            version="$(sed -n 's:.*<revision>\(.*\)-SNAPSHOT</revision>.*:\1:p' pom.xml)"
           else
             echo "Non-dry release requires a refs/tags/v* ref" >&2
             exit 1
@@ -76,4 +76,7 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.dry_run }}" == "true" ]]; then
             extra_args+=("-DskipPublishing=true")
           fi
+          echo "RELEASE_VERSION=${version}" >> "$GITHUB_ENV"
           ./mvnw -B -ntp -Prelease -Drevision="${version}" "${extra_args[@]}" deploy
+      - name: Verify release bundle
+        run: python3 .github/scripts/check_release_bundle.py target/central-staging "${RELEASE_VERSION}"

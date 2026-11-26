@@ -111,6 +111,10 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn('release-dry-run:', ci_text)
         self.assertIn('-Prelease', ci_text)
         self.assertIn('check_release_bundle.py', ci_text)
+        self.assertNotIn('-Drevision=0.1.0', ci_text)
+        release_text = (CI_YML.parent / 'release.yml').read_text()
+        self.assertIn('check_release_bundle.py target/central-staging "${RELEASE_VERSION}"', release_text)
+        self.assertNotIn('version="0.1.0"', release_text)
 
     def test_ac_build_13_check_release_bundle_validates_coordinates_signatures_license_and_samples(self):
         checker = load_check_module()
@@ -119,6 +123,11 @@ class ReleaseTest(unittest.TestCase):
             populate_valid_bundle(tmp)
             checker.check_bundle(tmp)
             self.assertEqual(0, checker.main([tmp]))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            populate_valid_bundle(tmp, version='0.2.0')
+            self.assertEqual(0, checker.main([tmp, '0.2.0']))
+            self.assertEqual(1, checker.main([tmp]))
 
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(ValueError, r'group directory io\.github\.rey5137 not found'):

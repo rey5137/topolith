@@ -13,6 +13,7 @@
     <name>Topolith Samples</name>
     <description>Topolith sample applications</description>
     <properties>
+        <topolith.version>${project.version}</topolith.version>
         <maven.deploy.skip>true</maven.deploy.skip>
     </properties>
     <modules>

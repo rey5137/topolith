@@ -5,6 +5,7 @@ spring:
     consul:
       # The fixed URL is the default; the Consul test enables discovery (D-69).
       enabled: false
+# snippet:start hybrid-modes
 topolith:
   modules:
     user:
@@ -18,3 +19,4 @@ topolith:
         url: http://localhost:8081
         connect-timeout: 2s
         read-timeout: 5s
+# snippet:end hybrid-modes

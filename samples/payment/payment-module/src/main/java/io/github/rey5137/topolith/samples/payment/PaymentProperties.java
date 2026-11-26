@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+// snippet:start payment-properties
 /** The payment module's own defaults; a module JAR carries no root {@code application.yml}. */
 @ConfigurationProperties(prefix = "payment")
 public class PaymentProperties {
@@ -17,3 +18,4 @@ public class PaymentProperties {
         this.maxAmount = maxAmount;
     }
 }
+// snippet:end payment-properties

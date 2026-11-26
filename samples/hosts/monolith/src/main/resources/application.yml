@@ -1,6 +1,7 @@
 spring:
   datasource:
     url: jdbc:h2:mem:monolith;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+# snippet:start monolith-modes
 topolith:
   modules:
     user:
@@ -9,3 +10,4 @@ topolith:
         enabled: true
     payment:
       mode: internal
+# snippet:end monolith-modes

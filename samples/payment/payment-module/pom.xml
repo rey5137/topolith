@@ -38,6 +38,7 @@
     </dependencies>
     <build>
         <plugins>
+            <!-- snippet:start processor-config -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -46,12 +47,12 @@
                         <path>
                             <groupId>io.github.rey5137</groupId>
                             <artifactId>topolith-processor</artifactId>
-                            <version>${project.version}</version>
+                            <version>${topolith.version}</version>
                         </path>
                         <path>
                             <groupId>io.github.rey5137</groupId>
                             <artifactId>topolith-core</artifactId>
-                            <version>${project.version}</version>
+                            <version>${topolith.version}</version>
                         </path>
                     </annotationProcessorPaths>
                     <compilerArgs>
@@ -59,6 +60,7 @@
                     </compilerArgs>
                 </configuration>
             </plugin>
+            <!-- snippet:end processor-config -->
         </plugins>
     </build>
 </project>

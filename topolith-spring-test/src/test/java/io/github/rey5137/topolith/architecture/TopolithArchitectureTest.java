@@ -163,6 +163,38 @@ class TopolithArchitectureTest {
     @Test
     void rules_are_exposed_one_per_check() {
         assertEquals(6, TopolithArchitecture.rules(declared(), List.of()).size());
+        for (TopolithArchitecture.Rule rule : TopolithArchitecture.Rule.values()) {
+            assertEquals(rule.description(), TopolithArchitecture.rule(rule, declared(), List.of())
+                    .getDescription());
+        }
+    }
+
+    /** The descriptions are ArchUnit freeze-store keys (D-64): a rename must fail this test. */
+    @Test
+    void ac_arch_07_rule_descriptions_are_the_documented_store_keys() {
+        assertEquals(List.of("topolith: non-API access", "topolith: undeclared dependency",
+                        "topolith: requires cycle", "topolith: descriptor consistency",
+                        "topolith: Topolith dependency", "topolith: contract types"),
+                java.util.Arrays.stream(TopolithArchitecture.Rule.values())
+                        .map(TopolithArchitecture.Rule::description).toList());
+        assertEquals(List.of(TopolithArchitecture.Rule.values().length),
+                List.of(TopolithArchitecture.rules(declared(), List.of()).size()));
+    }
+
+    private static ModuleDescriptor nested() {
+        return ModuleDescriptor.builder("inner").packageName(F + "shop.inner")
+                .apiPackages(List.of(F + "shop.inner.api")).apiVersion("1.0.0").build();
+    }
+
+    @Test
+    void ac_arch_04_nested_module_packages_fail_the_consistency_rule_with_tl0017() {
+        AssertionError error = fails(List.of(shop(List.of(), List.of()), nested()), List.of(), classes(ShopService.class));
+        assertTrue(error.getMessage().contains(TopolithArchitecture.Rule.DESCRIPTOR_CONSISTENCY.description())
+                && error.getMessage().contains("TL0017"), error.getMessage());
+        AssertionError apiUnder = fails(List.of(shop(List.of(), List.of()), ModuleDescriptor.builder("other")
+                .packageName(F + "other").apiPackages(List.of(F + "shop.hidden")).apiVersion("1.0.0").build()),
+                List.of(), classes(ShopService.class));
+        assertTrue(apiUnder.getMessage().contains("TL0017"), apiUnder.getMessage());
     }
 
     private static final Map<String, String> BILLING_SOURCES = Map.of(
@@ -219,27 +251,27 @@ class TopolithArchitectureTest {
     /** Every rule has a deliberately failing fixture (AC-CI-02): a rule with no entry here fails this test. */
     @Test
     void ac_ci_02_every_architecture_rule_has_a_failing_fixture() {
-        Map<String, Supplier<AssertionError>> failing = new LinkedHashMap<>();
-        failing.put("AC-ARCH-01", () -> fails(declared(), List.of(), classes(ShopHack.class)));
-        failing.put("AC-ARCH-02", () -> fails(List.of(shop(List.of(), List.of()),
+        Map<TopolithArchitecture.Rule, Supplier<AssertionError>> failing = new java.util.EnumMap<>(
+                TopolithArchitecture.Rule.class);
+        failing.put(TopolithArchitecture.Rule.NON_API_ACCESS, () -> fails(declared(), List.of(), classes(ShopHack.class)));
+        failing.put(TopolithArchitecture.Rule.UNDECLARED_DEPENDENCY, () -> fails(List.of(shop(List.of(), List.of()),
                 billing(List.of(F + "billing.api"), List.of())), List.of(), classes(ShopService.class)));
-        failing.put("AC-ARCH-03", () -> fails(List.of(shop(List.of("billing"), List.of()),
+        failing.put(TopolithArchitecture.Rule.REQUIRES_CYCLE, () -> fails(List.of(shop(List.of("billing"), List.of()),
                 billing(List.of(F + "billing.api"), List.of("shop"))), List.of(), classes(ShopService.class)));
-        failing.put("descriptors are consistent", () -> fails(List.of(declared().get(0), declared().get(0)),
+        failing.put(TopolithArchitecture.Rule.DESCRIPTOR_CONSISTENCY, () -> fails(List.of(declared().get(0), declared().get(0)),
                 List.of(), classes(ShopService.class)));
-        failing.put("AC-ARCH-05", () -> fails(List.of(ModuleDescriptor.builder("catalog").packageName(F + "shop")
+        failing.put(TopolithArchitecture.Rule.CONTRACT_TYPES, () -> fails(List.of(ModuleDescriptor.builder("catalog").packageName(F + "shop")
                 .apiPackages(List.of(F + "contracts")).apiVersion("1.0.0").build()), List.of(),
                 classes(PageReturn.class)));
-        failing.put("AC-ARCH-19", () -> fails(declared(), List.of(), classes(ShopTopologyAccess.class)));
-        List<ArchRule> rules = TopolithArchitecture.rules(declared(), List.of());
-        for (ArchRule rule : rules) {
-            List<String> keys = failing.keySet().stream().filter(rule.getDescription()::contains).toList();
-            assertEquals(1, keys.size(), "no single failing fixture for rule: " + rule.getDescription());
-            String message = failing.get(keys.get(0)).get().getMessage();
-            assertTrue(message.contains(rule.getDescription()), "fixture for '" + keys.get(0)
+        failing.put(TopolithArchitecture.Rule.TOPOLITH_DEPENDENCY, () -> fails(declared(), List.of(), classes(ShopTopologyAccess.class)));
+        for (TopolithArchitecture.Rule rule : TopolithArchitecture.Rule.values()) {
+            Supplier<AssertionError> fixture = failing.get(rule);
+            assertTrue(fixture != null, "no failing fixture for rule: " + rule);
+            String message = fixture.get().getMessage();
+            assertTrue(message.contains(rule.description()), "fixture for '" + rule
                     + "' failed under another rule: " + message);
         }
-        assertEquals(rules.size(), failing.size());
+        assertEquals(TopolithArchitecture.Rule.values().length, failing.size());
     }
 
     private static void compile(Path root, Map<String, String> sources, Path... classpath) throws IOException {

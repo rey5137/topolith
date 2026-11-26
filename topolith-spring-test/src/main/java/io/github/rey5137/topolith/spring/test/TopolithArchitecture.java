@@ -32,6 +32,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -45,9 +46,11 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 /**
  * Architecture rules derived from the module and API descriptors (R-ARCH-01, R-ARCH-02, D-56). They fail by default
  * (D-4): a module reaches another only through its API packages and only if it declares the other in {@code requires}
- * or {@code optional}; {@code requires} edges form no cycle; contract methods expose no {@code Page}, {@code Slice},
- * {@code Stream}, entity, {@code InputStream} or lazy proxy. Types of {@code io.github.rey5137.topolith.contract} and
- * {@code .annotation} belong to no module (D-54), and classes outside every module are never checked as targets.
+ * or {@code optional}; {@code requires} edges form no cycle; the descriptors are consistent (unique ids, no contested
+ * or nested packages); module code uses only the Topolith annotation and contract packages; contract methods expose
+ * no {@code Page}, {@code Slice}, {@code Stream}, entity, {@code InputStream} or lazy proxy. Types of
+ * {@code io.github.rey5137.topolith.contract} and {@code .annotation} belong to no module (D-54), and classes outside
+ * every module are never checked as targets. The rules are the {@link Rule} constants (D-64).
  */
 @Incubating
 public final class TopolithArchitecture {
@@ -64,6 +67,37 @@ public final class TopolithArchitecture {
     private static final String ENTITY = "jakarta.persistence.Entity";
 
     private TopolithArchitecture() {
+    }
+
+    /**
+     * The architecture rules. {@link #description()} is the rule's fixed key (D-64): ArchUnit's freeze store is keyed
+     * by it, so renaming one is a breaking change listed in the release notes.
+     */
+    @Incubating
+    public enum Rule {
+        /** A module reaches another only through its API packages (AC-ARCH-01). */
+        NON_API_ACCESS("topolith: non-API access"),
+        /** A module uses the API of another only if it declares it (AC-ARCH-02). */
+        UNDECLARED_DEPENDENCY("topolith: undeclared dependency"),
+        /** {@code requires} edges form no cycle (AC-ARCH-03). */
+        REQUIRES_CYCLE("topolith: requires cycle"),
+        /** Unique ids, no contested api package, no nested module packages (AC-ARCH-04, TL0017). */
+        DESCRIPTOR_CONSISTENCY("topolith: descriptor consistency"),
+        /** Module code uses only the Topolith annotation and contract packages (AC-ARCH-19). */
+        TOPOLITH_DEPENDENCY("topolith: Topolith dependency"),
+        /** Contract methods expose only value types (AC-ARCH-05). */
+        CONTRACT_TYPES("topolith: contract types");
+
+        private final String description;
+
+        Rule(String description) {
+            this.description = description;
+        }
+
+        /** The rule's fixed description, which is its freeze-store key. */
+        public String description() {
+            return description;
+        }
     }
 
     /** Verifies the descriptors on the thread's context class loader against the classes of their packages. */
@@ -102,14 +136,14 @@ public final class TopolithArchitecture {
     public static void verifyFrozen(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis,
             JavaClasses classes) {
         ArchConfiguration config = ArchConfiguration.get();
-        boolean optedIn = Boolean.parseBoolean(config.getPropertyOrDefault(STORE + "allowStoreCreation", "false"))
+        boolean allowCreation = Boolean.parseBoolean(config.getPropertyOrDefault(STORE + "allowStoreCreation",
+                "false"));
+        boolean optedIn = allowCreation
                 || Boolean.parseBoolean(config.getPropertyOrDefault("freeze.refreeze", "false"));
         boolean custom = config.containsProperty("freeze.store");
         Path stored = Path.of(config.getPropertyOrDefault(STORE + "path", "archunit_store"))
                 .resolve("stored.rules");
         boolean exists = Files.exists(stored);
-        boolean allowCreation = Boolean.parseBoolean(config.getPropertyOrDefault(STORE + "allowStoreCreation",
-                "false"));
         if (!custom && !exists && !allowCreation) {
             verify(modules, apis, classes);
             return;
@@ -118,7 +152,8 @@ public final class TopolithArchitecture {
             TextFileBasedViolationStore store = new TextFileBasedViolationStore();
             store.initialize(config.getSubProperties("freeze.store"));
             for (ArchRule rule : rules(modules, apis)) {
-                if (!store.contains(rule)) {
+                if (!rule.getDescription().equals(Rule.DESCRIPTOR_CONSISTENCY.description())
+                        && !store.contains(rule)) {
                     throw new AssertionError("The violation store " + stored + " has no entry for the rule '"
                             + rule.getDescription() + "'. Set " + STORE + "allowStoreCreation=true for one run to "
                             + "record its current violations as the baseline.");
@@ -154,13 +189,8 @@ public final class TopolithArchitecture {
         }
     }
 
-    /** Imports the classes of every module and api package of the descriptors from the class path. */
-    public static JavaClasses importPackages(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis) {
-        return importPackages(modules, apis, contextLoader());
-    }
-
-    /** Like {@link #importPackages(Collection, Collection)}, finding the classes through {@code loader}. */
-    public static JavaClasses importPackages(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis,
+    /** Imports the classes of every module and api package of the descriptors through {@code loader}. */
+    static JavaClasses importPackages(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis,
             ClassLoader loader) {
         Set<String> packages = new Ownership(modules, apis).allPackages();
         Thread thread = Thread.currentThread();
@@ -174,43 +204,39 @@ public final class TopolithArchitecture {
         }
     }
 
-    /**
-     * The rules, in order: non-API access, undeclared dependency, {@code requires} cycles, descriptor consistency,
-     * contract types. {@link #frozenRules} wraps each one in its own frozen baseline.
-     */
+    /** The rules in {@link Rule} order. {@link #frozenRules} wraps each one in its own frozen baseline. */
     public static List<ArchRule> rules(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis) {
+        return Arrays.stream(Rule.values()).map(rule -> rule(rule, modules, apis)).toList();
+    }
+
+    /** One rule, found by its {@link Rule} rather than by position (D-64). */
+    public static ArchRule rule(Rule rule, Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis) {
         Ownership ownership = new Ownership(modules, apis);
-        return List.of(
-                classes().should(nonApiAccess(ownership))
-                        .as("a module reaches another module only through its API packages (AC-ARCH-01)")
-                        .allowEmptyShould(true),
-                classes().should(declaredDependency(ownership))
-                        .as("a module uses the API of another only if it declares it in requires or optional "
-                                + "(AC-ARCH-02)")
-                        .allowEmptyShould(true),
-                classes().should(acyclic(modules))
-                        .as("modules form no requires cycle (AC-ARCH-03)").allowEmptyShould(true),
-                classes().should(consistent(modules, ownership))
-                        .as("descriptors are consistent: unique module ids and api packages").allowEmptyShould(true),
-                classes().should(topolithDependencies(ownership))
-                        .as("module code uses only Topolith annotation and contract packages (AC-ARCH-19)")
-                        .allowEmptyShould(true),
-                classes().should(contractTypes(ownership, apis))
-                        .as("contract methods expose only value types (AC-ARCH-05)").allowEmptyShould(true));
+        ArchCondition<JavaClass> condition = switch (rule) {
+            case NON_API_ACCESS -> nonApiAccess(ownership);
+            case UNDECLARED_DEPENDENCY -> declaredDependency(ownership);
+            case REQUIRES_CYCLE -> acyclic(modules);
+            case DESCRIPTOR_CONSISTENCY -> consistent(modules, apis, ownership);
+            case TOPOLITH_DEPENDENCY -> topolithDependencies(ownership);
+            case CONTRACT_TYPES -> contractTypes(ownership, apis);
+        };
+        return classes().should(condition).as(rule.description()).allowEmptyShould(true);
     }
 
     /**
      * The {@link #rules} each wrapped in ArchUnit's {@code FreezingArchRule} with its own store entry, keyed by the
-     * rule text. The store is ArchUnit's: {@code freeze.store.default.path} in {@code archunit.properties}. A new
-     * violation of a stored rule fails and is not recorded, and a violation that is gone is dropped
-     * ({@code allowStoreUpdate} defaults to true). Recording a first baseline is the explicit opt-in
-     * {@code freeze.store.default.allowStoreCreation=true} for one run; {@code freeze.refreeze=true} only re-records
-     * an existing store. Prefer {@link #verifyFrozen(Collection, Collection, JavaClasses)}, which also handles a
-     * missing store and a store lacking these rules. The descriptor rules (cycles, consistency) report from
-     * {@code finish} and freeze like the others, by message text.
+     * rule's {@link Rule#description()}. The store is ArchUnit's: {@code freeze.store.default.path} in
+     * {@code archunit.properties}. A new violation of a stored rule fails and is not recorded, and a violation that
+     * is gone is dropped ({@code allowStoreUpdate} defaults to true). Recording a first baseline is the explicit
+     * opt-in {@code freeze.store.default.allowStoreCreation=true} for one run; {@code freeze.refreeze=true} only
+     * re-records an existing store. {@link Rule#DESCRIPTOR_CONSISTENCY} is never frozen (D-64): startup refuses such
+     * topologies, so they are never legacy debt. Prefer {@link #verifyFrozen(Collection, Collection, JavaClasses)},
+     * which also handles a missing store and a store lacking these rules. The cycle rule reports from {@code finish}
+     * and freezes like the others, by message text.
      */
     public static List<ArchRule> frozenRules(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis) {
-        return rules(modules, apis).stream().map(rule -> (ArchRule) FreezingArchRule.freeze(rule)).toList();
+        return rules(modules, apis).stream().map(rule -> rule.getDescription()
+                .equals(Rule.DESCRIPTOR_CONSISTENCY.description()) ? rule : FreezingArchRule.freeze(rule)).toList();
     }
 
     private static ArchCondition<JavaClass> topolithDependencies(Ownership ownership) {
@@ -300,8 +326,9 @@ public final class TopolithArchitecture {
         });
     }
 
-    private static ArchCondition<JavaClass> consistent(Collection<ModuleDescriptor> modules, Ownership ownership) {
-        return onceOverDescriptors("have unique module ids and api packages", () -> {
+    private static ArchCondition<JavaClass> consistent(Collection<ModuleDescriptor> modules,
+            Collection<ApiDescriptor> apis, Ownership ownership) {
+        return onceOverDescriptors("have unique module ids and api packages and no nested module packages", () -> {
             List<String> problems = new ArrayList<>();
             try {
                 ModuleGraph.of(modules);
@@ -309,6 +336,8 @@ public final class TopolithArchitecture {
                 e.diagnostics().stream().filter(diagnostic -> diagnostic.code() == TopolithCode.TL0006)
                         .forEach(diagnostic -> problems.add(diagnostic.code() + ": " + diagnostic.description()));
             }
+            Descriptors.nesting(modules, apis).forEach(diagnostic -> problems.add(diagnostic.code() + ": "
+                    + diagnostic.description()));
             ownership.contestedApiPackages().forEach((name, ids) -> problems.add("api package '" + name
                     + "' is listed by more than one descriptor (" + String.join(", ", ids)
                     + "), so its owner is ambiguous"));

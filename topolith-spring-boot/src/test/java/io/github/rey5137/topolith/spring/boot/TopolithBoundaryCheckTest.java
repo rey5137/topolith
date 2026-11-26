@@ -57,8 +57,15 @@ class TopolithBoundaryCheckTest {
     }
 
     private void run(Path fixture, TopolithCode expected, String... messages) throws Exception {
-        try (var loader = new URLClassLoader(new java.net.URL[] {fixture.toUri().toURL()},
-                getClass().getClassLoader())) {
+        run(new Path[] {fixture}, expected, messages);
+    }
+
+    private void run(Path[] fixtures, TopolithCode expected, String... messages) throws Exception {
+        var urls = new java.net.URL[fixtures.length];
+        for (int i = 0; i < fixtures.length; i++) {
+            urls[i] = fixtures[i].toUri().toURL();
+        }
+        try (var loader = new URLClassLoader(urls, getClass().getClassLoader())) {
             new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(Host.class)
                     .withPropertyValues("topolith.modules.alpha.mode=internal", "topolith.modules.beta.mode=none",
                             "spring.liquibase.enabled=false")
@@ -153,5 +160,111 @@ class TopolithBoundaryCheckTest {
     @Test
     void ac_arch_16_malformed_baseline_names_resource_and_line() throws Exception {
         run(fixture("fixture.beta.Hidden", "not a pair\n", true), TopolithCode.TL0030, "alpha.txt", "not a pair");
+    }
+
+    /** A second class-path root without a descriptor, holding {@code fixture.alpha.CallerTest}. */
+    private Path extraRoot(Path classes, String baseline) throws Exception {
+        Path extra = Files.createDirectories(root.resolve("extra"));
+        Path source = root.resolve("src-extra/fixture/alpha/CallerTest.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, "package fixture.alpha; public class CallerTest { public fixture.beta.Hidden f; }");
+        assertEquals(0, ToolProvider.getSystemJavaCompiler().run(null, null, null, "-cp", classes.toString(), "-d",
+                extra.toString(), source.toString()));
+        if (baseline != null) {
+            Fixtures.resource(extra, "META-INF/topolith/baseline/alpha.txt", baseline);
+        }
+        return extra;
+    }
+
+    @Test
+    void ac_arch_11_a_violating_class_in_a_root_without_the_descriptor_is_not_scanned() throws Exception {
+        Path classes = fixture("fixture.beta.api.Contract", null, false);
+        run(new Path[] {classes, extraRoot(classes, null)}, null);
+    }
+
+    @Test
+    void ac_arch_11_the_same_class_in_the_descriptor_root_fails() throws Exception {
+        Path classes = fixture("fixture.beta.api.Contract", null, false);
+        Path extra = extraRoot(classes, null);
+        Files.createDirectories(classes.resolve("fixture/alpha"));
+        Files.move(extra.resolve("fixture/alpha/CallerTest.class"), classes.resolve("fixture/alpha/CallerTest.class"));
+        run(new Path[] {classes, extra}, TopolithCode.TL0012, "fixture.alpha.CallerTest", "fixture.beta.Hidden");
+    }
+
+    private static final String PAIR = "fixture.alpha.Caller -> fixture.beta.Hidden\n";
+
+    @Test
+    void ac_arch_15_a_baseline_in_a_directory_root_without_a_descriptor_waives_the_pair() throws Exception {
+        Path classes = fixture("fixture.beta.Hidden", null, false);
+        Path resources = Files.createDirectories(root.resolve("resources"));
+        Fixtures.resource(resources, "META-INF/topolith/baseline/alpha.txt", PAIR);
+        run(new Path[] {classes, resources}, null);
+    }
+
+    @Test
+    void ac_arch_15_a_baseline_in_a_jar_without_a_descriptor_fails_tl0030() throws Exception {
+        Path classes = fixture("fixture.beta.Hidden", null, false);
+        Path archive = root.resolve("resources.jar");
+        try (var out = new JarOutputStream(Files.newOutputStream(archive))) {
+            out.putNextEntry(new JarEntry("META-INF/topolith/baseline/alpha.txt"));
+            out.write(PAIR.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            out.closeEntry();
+        }
+        run(new Path[] {classes, archive}, TopolithCode.TL0030, "alpha.txt", "resources.jar");
+    }
+
+    @Test
+    void ac_arch_15_baselines_in_the_descriptor_root_and_a_resource_directory_fail_tl0030_naming_both()
+            throws Exception {
+        Path classes = fixture("fixture.beta.Hidden", PAIR, false);
+        Path resources = Files.createDirectories(root.resolve("resources"));
+        Fixtures.resource(resources, "META-INF/topolith/baseline/alpha.txt", PAIR);
+        run(new Path[] {classes, resources}, TopolithCode.TL0030, "exists twice", classes.toUri().toURL().toString(),
+                resources.toUri().toURL().toString());
+    }
+
+    @Test
+    void ac_arch_15_a_baseline_in_another_modules_descriptor_root_fails_tl0030() throws Exception {
+        Path classes = fixture("fixture.beta.Hidden", null, false);
+        Path other = Files.createDirectories(root.resolve("other"));
+        Files.delete(classes.resolve("META-INF/topolith/modules/beta.properties"));
+        Fixtures.module(other, "beta", "fixture.beta", List.of("fixture.beta.api"));
+        Fixtures.resource(other, "META-INF/topolith/baseline/alpha.txt", PAIR);
+        run(new Path[] {classes, other}, TopolithCode.TL0030, "alpha.txt", "descriptor root");
+    }
+
+    @Test
+    void ac_arch_16_the_fix_it_names_the_baseline_tooling() throws Exception {
+        try (var loader = new URLClassLoader(new java.net.URL[] {fixture("fixture.beta.Hidden", "bad\n", false)
+                .toUri().toURL()}, getClass().getClassLoader())) {
+            new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(Host.class)
+                    .withPropertyValues("topolith.modules.alpha.mode=internal", "topolith.modules.beta.mode=none",
+                            "spring.liquibase.enabled=false")
+                    .run(context -> {
+                        Throwable error = context.getStartupFailure();
+                        while (!(error instanceof TopolithException)) {
+                            error = error.getCause();
+                        }
+                        assertTrue(error.toString().contains("TopolithBaseline"), error.toString());
+                    });
+        }
+    }
+
+    @Test
+    void ac_arch_11_root_prefix_matches_nested_jar_urls() {
+        String descriptor = "jar:nested:/app.jar/!BOOT-INF/classes/!/META-INF/topolith/modules/a.properties";
+        String root = DescriptorDiscovery.root(descriptor, DescriptorDiscovery.MODULES);
+        assertEquals("jar:nested:/app.jar/!BOOT-INF/classes/!/", root);
+        var roots = java.util.Set.of(root);
+        assertTrue(TopolithBoundaryCheck.inRoot("jar:nested:/app.jar/!BOOT-INF/classes/!/fixture/a/X.class", roots));
+        assertFalse(TopolithBoundaryCheck.inRoot("jar:nested:/app.jar/!BOOT-INF/lib/other.jar!/fixture/a/Y.class",
+                roots));
+    }
+
+    @Test
+    void ac_arch_11_descriptor_roots_of_an_unknown_module_are_empty() throws Exception {
+        try (var loader = new URLClassLoader(new java.net.URL[0], getClass().getClassLoader())) {
+            assertTrue(TopolithBoundaryCheck.descriptorRoots(loader, "missing").isEmpty());
+        }
     }
 }

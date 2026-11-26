@@ -73,6 +73,14 @@ public final class Descriptors {
     }
 
     /**
+     * The TL0017 diagnostics of the descriptors: module packages that are equal or nest, and another module's api
+     * package inside a module's package. Startup and the architecture rules share this check (D-64).
+     */
+    public static List<Diagnostic> nesting(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis) {
+        return Identity.nesting(modules, apis);
+    }
+
+    /**
      * Indexes API descriptors by id, ordered by id. Two descriptors with one id fail with TL0006; a module and an API
      * descriptor sharing an id is normal.
      */

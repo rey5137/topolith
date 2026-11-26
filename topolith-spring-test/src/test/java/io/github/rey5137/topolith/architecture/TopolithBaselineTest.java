@@ -104,6 +104,21 @@ class TopolithBaselineTest {
     }
 
     @Test
+    void ac_arch_07_a_stored_tl0017_violation_does_not_freeze_the_consistency_rule() {
+        List<ModuleDescriptor> nested = List.of(declared().get(0), ModuleDescriptor.builder("inner")
+                .packageName(F + "shop.inner").apiPackages(List.of(F + "shop.inner.api")).apiVersion("1.0.0").build());
+        freeze(declared(), BillingImpl.class);
+        var diagnostics = io.github.rey5137.topolith.core.Descriptors.nesting(nested, List.of());
+        assertFalse(diagnostics.isEmpty());
+        var rule = TopolithArchitecture.rule(TopolithArchitecture.Rule.DESCRIPTOR_CONSISTENCY, nested, List.of());
+        var violations = new com.tngtech.archunit.library.freeze.TextFileBasedViolationStore();
+        violations.initialize(ArchConfiguration.get().getSubProperties("freeze.store"));
+        violations.save(rule, diagnostics.stream().map(d -> d.code() + ": " + d.description()).toList());
+        AssertionError error = assertThrows(AssertionError.class, () -> verifyFrozen(nested, BillingImpl.class));
+        assertTrue(error.getMessage().contains("TL0017"), error.getMessage());
+    }
+
+    @Test
     void ac_arch_07_a_violation_that_moved_lines_stays_frozen() throws IOException {
         freeze(declared(), ShopHack.class, BillingImpl.class);
         try (Stream<Path> files = Files.walk(store)) {
@@ -138,7 +153,7 @@ class TopolithBaselineTest {
         String before = storeText();
         AssertionError error = assertThrows(AssertionError.class,
                 () -> verifyFrozen(declared(), ShopHack.class, BillingImpl.class));
-        assertTrue(error.getMessage().contains("AC-ARCH-01") && error.getMessage().contains("allowStoreCreation"),
+        assertTrue(error.getMessage().contains(TopolithArchitecture.Rule.NON_API_ACCESS.description()) && error.getMessage().contains("allowStoreCreation"),
                 error.getMessage());
         assertEquals(before, storeText());
         allowCreation(true);
@@ -176,9 +191,17 @@ class TopolithBaselineTest {
         assertEquals(before, storeText());
     }
 
+    private static void descriptors(Path out, String... ids) throws IOException {
+        Path directory = Files.createDirectories(out.resolve("META-INF/topolith/modules"));
+        for (String id : ids) {
+            Files.writeString(directory.resolve(id + ".properties"), "id=" + id + "\n");
+        }
+    }
+
     @Test
     void ac_arch_14_generated_resource_has_exactly_the_frozen_violations(@TempDir Path out) throws IOException {
         freeze(declared(), ShopSneak.class, ShopHack.class, BillingImpl.class);
+        descriptors(out, "shop", "billing");
         List<Path> written = TopolithBaseline.generate(declared(), List.of(), out);
         Path file = out.resolve("META-INF/topolith/baseline/shop.txt");
         assertEquals(List.of(file), written);
@@ -195,6 +218,7 @@ class TopolithBaselineTest {
     void ac_arch_14_a_module_without_frozen_violations_gets_no_file_and_a_stale_one_is_removed(@TempDir Path out)
             throws IOException {
         freeze(declared(), ShopHack.class, BillingImpl.class);
+        descriptors(out, "shop", "billing");
         Path stale = out.resolve("META-INF/topolith/baseline/billing.txt");
         Files.createDirectories(stale.getParent());
         Files.writeString(stale, "old -> stale\n");
@@ -207,6 +231,7 @@ class TopolithBaselineTest {
     void ac_arch_14_an_array_dependency_is_recorded_as_its_component_class_only(@TempDir Path out)
             throws IOException {
         freeze(declared(), ShopArray.class, BillingImpl.class);
+        descriptors(out, "shop", "billing");
         TopolithBaseline.generate(declared(), List.of(), out);
         String text = Files.readString(out.resolve("META-INF/topolith/baseline/shop.txt"));
         assertEquals(List.of(ShopArray.class.getName() + " -> " + BillingImpl.class.getName()),
@@ -214,7 +239,8 @@ class TopolithBaselineTest {
     }
 
     @Test
-    void ac_arch_14_a_custom_store_class_is_rejected(@TempDir Path out) {
+    void ac_arch_14_a_custom_store_class_is_rejected(@TempDir Path out) throws IOException {
+        descriptors(out, "shop", "billing");
         ArchConfiguration.get().setProperty("freeze.store", "com.example.CustomStore");
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> TopolithBaseline.generate(declared(), List.of(), out));
@@ -225,5 +251,55 @@ class TopolithBaselineTest {
     void ac_arch_14_no_descriptors_on_the_class_path_is_an_error(@TempDir Path out) {
         AssertionError error = assertThrows(AssertionError.class, () -> TopolithBaseline.generate(out));
         assertTrue(error.getMessage().contains("No module descriptor"), error.getMessage());
+    }
+
+    @Test
+    void ac_arch_14_only_modules_whose_descriptor_is_in_the_output_directory_are_written(@TempDir Path out)
+            throws IOException {
+        freeze(declared(), ShopHack.class, BillingImpl.class);
+        descriptors(out, "billing");
+        List<Path> written = TopolithBaseline.generate(declared(), List.of(), out);
+        assertEquals(List.of(), written);
+        assertFalse(Files.exists(out.resolve("META-INF/topolith/baseline/shop.txt")));
+    }
+
+    @Test
+    void ac_arch_14_an_output_directory_without_any_descriptor_is_rejected(@TempDir Path out) throws IOException {
+        freeze(declared(), ShopHack.class, BillingImpl.class);
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TopolithBaseline.generate(declared(), List.of(), out));
+        assertTrue(error.getMessage().contains("no module descriptor"), error.getMessage());
+        assertFalse(Files.exists(out.resolve("META-INF")));
+    }
+
+    @Test
+    void ac_arch_14_named_modules_are_written_into_a_directory_without_descriptors(@TempDir Path out)
+            throws IOException {
+        freeze(declared(), ShopHack.class, BillingImpl.class);
+        List<Path> written = TopolithBaseline.generate(declared(), List.of(), out, "shop");
+        Path file = out.resolve("META-INF/topolith/baseline/shop.txt");
+        assertEquals(List.of(file), written);
+        try (Stream<Path> files = Files.list(file.getParent())) {
+            assertEquals(1, files.count());
+        }
+    }
+
+    @Test
+    void ac_arch_14_an_unknown_module_id_is_rejected(@TempDir Path out) throws IOException {
+        freeze(declared(), ShopHack.class, BillingImpl.class);
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> TopolithBaseline.generate(declared(), List.of(), out, "nope"));
+        assertTrue(error.getMessage().contains("nope"), error.getMessage());
+        assertFalse(Files.exists(out.resolve("META-INF")));
+    }
+
+    @Test
+    void ac_arch_14_a_stale_file_of_an_unnamed_module_survives(@TempDir Path out) throws IOException {
+        freeze(declared(), ShopHack.class, BillingImpl.class);
+        Path stale = out.resolve("META-INF/topolith/baseline/billing.txt");
+        Files.createDirectories(stale.getParent());
+        Files.writeString(stale, "old -> stale\n");
+        TopolithBaseline.generate(declared(), List.of(), out, "shop");
+        assertTrue(Files.exists(stale));
     }
 }

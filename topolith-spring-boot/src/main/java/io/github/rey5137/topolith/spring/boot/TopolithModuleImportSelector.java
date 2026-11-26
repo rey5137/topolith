@@ -134,6 +134,7 @@ final class TopolithModuleImportSelector
                 "org.springframework.boot.web.server.servlet.context.ServletComponentScan", "servlet-component scan",
                 "org.springframework.boot.context.properties.ConfigurationPropertiesScan",
                 "configuration-properties scan");
+        String standalone = TopologyResolver.standalone(environment);
         List<Diagnostic> found = new ArrayList<>();
         for (String name : factory.getBeanDefinitionNames()) {
             BeanDefinition definition = factory.getBeanDefinition(name);
@@ -187,7 +188,7 @@ final class TopolithModuleImportSelector
                 }
                 for (String base : packages) {
                     topology.modulePackages().forEach((id, modulePackage) -> {
-                        if (id.equals(TopologyResolver.standalone(environment)) || modulePackage == null
+                        if (id.equals(standalone) || modulePackage == null
                                 || !(base.isEmpty() || modulePackage.equals(base)
                                         || modulePackage.startsWith(base + "."))) {
                             return;

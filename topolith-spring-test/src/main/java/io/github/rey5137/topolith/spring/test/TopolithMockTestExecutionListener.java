@@ -1,20 +1,36 @@
 package io.github.rey5137.topolith.spring.test;
 
-import io.github.rey5137.topolith.core.Incubating;
 import org.springframework.test.context.TestContext;
 import org.springframework.test.context.TestContextAnnotationUtils;
 import org.springframework.test.context.support.AbstractTestExecutionListener;
 import org.springframework.util.ReflectionUtils;
 
 /** Injects mock server fields after the test context has been loaded. */
-@Incubating
-public final class TopolithMockTestExecutionListener extends AbstractTestExecutionListener {
+final class TopolithMockTestExecutionListener extends AbstractTestExecutionListener {
     @Override
     public void prepareTestInstance(TestContext context) {
         Object instance = context.getTestInstance();
         while (instance != null) {
             injectFields(context, instance);
             instance = enclosingInstance(instance);
+        }
+    }
+
+    /** Clears what the context recorded before the test, such as the startup version handshake. */
+    @Override
+    public void beforeTestMethod(TestContext context) { resetServers(context); }
+
+    /** Resets context-owned servers after each method, as Spring Boot's {@code MockReset} does for mock beans. */
+    @Override
+    public void afterTestMethod(TestContext context) { resetServers(context); }
+
+    /** Only the servers the customizer registered, found without eager init so no lazy bean is created. */
+    private static void resetServers(TestContext context) {
+        if (!context.hasApplicationContext()) { return; }
+        var beans = context.getApplicationContext();
+        String prefix = TopolithContextCustomizerFactory.beanName("");
+        for (String name : beans.getBeanNamesForType(TopolithMockServer.class, false, false)) {
+            if (name.startsWith(prefix)) { beans.getBean(name, TopolithMockServer.class).reset(); }
         }
     }
 
@@ -27,7 +43,7 @@ public final class TopolithMockTestExecutionListener extends AbstractTestExecuti
                 }
                 ReflectionUtils.makeAccessible(field);
                 Object server = context.getApplicationContext().getBean(
-                        TopolithContextCustomizerFactory.beanName(annotation.value()), TopolithMockServer.class);
+                        TopolithContextCustomizerFactory.beanName(annotation.id()), TopolithMockServer.class);
                 ReflectionUtils.setField(field, instance, server);
             }
         });

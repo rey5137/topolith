@@ -12,8 +12,8 @@ import java.util.TreeSet;
 
 /**
  * Which module owns a package. An api package belongs to the module whose descriptor lists it, even outside that
- * module's {@code package} (a separate API artifact); any other package belongs to the module with the longest
- * {@code package} that contains it, and to no module when none does.
+ * module's {@code package} (a separate API artifact); any other package belongs to the module whose
+ * {@code package} contains it, and to no module when none or several do (nested packages, D-56).
  */
 final class Ownership {
     private final Map<String, ModuleDescriptor> modules = new TreeMap<>();
@@ -50,27 +50,26 @@ final class Ownership {
         return modules.values();
     }
 
-    Set<String> apiPackages(String moduleId) {
-        return apiPackages.getOrDefault(moduleId, Set.of());
-    }
-
-    /** The owning module id of a package, or null. */
+    /**
+     * The owning module id of a package, or null: none claims it, or several module packages contain it (nested
+     * packages are a TL0017 consistency failure, never resolved by longest match, D-56).
+     */
     String owner(String packageName) {
         String api = apiOwners.get(packageName);
         if (api != null) {
             return api;
         }
-        String best = null;
-        int length = -1;
+        String found = null;
         for (ModuleDescriptor module : modules.values()) {
             String root = module.packageName();
-            boolean inside = packageName.equals(root) || packageName.startsWith(root + ".");
-            if (inside && root.length() > length) {
-                best = module.id();
-                length = root.length();
+            if (packageName.equals(root) || packageName.startsWith(root + ".")) {
+                if (found != null) {
+                    return null;
+                }
+                found = module.id();
             }
         }
-        return best;
+        return found;
     }
 
     boolean isApi(String packageName) {

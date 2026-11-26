@@ -2,6 +2,7 @@ package io.github.rey5137.topolith.spring.boot;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -113,17 +114,26 @@ final class ModuleBeans {
     static Map<String, String> ownedBy(BeanFactory beanFactory, ClassLoader loader, Resolution resolution,
             String typeName) {
         Map<String, String> owned = new TreeMap<>();
+        definitionsOfType(beanFactory, loader, typeName)
+                .forEach((name, definition) -> owner(definition, resolution).ifPresent(id -> owned.put(name, id)));
+        return owned;
+    }
+
+    /** The definitions, by name, of the beans of the type (by name; none when the class is absent). */
+    private static Map<String, BeanDefinition> definitionsOfType(BeanFactory beanFactory, ClassLoader loader,
+            String typeName) {
+        Map<String, BeanDefinition> definitions = new LinkedHashMap<>();
         Class<?> type = load(typeName, loader);
         if (type == null || !(beanFactory instanceof ConfigurableListableBeanFactory factory)) {
-            return owned;
+            return definitions;
         }
         for (String factoryName : factory.getBeanNamesForType(type, true, false)) {
             String name = BeanFactoryUtils.transformedBeanName(factoryName);
             if (factory.containsBeanDefinition(name)) {
-                owner(factory.getBeanDefinition(name), resolution).ifPresent(id -> owned.put(name, id));
+                definitions.put(name, factory.getBeanDefinition(name));
             }
         }
-        return owned;
+        return definitions;
     }
 
     /** The ids of the modules that contributed at least one bean of the type, sorted. */
@@ -231,17 +241,8 @@ final class ModuleBeans {
     static Set<String> repositoryInterfaceNames(BeanFactory beanFactory, ClassLoader loader,
             String factoryBeanType) {
         Set<String> interfaces = new TreeSet<>();
-        Class<?> type = load(factoryBeanType, loader);
-        if (type == null || !(beanFactory instanceof ConfigurableListableBeanFactory factory)) {
-            return interfaces;
-        }
-        for (String factoryName : factory.getBeanNamesForType(type, true, false)) {
-            String name = BeanFactoryUtils.transformedBeanName(factoryName);
-            if (!factory.containsBeanDefinition(name)) {
-                continue;
-            }
-            ValueHolder argument = factory.getBeanDefinition(name).getConstructorArgumentValues()
-                    .getArgumentValue(0, null);
+        for (BeanDefinition definition : definitionsOfType(beanFactory, loader, factoryBeanType).values()) {
+            ValueHolder argument = definition.getConstructorArgumentValues().getArgumentValue(0, null);
             Object value = argument == null ? null : argument.getValue();
             String interfaceName = value instanceof Class<?> clazz ? clazz.getName()
                     : value == null ? null : value.toString();
@@ -260,16 +261,7 @@ final class ModuleBeans {
      */
     static Set<String> registeredInterfaceNames(BeanFactory beanFactory, ClassLoader loader, String factoryBeanType) {
         Set<String> interfaces = new TreeSet<>(repositoryInterfaceNames(beanFactory, loader, factoryBeanType));
-        Class<?> type = load(factoryBeanType, loader);
-        if (type == null || !(beanFactory instanceof ConfigurableListableBeanFactory factory)) {
-            return interfaces;
-        }
-        for (String factoryName : factory.getBeanNamesForType(type, true, false)) {
-            String name = BeanFactoryUtils.transformedBeanName(factoryName);
-            if (!factory.containsBeanDefinition(name)) {
-                continue;
-            }
-            BeanDefinition definition = factory.getBeanDefinition(name);
+        for (BeanDefinition definition : definitionsOfType(beanFactory, loader, factoryBeanType).values()) {
             for (ValueHolder holder : definition.getConstructorArgumentValues().getGenericArgumentValues()) {
                 addName(interfaces, holder.getValue());
             }

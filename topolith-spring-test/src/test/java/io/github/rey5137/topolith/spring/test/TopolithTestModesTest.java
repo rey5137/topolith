@@ -92,4 +92,44 @@ class TopolithTestModesTest {
             });
         }
     }
+
+    @Test
+    void ac_test_03_builder_external_clears_host_service_id() {
+        try (var server = new TopolithMockServer("payment")) {
+            server.stub("GET", "/ping", 200, "pong");
+            var host = runner().withPropertyValues("topolith.modules.payment.remote.service-id=payment-svc");
+            TopolithTestModes.module("payment").external(server).applyTo(host).run(context -> {
+                assertNull(context.getStartupFailure());
+                assertEquals("pong", context.getBean(Payment.class).ping());
+            });
+        }
+    }
+
+    @Test
+    void ac_test_01_builder_mode_replaces_earlier_selection_of_the_module() {
+        var values = new java.util.HashMap<String, java.util.function.Supplier<Object>>();
+        TopolithTestModes.module("b").external(java.net.URI.create("http://localhost:42")).none()
+                .applyTo((key, value) -> values.put(key, value));
+        assertEquals(java.util.Set.of("topolith.modules.b.mode"), values.keySet());
+    }
+
+    @org.junit.jupiter.api.Test
+    void ac_test_01_module_without_mode_fails_in_apply_to() {
+        var builder = TopolithTestModes.module("payment").internal().module("ledger");
+        var e = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> builder.applyTo(new org.springframework.boot.test.context.runner.ApplicationContextRunner()));
+        org.junit.jupiter.api.Assertions.assertTrue(e.getMessage().contains("ledger"));
+        org.junit.jupiter.api.Assertions.assertFalse(e.getMessage().contains("payment"));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> builder.applyTo((org.springframework.test.context.DynamicPropertyRegistry) null));
+    }
+
+    @org.junit.jupiter.api.Test
+    void ac_test_01_reselecting_a_configured_module_leaves_it_set() {
+        var values = new java.util.HashMap<String, java.util.function.Supplier<Object>>();
+        TopolithTestModes.module("a").internal().module("b").none().module("a")
+                .applyTo((key, value) -> values.put(key, value));
+        assertEquals("internal", values.get("topolith.modules.a.mode").get());
+        assertEquals("none", values.get("topolith.modules.b.mode").get());
+    }
 }

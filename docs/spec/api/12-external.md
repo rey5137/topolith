@@ -21,8 +21,8 @@ environment variables are unsupported for these mappings. Implements INV-5, INV-
 
 Exactly one of `remote.url` and `remote.service-id` is required for an external module; otherwise fail with TL0003.
 An `expose.*` key under `topolith.modules.<id>` for an id that no descriptor names fails with TL0003; other settings
-of an absent module stay allowed for a shared configuration (a `mode` stays TL0016 or TL0002), and a host HTTP service group named like an external module that holds an interface that is not
-that module's fails with TL0003.
+of an absent module stay allowed for a shared configuration (a `mode` stays TL0016 or TL0002), and a host HTTP service group named like an external or loopback module that holds an
+interface that is not that module's fails with TL0003.
 Map `remote.url` plus the provider's fixed `/<id>` prefix to `spring.http.serviceclient.<id>.base-url` (D-45): a
 contract's `@HttpExchange` paths are relative to that prefixed URL. Service ids use `lb://<service-id>/<id>` and
 Spring Cloud LoadBalancer
@@ -60,7 +60,7 @@ failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6
 - **Declared.** An unchecked exception is declared when its class, or its nearest non-abstract superclass, lies in an
   api package the host knows (exact packages, D-27). Only the top-level exception counts, never its cause chain.
   `ModuleUnavailableException` is always declared, so a provider's own failed call reaches its caller unchanged.
-- **Provider.** On a handler whose bean type lies in an internal module's `package`, a declared exception answers
+- **Provider.** On a handler whose bean type lies in an internal or loopback module's `package`, a declared exception answers
   `application/problem+json` with `type` `urn:topolith:problem:contract-exception`, the status of its
   `@ResponseStatus` (default 500; 503 for `ModuleUnavailableException`), `detail` set to the message (for
   `ModuleUnavailableException` the fixed message below), and the
@@ -92,7 +92,7 @@ failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6
 - AC-EXT-29 (M2.3): An undeclared exception is not rebuilt, and Topolith does not send its message (the host's
   `server.error.include-message` setting still applies).
 - AC-EXT-30 (M2.3): A contract method declaring a checked exception, or a concrete exception class in an api package
-  that a caller cannot rebuild or whose `@ResponseStatus` is not 4xx or 5xx, fails startup with TL0027 for an internal or external module, in a monolith too; a
+  that a caller cannot rebuild or whose `@ResponseStatus` is not 4xx or 5xx, fails startup with TL0027 for an internal, loopback or external module, in a monolith too; a
   `none` module is not checked.
 - AC-EXT-31 (M2.3): The provider resolver exists only with an internal module, and the caller advice only with an
   external one; a `none` module leaves neither; a host's own service groups and a host controller's advices are
@@ -103,8 +103,9 @@ failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6
 ### R-EXT-05 — Exposure
 
 Each module's exposed endpoints use the fixed `/<id>` prefix. `topolith.modules.<id>.expose.enabled` controls exposure of
-all the module's routes and is `false` in every topology, so a monolith serves none; a module that is not internal, or
-a reactive host, cannot be exposed (TL0003, TL0028; D-44). Exposed endpoints have a security hook: the public
+all an internal module's routes and is `false` in every topology, so a monolith serves none; a loopback module's routes
+are always mapped (R-MODE-06, D-76). A module that is neither internal nor loopback, or a reactive host, cannot be
+exposed (TL0003, TL0028; D-44). Exposed endpoints have a security hook: the public
 `ExposedEndpoints` and `ExposedRequestMatcher` beans, for the host's own `SecurityFilterChain` (D-46). One application
 has one discovery registration. Implements INV-8 and P-2.
 
@@ -153,3 +154,69 @@ so refreshed timeouts would not apply; a refresh changing only Boot keys (`sprin
 - AC-EXT-22 (M2.6): Switching either direction between URL and service id logs TL0010 and marks restart pending.
 - AC-EXT-23 (M2.6): Invalid endpoint settings leave the old client usable, log TL0011 and surface failure on actuator.
 - AC-EXT-24 (M2.6): A failed client rebuild leaves the old client usable, logs TL0011 and surfaces failure on actuator.
+
+### R-EXT-09 — Loopback calls
+
+A call to a loopback module's contract (R-MODE-06) takes the external client path end to end: the group's client
+serializes the arguments, the request reaches the module's route on the host's own server through the servlet stack
+(filters, security, argument resolution and validation), and the caller reads the result back from the response.
+R-EXT-03's timeouts and defaults, R-EXT-04's provider and caller sides (ProblemDetail, rebuilt declared exceptions,
+`ModuleUnavailableException` for transport failures, with the caller's translation present because a loopback module
+exists) and R-EXT-06's customization apply as for an external module. The provider runs on a server request thread, so
+the caller's transaction never reaches it (D-2); R-EXT-07's boundary on the provider applies as for an internal module
+and sees no caller transaction, so `topolith.contract.calls.in.transaction` does not count a loopback call.
+Implements INV-6, D-2, D-43 and D-75.
+
+- AC-EXT-33 (M5.3): A loopback contract call reaches the module's route over HTTP on the host's own port: the provider
+  receives a deserialized copy of each argument and the caller a deserialized result, so a provider that mutates its
+  argument or later mutates the object it returned changes neither the caller's argument nor the caller's result.
+- AC-EXT-34 (M5.3): A loopback call rebuilds a declared exception as its declared type, leaves an undeclared one
+  unrebuilt, and raises `ModuleUnavailableException` on a read timeout, as AC-EXT-09, AC-EXT-29 and AC-EXT-10 require
+  for an external call.
+- AC-EXT-35 (M5.3): A loopback call made inside a caller transaction runs outside it.
+- AC-EXT-40 (M5.3): An unconfigured loopback group uses R-EXT-03's two-second connect and five-second read timeouts,
+  and its `remote.connect-timeout` and `remote.read-timeout` overrides apply.
+- AC-EXT-41 (M5.3): `ModuleClients.configure(<id>, ...)` applies to a loopback module's group.
+
+### R-EXT-10 — Loopback latency and fault injection
+
+A loopback module can delay its calls and fail a share of them, set under `topolith.modules.<id>.loopback`. Injection
+happens in the loopback client, so a call from anything else (a browser, a test's own HTTP client) is unaffected.
+
+| Key | Type and default | Effect |
+|---|---|---|
+| `latency` | duration, `0` | Delay after the provider answers, before the caller reads the response (sent calls only) |
+| `fault.rate` | decimal in `[0, 1]`, `0` | Share of calls that fail with `fault.kind` |
+| `fault.kind` | `connection-failure` (default), `unavailable` or `timeout` | How a chosen call fails |
+| `fault.seed` | long, `0` | Seed of the module's fault sequence |
+
+- **Faults.** A fault surfaces as an R-EXT-04 transport failure through the same translation as a real one, so the
+  caller sees `ModuleUnavailableException` with its fixed message. `connection-failure`: the call is not sent; kind
+  `connection failure`. `unavailable`: the call is not sent and the client receives a 503 without a Topolith problem;
+  kind `status 503`. `timeout`: the call is sent and the provider runs, then the response is discarded after
+  `latency` (at most the read timeout); kind `timeout`, as after a real read timeout.
+- **Latency.** A latency at or above the group's read timeout makes the call wait the read timeout and fail with kind
+  `timeout`, the provider having run. A call that fails with `connection-failure` or `unavailable` is not delayed.
+- **Determinism.** The calls that fail are drawn, in the order the module's calls are sent, from a pseudo-random
+  sequence fixed by `fault.seed`: rate `0` fails none, rate `1` fails every call, and the same seed, rate and call
+  order fail the same calls in every run. With `topolith-spring-test`, its test execution listener restarts every
+  loopback module's sequence in `beforeTestMethod`, so calls made in `@BeforeEach` count toward that method and a test
+  method fails the same calls whether it runs alone or after others sharing the cached context; without it the
+  sequence runs once per context. Calls sent concurrently draw in no defined order. The restart is not public API: it
+  lives in an internal package (D-78).
+- **Validation.** A `loopback.*` key for a module that is not `loopback`, an unknown `loopback.*` key, or an invalid
+  value (a negative or unparsable latency, a rate outside `[0, 1]`, an unknown kind, a seed that is not a long) fails
+  with TL0003 naming the key. The keys are restart-only (R-MODE-06, D-77).
+
+Implements INV-4, INV-6, D-43, D-74 and D-78.
+
+- AC-EXT-36 (M5.4): A loopback call with `latency` returns no sooner than that latency after the provider answered; a
+  latency at or above the read timeout raises `ModuleUnavailableException` with kind `timeout` after the read timeout,
+  the provider having run.
+- AC-EXT-37 (M5.4): At rate `1`, `connection-failure` and `unavailable` raise `ModuleUnavailableException` with kinds
+  `connection failure` and `status 503` without calling the provider, and `timeout` raises it with kind `timeout`
+  after the provider ran; each message names only the module and the kind.
+- AC-EXT-38 (M5.4): Rate `0` fails no call and rate `1` every call; with a seed and a rate between them, the same test
+  method fails the same calls whether it runs alone or after other methods sharing the cached context.
+- AC-EXT-39 (M5.4): A `loopback.*` key for an internal, external or `none` module, an unknown `loopback.*` key and each
+  invalid value fail with TL0003 naming the key.

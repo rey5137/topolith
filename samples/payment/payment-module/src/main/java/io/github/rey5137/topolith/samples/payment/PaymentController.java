@@ -27,6 +27,7 @@ public class PaymentController implements PaymentApi {
         this.properties = properties;
     }
 
+    // snippet:start payment-charge
     @Override
     public ChargeResult charge(ChargeRequest request) {
         BigDecimal amount = request.amount();
@@ -41,6 +42,7 @@ public class PaymentController implements PaymentApi {
                 id, request.reference(), amount, "CHARGED", String.join(TAG_SEPARATOR, request.tags()));
         return new ChargeResult(id, request.reference(), amount, "CHARGED", request.tags());
     }
+    // snippet:end payment-charge
 
     private static List<String> splitTags(String stored) {
         return stored == null || stored.isEmpty() ? List.of() : List.of(stored.split(TAG_SEPARATOR));

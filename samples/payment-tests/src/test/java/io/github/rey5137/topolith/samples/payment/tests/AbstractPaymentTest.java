@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+// snippet:start shared-payment-test
 /** The payment contract every sample host must satisfy (AC-TEST-05); shipped as this module's test-jar. */
 public abstract class AbstractPaymentTest {
     @Autowired
@@ -47,6 +48,7 @@ public abstract class AbstractPaymentTest {
         assertEquals(reference, found.reference());
         assertEquals(0, request.amount().compareTo(found.amount()));
     }
+// snippet:end shared-payment-test
 
     @Test
     void ac_test_05_declined_charge_keeps_the_declared_type() {

@@ -66,4 +66,5 @@ For the hybrid topology, start `payment-service` first (port 8081), then the hyb
 ./mvnw -pl samples/hosts/hybrid spring-boot:run
 ```
 
-See [Getting started](guide/getting-started.md) for the walkthrough.
+See [Getting started](guide/getting-started.md) for the short tour, and the [Worked example](guide/worked-example.md)
+for every piece of the samples explained step by step, with recorded requests and responses.

@@ -11,10 +11,12 @@ import org.springframework.context.ApplicationContext;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+// snippet:start monolith-payment-test
 @SpringBootTest(classes = MonolithApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 class MonolithPaymentTest extends AbstractPaymentTest {
+// snippet:end monolith-payment-test
     @Autowired
     ApplicationContext context;
 

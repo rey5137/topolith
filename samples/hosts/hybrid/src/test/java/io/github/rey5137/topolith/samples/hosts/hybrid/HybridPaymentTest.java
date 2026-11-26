@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Runs payment-service as its Boot fat JAR in a container and reaches it over the fixed URL (D-69). The payment module
  * is not on the test classpath at all, so the host context can hold no trace of it (INV-2).
  */
+// snippet:start hybrid-payment-test
 @SpringBootTest(classes = HybridApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -40,6 +41,7 @@ class HybridPaymentTest extends AbstractPaymentTest {
         }
         registry.add("topolith.modules.payment.remote.url", () -> "http://localhost:" + PAYMENT_PORT);
     }
+// snippet:end hybrid-payment-test
 
     @AfterAll
     static void stopPaymentService() {

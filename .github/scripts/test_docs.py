@@ -161,6 +161,8 @@ def comment_pattern_for(path_str, kind, tag):
         return re.compile(rf'^\s*#\s*snippet:{kind}\s+{escaped}\s*$')
     if path_str.endswith('.xml'):
         return re.compile(rf'^\s*<!--\s*snippet:{kind}\s+{escaped}\s*-->\s*$')
+    if path_str.endswith('.sql'):
+        return re.compile(rf'^\s*--\s*snippet:{kind}\s+{escaped}\s*$')
     raise AssertionError(f'unsupported source file type for snippet: {path_str}')
 
 
@@ -171,6 +173,8 @@ def is_any_snippet_comment(path_str, line):
         return bool(re.match(r'^\s*#\s*snippet:(?:start|end)\s+\S+\s*$', line))
     if path_str.endswith('.xml'):
         return bool(re.match(r'^\s*<!--\s*snippet:(?:start|end)\s+\S+\s*-->\s*$', line))
+    if path_str.endswith('.sql'):
+        return bool(re.match(r'^\s*--\s*snippet:(?:start|end)\s+\S+\s*$', line))
     return False
 
 

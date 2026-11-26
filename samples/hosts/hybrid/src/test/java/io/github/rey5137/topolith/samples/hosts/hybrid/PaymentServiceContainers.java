@@ -1,0 +1,122 @@
+package io.github.rey5137.topolith.samples.hosts.hybrid;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.ServerSocket;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+
+import com.github.dockerjava.api.model.ExposedPort;
+import com.github.dockerjava.api.model.PortBinding;
+import com.github.dockerjava.api.model.Ports;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.utility.MountableFile;
+
+/** The payment-service container and the small HTTP helpers the hybrid end-to-end tests share (D-69). */
+final class PaymentServiceContainers {
+    /** payment-service's configured port; the container's own address, not the host port the test reaches. */
+    static final int PAYMENT_PORT = 8081;
+
+    private static final String IMAGE = "eclipse-temurin:21-jre";
+    private static final String JAR = "/app/payment-service.jar";
+    private static final Duration STARTUP = Duration.ofMinutes(3);
+    private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(10);
+    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build();
+
+    private PaymentServiceContainers() {
+    }
+
+    /** A free host port to bind payment-service's port to, so the test JVM can register and reach it. */
+    static int freePort() {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        } catch (IOException e) {
+            throw new UncheckedIOException("no free host port for payment-service", e);
+        }
+    }
+
+    /** The payment-service Boot fat JAR in a JRE container, bound to {@code hostPort} (D-69). */
+    static GenericContainer<?> paymentService(int hostPort) {
+        Path jar = Path.of(System.getProperty("basedir", System.getProperty("user.dir", ".")),
+                "target", "payment-service.jar");
+        if (!Files.isRegularFile(jar)) {
+            throw new IllegalStateException(jar.toAbsolutePath() + " is missing: the hybrid end-to-end tests need the "
+                    + "payment-service exec JAR, so run `package` or `verify` with -am, not a bare test phase");
+        }
+        return new GenericContainer<>(DockerImageName.parse(IMAGE))
+                .withCopyFileToContainer(MountableFile.forHostPath(jar.toAbsolutePath().toString()), JAR)
+                .withCommand("java", "-jar", JAR)
+                .withExposedPorts(PAYMENT_PORT)
+                .withCreateContainerCmdModifier(command -> command.getHostConfig().withPortBindings(
+                        new PortBinding(Ports.Binding.bindPort(hostPort), ExposedPort.tcp(PAYMENT_PORT))))
+                .waitingFor(Wait.forLogMessage(".*Started PaymentServiceApplication.*", 1)
+                        .withStartupTimeout(STARTUP));
+    }
+
+    /** Whether a JSON document (Consul pretty-prints) holds {@code field} with exactly {@code value}. */
+    static boolean containsField(String json, String field, String value) {
+        return json.replaceAll("\\s+", "")
+                .contains("\"" + field + "\":" + (value.chars().allMatch(Character::isDigit)
+                        ? value
+                        : "\"" + value + "\""));
+    }
+
+    /** Poll Consul's catalog until payment-service is registered, so the host never queries an empty catalog. */
+    static void awaitRegistration(int consulPort) {
+        String url = "http://localhost:" + consulPort + "/v1/catalog/service/payment-service";
+        long deadline = System.nanoTime() + STARTUP.toNanos();
+        while (System.nanoTime() < deadline) {
+            try {
+                if (containsField(body(url), "ServiceName", "payment-service")) {
+                    return;
+                }
+            } catch (UncheckedIOException stillStarting) {
+                // Consul is up but the service has not registered yet.
+            }
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted waiting for payment-service registration", e);
+            }
+        }
+        throw new IllegalStateException("payment-service did not register with Consul within " + STARTUP);
+    }
+
+    static int status(String url) {
+        try {
+            return HTTP.send(request(url), HttpResponse.BodyHandlers.discarding()).statusCode();
+        } catch (IOException e) {
+            throw new UncheckedIOException("GET " + url, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("GET " + url + " interrupted", e);
+        }
+    }
+
+    static String body(String url) {
+        try {
+            HttpResponse<String> response = HTTP.send(request(url), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                throw new IllegalStateException("GET " + url + " answered " + response.statusCode());
+            }
+            return response.body();
+        } catch (IOException e) {
+            throw new UncheckedIOException("GET " + url, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("GET " + url + " interrupted", e);
+        }
+    }
+
+    private static HttpRequest request(String url) {
+        return HttpRequest.newBuilder(URI.create(url)).timeout(HTTP_TIMEOUT).GET().build();
+    }
+}

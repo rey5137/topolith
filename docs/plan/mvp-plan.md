@@ -99,8 +99,10 @@ configuration and mock-server wiring for external dependencies.
 | M4.2 | Testcontainers end-to-end tests and latest-modules CI | CI green, including latest-modules job |
 | M4.3 | Getting started, legacy adoption and configuration docs | M4.3-owned `delivery/61` and catalog ACs |
 | M4.4 | Maven Central release, CHANGELOG and `@Incubating` | M4.4-owned `delivery/61` ACs |
+| M4.5 | Documentation site | M4.5-owned `delivery/61` AC |
 
 **Exit:** 0.1.0 published.
 
 M4.1 supplies user and payment `*-api`, `*-module` and `*-service` artifacts, plus monolith, hybrid and `none` hosts.
 M4.2 exercises hybrid fixed-URL and Consul discovery with Testcontainers. M4.4 supplies the `0.1.0` changelog.
+M4.5 publishes the user guide as a MkDocs site on GitHub Pages.

@@ -7,7 +7,7 @@ chosen per host in configuration, without changing the module's code.
 
 An adopter project sets `<topolith.version>` to the Topolith release (for example, `0.1.0`) and imports `topolith-bom`
 in `<dependencyManagement>`. The BOM manages Topolith modules together with their baseline Spring Boot and Spring Cloud
-versions (D-68):
+versions:
 
 <!-- snippet: samples/hosts/pom.xml#bom-import -->
 ```xml
@@ -99,8 +99,8 @@ time:
 ## 4. Choose Modes in a Host (`monolith` vs `hybrid` vs `none`)
 
 A host is a standard Spring Boot application that depends on `topolith-spring-boot` and states the mode of every known
-module on its classpath (INV-3). Any host that configures an `external` module must also include
-`org.springframework.boot:spring-boot-starter-restclient` (otherwise startup fails with `TL0026`, R-EXT-02); service-id
+module on its classpath. Any host that configures an `external` module must also include
+`org.springframework.boot:spring-boot-starter-restclient` (otherwise startup fails with `TL0026`); service-id
 discovery via `remote.service-id` additionally requires `org.springframework.cloud:spring-cloud-starter-loadbalancer`
 (`TL0009`).
 
@@ -139,7 +139,7 @@ topolith:
 ```
 
 In a **payment-only** host, `payment` is `internal` and `user` is `none` (contributing no beans, routes, entities or
-migrations even when `user-module` is on the classpath, INV-2):
+migrations even when `user-module` is on the classpath):
 
 <!-- snippet: samples/hosts/payment-host/src/main/resources/application.yml#payment-host-modes -->
 ```yaml
@@ -172,7 +172,7 @@ port 8080 and calls `payment` at `http://localhost:8081`):
 ## 6. Testing with `topolith-spring-test`
 
 Add `topolith-spring-test` in `<scope>test</scope>` to override module modes per test class with `@TopolithModuleMode`
-and stub external modules with `@TopolithMock` and `TopolithMockServer` (R-TEST-01, R-TEST-02):
+and stub external modules with `@TopolithMock` and `TopolithMockServer`:
 
 <!-- snippet: samples/hosts/monolith/src/test/java/io/github/rey5137/topolith/samples/hosts/monolith/MonolithMockPaymentTest.java#test-helpers-mock -->
 ```java

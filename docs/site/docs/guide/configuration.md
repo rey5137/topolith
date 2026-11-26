@@ -1,11 +1,11 @@
 # Configuration Reference
 
-Topolith resolves module modes once at context refresh from `topolith.*` properties (INV-3, INV-9). Any unsatisfiable
-or ambiguous topology fails startup with a `TLnnnn` diagnostic code and an actionable fix message (INV-4).
+Topolith resolves module modes once at context refresh from `topolith.*` properties. Any unsatisfiable
+or ambiguous topology fails startup with a `TLnnnn` diagnostic code and an actionable fix message.
 
 ## Modes and Status Vocabulary
 
-These terms are used in descriptors, configuration, diagnostics and the actuator endpoint (R-CAT-03):
+These terms are used in descriptors, configuration, diagnostics and the actuator endpoint:
 
 | Term | Meaning |
 |---|---|
@@ -29,7 +29,7 @@ These terms are used in descriptors, configuration, diagnostics and the actuator
 
 ### Property Details
 
-- **`topolith.modules.<id>.mode` (R-MODE-01, R-MODE-05):** Required explicit mode (`internal`, `external` or `none`,
+- **`topolith.modules.<id>.mode`:** Required explicit mode (`internal`, `external` or `none`,
   trimmed and case-insensitive) for each known module (a module with a module or API descriptor on the classpath).
   Default: required — absent or invalid values fail startup with `TL0001`, except that the module named by
   `topolith.standalone` defaults to `internal`. Setting `internal` without the module implementation descriptor JAR
@@ -38,11 +38,11 @@ These terms are used in descriptors, configuration, diagnostics and the actuator
   `spring-boot-starter-restclient` on the host classpath (`TL0026`). On an `EnvironmentChangeEvent` (with
   `topolith-spring-cloud`), a mode change logs warning `TL0010` naming the running and requested modes and marks
   `restartPending` (`mode`) on the actuator endpoint without altering the running topology.
-- **`topolith.standalone` (R-MODE-01, R-MODE-04, R-MODE-05):** Names the single module id that a standalone `*-service`
+- **`topolith.standalone`:** Names the single module id that a standalone `*-service`
   defaults to `internal`. Exempts that module from host scan overlap (`TL0018`) and default-candidate infrastructure
   bean checks (`TL0019`). Fails with `TL0025` if any other module with a module descriptor is `internal`. Refreshing
   `topolith.standalone` re-evaluates requested modes, logs `TL0010` on any difference and marks `restartPending`.
-- **`topolith.modules.<id>.remote.url` and `topolith.modules.<id>.remote.service-id` (R-EXT-02, R-EXT-08):** Every
+- **`topolith.modules.<id>.remote.url` and `topolith.modules.<id>.remote.service-id`:** Every
   `external` module must set exactly one of `remote.url` (mapped as `<url>/<id>` to
   `spring.http.serviceclient.<id>.base-url`) or `remote.service-id` (mapped as `lb://<service-id>/<id>` for Spring
   Cloud LoadBalancer and a `DiscoveryClient`); setting neither or both, an unparsable URL, or a conflicting explicit
@@ -51,17 +51,16 @@ These terms are used in descriptors, configuration, diagnostics and the actuator
   refreshing `remote.url` to a new URL or `remote.service-id` to a new service id rebuilds the HTTP client in place
   (logging `TL0011` and keeping the running client if invalid); switching between `remote.url` and `remote.service-id`
   logs `TL0010` and marks `restartPending` (`wiring`).
-- **`topolith.modules.<id>.remote.connect-timeout` and `topolith.modules.<id>.remote.read-timeout` (R-EXT-03,
-  R-EXT-08):** Per-group connect and read timeouts, defaulting to `2s` and `5s` unless overridden by Boot's
+- **`topolith.modules.<id>.remote.connect-timeout` and `topolith.modules.<id>.remote.read-timeout`:** Per-group connect and read timeouts, defaulting to `2s` and `5s` unless overridden by Boot's
   `spring.http.serviceclient.<id>.*` or `spring.http.clients.*` timeouts. Invalid `Duration` values or conflicting
   explicit Topolith and Boot group timeouts fail startup with `TL0003`. Refreshing timeouts with
   `topolith-spring-cloud` rebuilds the client in place (or logs `TL0011` on invalid values).
-- **`topolith.modules.<id>.remote.http-interface.<contract FQN>` (R-EXT-01, D-49):** Maps a provided contract class name
+- **`topolith.modules.<id>.remote.http-interface.<contract FQN>`:** Maps a provided contract class name
   to a loadable sub-interface carrying `@HttpExchange` when the contract API itself avoids `spring-web`. Requires a
   case-preserving property source (environment variables are unsupported). Fails with `TL0003` when the module is
   unknown or not `external`, the key is malformed, or the contract is not in `provides`; fails with `TL0026` when the
   mapped interface cannot be loaded, does not extend the contract, or has no `@HttpExchange`.
-- **`topolith.modules.<id>.expose.enabled` (R-EXT-05):** Controls exposure of an `internal` module's web routes under
+- **`topolith.modules.<id>.expose.enabled`:** Controls exposure of an `internal` module's web routes under
   `/<id>` and its `/<id>/.topolith/api-version` endpoint. Defaults to `false` in every topology so a monolith exposes no
   module routes unless opted in. Fails with `TL0003` if non-boolean, set on a non-internal module, or set under
   `expose.*` for an unknown module id; fails with `TL0028` when enabled in a reactive WebFlux application.
@@ -70,20 +69,20 @@ These terms are used in descriptors, configuration, diagnostics and the actuator
 
 | Option | Type | Default | Description & Diagnostic |
 |---|---|---|---|
-| `-Atopolith.apiVersion` | `String` | required | Sets `api-version` in descriptors (`TL0013` if blank, R-DESC-01). |
+| `-Atopolith.apiVersion` | `String` | required | Sets `api-version` in descriptors (`TL0013` if blank). |
 
 ## API Version Readiness and Actuator Status
 
-- **API version readiness (R-VAL-04):** At application readiness, Topolith compares each host `<id>-api` descriptor's
+- **API version readiness:** At application readiness, Topolith compares each host `<id>-api` descriptor's
   major `api-version` against the internal module descriptor's major version, or for an `external` module against
-  `GET /<id>/.topolith/api-version` (using the group's mandatory timeouts from R-EXT-03). A major version mismatch logs
+  `GET /<id>/.topolith/api-version` (using the group's mandatory timeouts). A major version mismatch logs
   warning `TL0023` once; an unreachable or non-2xx remote version endpoint (or unreadable body) logs warning `TL0015`.
   Neither fails startup nor marks an otherwise-ready host unready.
-- **Actuator endpoint (`topolith`, R-VAL-05):** Read-only `@Endpoint(id = "topolith")` (exposed through Spring Boot
+- **Actuator endpoint (`topolith`):** Read-only `@Endpoint(id = "topolith")` (exposed through Spring Boot
   Actuator's `management.endpoints.web.exposure.include`). Reports top-level `restartPending` (`boolean`) and a
   `modules` map keyed by known module id containing `mode`, plus optional `requestedMode`, `restartPending` (`["mode"]`,
   `["wiring"]`), and `refresh` (`status: "failed"`, `code: "TL0011"`, `message`, `at`).
-- **Refresh dependency warning (R-MODE-05):** If Spring Cloud context classes are present at startup without
+- **Refresh dependency warning:** If Spring Cloud context classes are present at startup without
   `topolith-spring-cloud`, Topolith logs warning `TL0014`.
 
 ## Examples

@@ -50,10 +50,13 @@ Implements INV-7 and D-10.
 ### R-BUILD-05 — User documentation
 
 Provide getting-started, legacy adoption checklist and configuration reference documentation; examples match tests.
-The checklist describes the seven steps in RFC 0001 §4.3. Implements P-5 and D-6.
+The checklist describes the seven steps in RFC 0001 §4.3. The pages form a MkDocs site under `docs/site/`, built in
+strict mode on every pull request and published to GitHub Pages from `main` (D-73). Implements P-5, D-6 and D-73.
 
 - AC-BUILD-11 (M4.3): Getting-started, all seven legacy adoption steps and configuration reference are present.
 - AC-BUILD-12 (M4.3): Each documentation snippet matches a test.
+- AC-BUILD-16 (M4.5): The documentation site builds in strict mode, includes every user guide page and diagnostic code,
+  and deploys from `main`.
 
 ### R-BUILD-06 — Publication and compatibility
 

@@ -1,5 +1,12 @@
 package io.github.rey5137.topolith.spring.test;
 
+import java.util.List;
+
+import io.github.rey5137.topolith.core.Diagnostic;
+import io.github.rey5137.topolith.core.Mode;
+import io.github.rey5137.topolith.core.TopolithCode;
+import io.github.rey5137.topolith.core.TopolithException;
+import io.github.rey5137.topolith.core.Topology;
 import io.github.rey5137.topolith.spring.boot.internal.FaultSequences;
 import org.springframework.test.context.TestContext;
 import org.springframework.test.context.TestContextAnnotationUtils;
@@ -10,11 +17,29 @@ import org.springframework.util.ReflectionUtils;
 final class TopolithMockTestExecutionListener extends AbstractTestExecutionListener {
     @Override
     public void prepareTestInstance(TestContext context) {
+        checkPackage(context);
         Object instance = context.getTestInstance();
         while (instance != null) {
             injectFields(context, instance);
             instance = enclosingInstance(instance);
         }
+    }
+
+    /**
+     * TL0032 (D-85): a test class in a loopback module's package, or a subpackage, is inside the module by D-81's
+     * package rule and would get the provider instead of the client. Checked per test class, not in the context
+     * customizer, because the cached context is shared by test classes of other packages.
+     */
+    private static void checkPackage(TestContext context) {
+        Class<?> type = context.getTestClass();
+        Topology topology = context.getApplicationContext().getBeanProvider(Topology.class).getIfAvailable();
+        if (topology == null) { return; }
+        topology.ownerOfClass(type.getName()).filter(id -> topology.mode(id) == Mode.LOOPBACK).ifPresent(id -> {
+            throw new TopolithException(new Diagnostic(TopolithCode.TL0032, "test class " + type.getName()
+                    + " is in the package of loopback module '" + id + "', so its injections of the module's contract "
+                    + "would get the in-process provider instead of the HTTP client.",
+                    "Move the test class out of the module's package."));
+        });
     }
 
     /** Clears what the context recorded before the test, such as the startup version handshake. */
@@ -56,11 +81,11 @@ final class TopolithMockTestExecutionListener extends AbstractTestExecutionListe
         if (failure != null) { throw failure; }
     }
 
-    private static java.util.List<ByValueRecorder> recorders(TestContext context) {
-        if (!context.hasApplicationContext()) { return java.util.List.of(); }
+    private static List<ByValueRecorder> recorders(TestContext context) {
+        if (!context.hasApplicationContext()) { return List.of(); }
         var beans = context.getApplicationContext();
-        return beans.getBeanNamesForType(ByValueRecorder.class, false, false).length == 0 ? java.util.List.of()
-                : java.util.List.of(beans.getBean(ByValue.RECORDER, ByValueRecorder.class));
+        return beans.getBeanNamesForType(ByValueRecorder.class, false, false).length == 0 ? List.of()
+                : List.of(beans.getBean(ByValue.RECORDER, ByValueRecorder.class));
     }
 
     /** Only the servers the customizer registered, found without eager init so no lazy bean is created. */

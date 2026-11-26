@@ -187,6 +187,60 @@ class TopolithModuleModeTest {
         }
     }
 
+    /** A caller outside the payment module: its injection of the contract gets the loopback group client. */
+    static class PaymentCaller {
+        final Payment payment;
+        PaymentCaller(Payment payment) { this.payment = payment; }
+        String call() { return payment.ping(); }
+    }
+
+    private static String route(Environment environment) {
+        return org.springframework.web.client.RestClient.create().get()
+                .uri("http://localhost:" + environment.getProperty("local.server.port") + "/payment/ping")
+                .retrieve().body(String.class);
+    }
+
+    @Nested
+    @SpringBootTest(classes = TopolithTestModesTest.Host.class, webEnvironment = WebEnvironment.RANDOM_PORT)
+    @org.springframework.test.context.ActiveProfiles("svc")
+    @TopolithModuleMode(id = "payment", mode = Mode.LOOPBACK)
+    @org.springframework.context.annotation.Import(PaymentCaller.class)
+    class LoopbackMockBean {
+        @org.springframework.test.context.bean.override.mockito.MockitoBean Payment payment;
+        @Autowired PaymentCaller caller;
+        @Autowired PaymentImpl provider;
+        @Autowired Environment environment;
+
+        @Test
+        void ac_test_19_a_mock_bean_of_the_contract_replaces_the_client_and_the_routes_stay() {
+            org.mockito.Mockito.when(payment.ping()).thenReturn("mocked");
+            assertEquals("mocked", caller.call());
+            assertSame(payment, caller.payment);
+            assertFalse(org.mockito.Mockito.mockingDetails(provider).isMock(), "the provider is not replaced");
+            assertEquals("internal", route(environment));
+        }
+    }
+
+    @Nested
+    @SpringBootTest(classes = TopolithTestModesTest.Host.class, webEnvironment = WebEnvironment.RANDOM_PORT)
+    @org.springframework.test.context.ActiveProfiles("svc")
+    @TopolithModuleMode(id = "payment", mode = Mode.LOOPBACK)
+    @org.springframework.context.annotation.Import(PaymentCaller.class)
+    class LoopbackSpyBean {
+        @org.springframework.test.context.bean.override.mockito.MockitoSpyBean Payment payment;
+        @Autowired PaymentCaller caller;
+        @Autowired PaymentImpl provider;
+        @Autowired Environment environment;
+
+        @Test
+        void ac_test_19_a_spy_bean_of_the_contract_wraps_the_client_and_the_call_still_crosses_http() {
+            assertEquals("internal", caller.call());
+            org.mockito.Mockito.verify(payment).ping();
+            assertFalse(org.mockito.Mockito.mockingDetails(provider).isMock(), "the provider is not wrapped");
+            assertEquals("internal", route(environment));
+        }
+    }
+
     @Nested
     @SpringBootTest(classes = TopolithTestModesTest.Host.class, webEnvironment = WebEnvironment.RANDOM_PORT)
     @org.springframework.test.context.ActiveProfiles("svc")

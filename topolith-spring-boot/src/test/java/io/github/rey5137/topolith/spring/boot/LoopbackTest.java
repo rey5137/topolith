@@ -26,6 +26,10 @@ import io.github.rey5137.topolith.spring.boot.loopfixture.host.LoopbackHost;
 import io.github.rey5137.topolith.spring.boot.loopfixture.host.OtherClient;
 import io.github.rey5137.topolith.spring.boot.loopfixture.host.WalletCaller;
 import io.github.rey5137.topolith.spring.boot.loopfixture.shop.ShopService;
+import io.github.rey5137.topolith.spring.boot.loopfixture.wallet.PlainWallet;
+import io.github.rey5137.topolith.spring.boot.loopfixture.wallet.PrimaryWalletConfig;
+import io.github.rey5137.topolith.spring.boot.loopfixture.wallet.PriorityWallet;
+import io.github.rey5137.topolith.spring.boot.loopfixture.wallet.SubPriorityWallet;
 import io.github.rey5137.topolith.spring.boot.loopfixture.wallet.WalletController;
 import io.github.rey5137.topolith.spring.boot.loopfixture.wallet.WalletInside;
 import io.github.rey5137.topolith.spring.boot.loopfixture.wallet.api.Balance;
@@ -36,6 +40,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.aop.support.AopUtils;
+import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.support.AbstractBeanDefinition;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.test.context.assertj.AssertableWebApplicationContext;
@@ -45,6 +50,7 @@ import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 import org.springframework.boot.web.server.servlet.context.AnnotationConfigServletWebServerApplicationContext;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.mock.env.MockEnvironment;
@@ -320,6 +326,62 @@ class LoopbackTest {
     }
 
     @Test
+    void ac_mode_45_a_boot_base_url_from_an_environment_variable_fails_with_tl0003() throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            server(LoopbackHost.class).withClassLoader(loader).withInitializer(context ->
+                    context.getEnvironment().getPropertySources().addLast(new SystemEnvironmentPropertySource(
+                            "systemEnvironment", Map.of("SPRING_HTTP_SERVICECLIENT_WALLET_BASEURL",
+                                    "http://localhost:1"))))
+                    .run(context -> fails(context.getStartupFailure(), TopolithCode.TL0003,
+                            "spring.http.serviceclient.wallet.base-url"));
+        }
+    }
+
+    @Test
+    void ac_mode_53_the_placeholder_base_url_of_a_loopback_group_is_not_a_user_setting() throws Exception {
+        serve(context -> {
+            assertEquals("http://localhost/wallet",
+                    context.getEnvironment().getProperty("spring.http.serviceclient.wallet.base-url"));
+            assertEquals("late", client(context).slow(0));
+        });
+    }
+
+    @Test
+    void ac_mode_54_a_by_type_lookup_outside_the_module_is_ambiguous() throws Exception {
+        serve(context -> {
+            assertThrows(NoUniqueBeanDefinitionException.class, () -> context.getBean(WalletContract.class));
+            assertNull(context.getBeanProvider(WalletContract.class).getIfUnique());
+            assertEquals(2, context.getBeansOfType(WalletContract.class).size());
+        });
+    }
+
+    @Test
+    void ac_mode_54_a_primary_or_priority_loopback_provider_fails_with_tl0003() throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            server(LoopbackHost.class).withClassLoader(loader).withUserConfiguration(PrimaryWalletConfig.class)
+                    .run(context -> fails(context.getStartupFailure(), TopolithCode.TL0003, "primaryWallet",
+                            "'wallet'", "@Primary", "Remove @Primary", "mode to internal"));
+            server(LoopbackHost.class).withClassLoader(loader)
+                    .withBean("plainWallet", PlainWallet.class, PlainWallet::new, definition -> definition
+                            .setPrimary(true))
+                    .run(context -> fails(context.getStartupFailure(), TopolithCode.TL0003, "plainWallet",
+                            "@Primary"));
+            server(LoopbackHost.class).withClassLoader(loader)
+                    .withBean("priorityWallet", PriorityWallet.class, PriorityWallet::new)
+                    .run(context -> fails(context.getStartupFailure(), TopolithCode.TL0003, "priorityWallet",
+                            "@Priority", "Remove @Priority"));
+            server(LoopbackHost.class).withClassLoader(loader)
+                    .withBean("subWallet", SubPriorityWallet.class, SubPriorityWallet::new)
+                    .run(context -> fails(context.getStartupFailure(), TopolithCode.TL0003, "subWallet",
+                            "@Priority"));
+            server(LoopbackHost.class).withClassLoader(loader).withPropertyValues("topolith.modules.wallet.mode=internal")
+                    .withBean("plainWallet", PlainWallet.class, PlainWallet::new, definition -> definition
+                            .setPrimary(true))
+                    .run(context -> assertNull(context.getStartupFailure()));
+        }
+    }
+
+    @Test
     void ac_mode_46_without_a_loopback_module_nothing_of_loopback_is_registered() throws Exception {
         try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
             for (String mode : List.of("internal", "none")) {
@@ -423,7 +485,7 @@ class LoopbackTest {
             String group = "spring.http.serviceclient.wallet.";
             assertEquals("2s", context.getEnvironment().getProperty(group + "connect-timeout"));
             assertEquals("5s", context.getEnvironment().getProperty(group + "read-timeout"));
-            assertNull(context.getEnvironment().getProperty(group + "base-url"));
+            assertEquals("http://localhost/wallet", context.getEnvironment().getProperty(group + "base-url"));
         });
         serve(context -> {
             assertEquals("3s", context.getEnvironment()
@@ -485,6 +547,10 @@ class LoopbackTest {
             assertEquals("late", client(context).slow(1500), "the running client keeps its read timeout");
             refresh(context, fault, "0.5");
             assertTrue(output.getAll().contains("the refreshed " + fault), output.getAll());
+            assertFalse(output.getAll().contains("TL0003"), "a loopback.* refresh does not mention TL0003");
+            refresh(context, "topolith.modules.wallet.remote.url", "http://x");
+            assertTrue(output.getAll().contains("TL0003"), output.getAll());
+            refresh(context, "topolith.modules.wallet.remote.url", null);
             int before = output.getAll().length();
             refresh(context, timeout, null, fault, "0.25");
             String last = output.getAll().substring(before);
@@ -515,5 +581,24 @@ class LoopbackTest {
                     + "configuration requests 'loopback'"), output.getAll());
             assertEquals(Map.of("wallet", "loopback"), context.getBean(TopolithRefreshStatus.class).requestedModes());
         }, mode + "=internal");
+    }
+
+    @Test
+    void ac_mode_47_a_refreshed_remote_url_or_service_id_on_a_loopback_module_logs(CapturedOutput output)
+            throws Exception {
+        serve(context -> {
+            TopolithRefreshStatus status = context.getBean(TopolithRefreshStatus.class);
+            for (String key : List.of("topolith.modules.wallet.remote.url",
+                    "topolith.modules.wallet.remote.service-id")) {
+                int before = output.getAll().length();
+                refresh(context, key, "http://elsewhere");
+                String last = output.getAll().substring(before);
+                assertTrue(last.contains("TL0010") && last.contains("the refreshed " + key)
+                        && last.contains("TL0003"), last);
+                assertTrue(status.restartPending());
+                refresh(context, key, null);
+                assertFalse(status.restartPending());
+            }
+        });
     }
 }

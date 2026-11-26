@@ -32,6 +32,7 @@ keeps running.
 | `TL0021` | An internal module's entity is managed by no entity-manager factory, or by several. | failure | Make exactly one entity-manager factory manage it. |
 | `TL0024` | A Spring Data repository or MyBatis mapper interface in an internal module's or the host's package has no registration. | failure | Register it (`@Enable<Store>Repositories` or `@MapperScan`), or mark it `@NoRepositoryBean`. With several stores, annotate the aggregate for its store or extend a store-specific interface. |
 | `TL0031` | An internal module's default-candidate bean makes an auto-configuration back off. | failure | Make it a non-default candidate with a qualifier, or move it to the host. |
+| `TL0032` | A test class is in a loopback module's package or a subpackage. | failure | Move the test class out of the module's package. |
 
 ## External mode and contracts
 

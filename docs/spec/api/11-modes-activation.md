@@ -140,7 +140,15 @@ unchanged, and INV-2's non-internal module is one that is neither `internal` nor
   therefore gets the HTTP client for the contract, while the module's own injections
   of its contract, any injection of the provider's concrete class and collections of its other interfaces still get
   the provider. The provider's routes are mapped, R-EXT-07's boundary applies to it, and it is not a second provider
-  for TL0005. Nothing is marked `@Primary` and nothing falls back to the bean (INV-4).
+  for TL0005. Nothing is marked `@Primary` and nothing falls back to the bean (INV-4). The resolver covers injection
+  points only (D-84): a by-type programmatic lookup of the contract (`getBean(Class)`, `getBeanProvider(Class)`,
+  `getBeansOfType`) is ambiguous by design, so code outside the module injects the contract or looks the client up as
+  bean `<id>#<interface FQN>`; a lookup by the provider's bean name still returns the provider. A provider that is
+  `@Primary` or whose class carries `@jakarta.annotation.Priority` would win such a lookup, so it fails with TL0003.
+  "Inside the module" is the package alone, so production code in the module's package gets the provider (package =
+  module, by design); a test class there fails with TL0032 (D-85, R-TEST-05).
+- **Scope of parity.** Loopback checks contract-call parity only. Events, persistence and listeners behave as in
+  `internal` mode, and event parity is RFC 0001 §7 (0.3) (Q-27).
 - **Routes.** The module's routes are mapped under its fixed `/<id>` prefix, as for an exposed module (R-EXT-05), and
   belong to `ExposedEndpoints` and `ExposedRequestMatcher`, so the host's `SecurityFilterChain` sees them and applies to
   loopback calls as to any other request. `expose.enabled` unset or `true` changes nothing; an explicit `false`
@@ -162,15 +170,17 @@ unchanged, and INV-2's non-internal module is one that is neither `internal` nor
   interface that is not the module's fails with TL0003, as for an external module (R-EXT-02). `remote.connect-timeout`
   and `remote.read-timeout` (R-EXT-03), `remote.http-interface` (D-49), `ModuleClients.configure` (R-EXT-06) and the
   `loopback.*` keys (R-EXT-10) apply. R-VAL-04 compares the host API descriptor with the module's own descriptor, as for
-  an internal module, and reads no remote version.
+  an internal module, and reads no remote version. Topolith maps the placeholder base URL `http://localhost/<id>` to
+  the group (AC-MODE-53); it is not a user setting.
 - **Refresh.** A mode change to or from `loopback` is a mode change under R-MODE-05 (TL0010, restart pending). A
-  loopback module's client settings (its timeouts, `remote.http-interface` and `loopback.*`) are restart-only: a refresh
+  loopback module's client settings (its timeouts, `remote.http-interface`, `loopback.*`, and a non-blank
+  `remote.url` or `remote.service-id`, which the next start rejects with TL0003) are restart-only: a refresh
   changing one leaves the client unchanged, logs TL0010 naming the module and the key, and marks restart pending until
   every such key again matches its running value (D-77).
 - **Where.** Loopback is allowed in any host. It is chosen explicitly per module (INV-3), so no host gets it by
   accident, and Topolith logs no warning for it (D-76).
 
-Implements INV-2, INV-3, INV-4, INV-6, INV-8, P-3, D-74, D-75, D-76, D-77, D-81, D-82 and D-83.
+Implements INV-2, INV-3, INV-4, INV-6, INV-8, P-3, D-74, D-75, D-76, D-77, D-81, D-82, D-83, D-84 and D-85.
 
 - AC-MODE-40 (M5.3): A loopback module's configuration, packages, auto-configurations, entities and migrations are
   imported as for an internal module.
@@ -192,10 +202,23 @@ Implements INV-2, INV-3, INV-4, INV-6, INV-8, P-3, D-74, D-75, D-76, D-77, D-81,
   with SSL on (by `server.ssl.enabled` or by `server.ssl.bundle` alone) fails with TL0026, and in a reactive application
   with TL0028.
 - AC-MODE-45 (M5.3): A loopback module with a non-blank `remote.url` or `remote.service-id`, or an explicit Boot
-  `base-url`, fails with TL0003 naming the key and the fix, while blank `remote.*` values start; a host HTTP service
+  `base-url` (set by the user, in any property source), fails with TL0003 naming the key and the fix, while blank
+  `remote.*` values start; a host HTTP service
   group named like the loopback module that holds another interface fails with TL0003.
 - AC-MODE-46 (M5.3): A host with no loopback module registers no loopback client group, autowire-candidate resolver,
   base-URL resolver or fault interceptor; a `none` module leaves no trace of them.
 - AC-MODE-47 (M5.3): A refresh changing a mode to or from `loopback` logs TL0010 and marks restart pending; a refresh
   changing a loopback module's timeouts or `loopback.*` keys leaves its client unchanged, logs TL0010 naming the module
-  and the key, and marks restart pending until the key again matches its running value.
+  and the key, and marks restart pending until the key again matches its running value; a refresh that sets a
+  non-blank `remote.url` or `remote.service-id` on a loopback module does the same, and its message notes that the
+  next start fails with TL0003.
+- AC-MODE-53 (M5): A loopback call in a host with Spring Cloud LoadBalancer on the classpath reaches the host's own
+  server: the loopback group carries a Topolith-owned placeholder base URL (`http://localhost/<id>`, replaced by the
+  loopback client's own URI factory), so the load balancer's group configurer leaves it alone, and the placeholder
+  is not a user setting for AC-MODE-45.
+- AC-MODE-54 (M5): With a loopback module, `getBean(<contract>)` outside the module throws
+  `NoUniqueBeanDefinitionException`, `getBeanProvider(<contract>).getIfUnique()` returns `null` and `getBeansOfType`
+  returns the provider and the client; a loopback provider bean that is `@Primary` or whose class carries
+  `@jakarta.annotation.Priority` (also inherited; a provider declared through an interface-typed `@Bean` return is checked by its
+  declared type only) fails startup with TL0003 naming the bean and the fix, and the same provider in an
+  `internal` module starts.

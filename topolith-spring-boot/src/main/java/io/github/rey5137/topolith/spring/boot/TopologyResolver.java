@@ -29,7 +29,12 @@ import org.springframework.beans.factory.config.SingletonBeanRegistry;
 import org.springframework.boot.context.properties.bind.BindException;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.ConfigurationPropertyName;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySource;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.PropertySource;
 import org.springframework.core.env.StandardEnvironment;
 
 /**
@@ -218,11 +223,27 @@ final class TopologyResolver {
             }
         }
         String base = ExternalClientProperties.groupPrefix(id) + "base-url";
-        if (binder.bind(base, String.class).isBound()) {
+        if (userSets(env, binder, base)) {
             problems.add(new Diagnostic(TopolithCode.TL0003, "loopback module '" + id + "' sets " + base
                     + ", but a loopback module calls the host's own server.", "Remove " + base + "."));
         }
         timeoutConflicts(env, binder, id, problems);
+    }
+
+    /** Whether a property source other than Topolith's own mapped one (the loopback placeholder) sets {@code key}. */
+    private static boolean userSets(Environment env, Binder binder, String key) {
+        ConfigurationPropertyName name = ConfigurationPropertyName.ofIfValid(key);
+        if (!(env instanceof ConfigurableEnvironment) || name == null) {
+            return binder.bind(key, String.class).isBound();
+        }
+        for (ConfigurationPropertySource source : ConfigurationPropertySources.get(env)) {
+            if (!(source.getUnderlyingSource() instanceof PropertySource<?> underlying
+                    && underlying.getName().equals(ExternalClientProperties.SOURCE_NAME))
+                    && source.getConfigurationProperty(name) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Map<String, Map<String, String>> httpInterfaces(Binder binder, Topology topology,

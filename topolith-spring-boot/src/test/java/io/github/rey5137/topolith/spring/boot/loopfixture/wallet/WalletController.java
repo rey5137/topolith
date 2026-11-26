@@ -11,6 +11,8 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 /** The provider of {@link WalletContract}; it also implements a host interface. */
 @RestController
 public class WalletController implements WalletContract, Auditable {
+    /** How many times {@link #slow} ran, to tell a call that reached the provider. */
+    public final java.util.concurrent.atomic.AtomicInteger slowCalls = new java.util.concurrent.atomic.AtomicInteger();
     private volatile Balance returned;
 
     @Override
@@ -33,6 +35,7 @@ public class WalletController implements WalletContract, Auditable {
 
     @Override
     public String slow(long millis) {
+        slowCalls.incrementAndGet();
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {

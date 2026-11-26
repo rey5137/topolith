@@ -7,14 +7,14 @@ It also specifies the shared tests for the reference topologies.
 
 ### R-TEST-01 — Mode configuration
 
-`topolith-spring-test` supplies per-mode test configuration for the supported 0.1 modes. Implements INV-3, P-3 and D-18.
+`topolith-spring-test` supplies per-mode test configuration for the supported 0.1 modes. Implements INV-3, P-3, D-18 and D-62.
 
 - AC-TEST-01 (M3.4): A test can select `internal`, `external` or `none` for a module through the helper.
 - AC-TEST-02 (M3.4): Helper-selected `none` leaves no implementation contributions in the test context.
 
 ### R-TEST-02 — External dependency test wiring
 
-`topolith-spring-test` provides mock-server wiring for external dependencies. Implements INV-6, P-2 and D-18.
+`topolith-spring-test` provides mock-server wiring for external dependencies. Implements INV-6, P-2, D-18 and D-62.
 
 - AC-TEST-03 (M3.4): An external contract call reaches a test-configured mock server through the helper.
 - AC-TEST-04 (M3.4): A mock-server error exercises the external client's API exception mapping.

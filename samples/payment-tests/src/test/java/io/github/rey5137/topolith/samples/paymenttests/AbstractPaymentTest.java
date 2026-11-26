@@ -1,4 +1,4 @@
-package io.github.rey5137.topolith.samples.payment.tests;
+package io.github.rey5137.topolith.samples.paymenttests;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import io.github.rey5137.topolith.core.Mode;
+import io.github.rey5137.topolith.core.Topology;
 import io.github.rey5137.topolith.samples.payment.api.ChargeRequest;
 import io.github.rey5137.topolith.samples.payment.api.ChargeResult;
 import io.github.rey5137.topolith.samples.payment.api.PaymentApi;
@@ -49,6 +51,17 @@ public abstract class AbstractPaymentTest {
         assertEquals(0, request.amount().compareTo(found.amount()));
     }
 // snippet:end shared-payment-test
+
+    @Autowired
+    protected Topology topology;
+
+    /** The mode this run names for payment: each subclass is one column of the mode matrix (R-TEST-05). */
+    protected abstract Mode paymentMode();
+
+    @Test
+    void ac_test_14_payment_runs_in_the_mode_this_run_names() {
+        assertEquals(paymentMode(), topology.mode("payment"));
+    }
 
     @Test
     void ac_test_05_declined_charge_keeps_the_declared_type() {

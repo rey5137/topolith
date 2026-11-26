@@ -1,6 +1,7 @@
 package io.github.rey5137.topolith.samples.hosts.hybrid;
 
-import io.github.rey5137.topolith.samples.payment.tests.AbstractPaymentTest;
+import io.github.rey5137.topolith.core.Mode;
+import io.github.rey5137.topolith.samples.paymenttests.AbstractPaymentTest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
@@ -29,6 +30,11 @@ class HybridConsulPaymentTest extends AbstractPaymentTest {
     private static ConsulContainer consul;
     private static int consulPort;
     private static GenericContainer<?> paymentService;
+
+    @Override
+    protected Mode paymentMode() {
+        return Mode.EXTERNAL;
+    }
 
     @DynamicPropertySource
     static void consulProperties(DynamicPropertyRegistry registry) {

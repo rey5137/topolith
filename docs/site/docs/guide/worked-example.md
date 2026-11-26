@@ -396,7 +396,7 @@ Content-Type: application/problem+json
 
 The payment cases are written once, against `PaymentApi`, in `samples/payment-tests`:
 
-<!-- snippet: samples/payment-tests/src/test/java/io/github/rey5137/topolith/samples/payment/tests/AbstractPaymentTest.java#shared-payment-test -->
+<!-- snippet: samples/payment-tests/src/test/java/io/github/rey5137/topolith/samples/paymenttests/AbstractPaymentTest.java#shared-payment-test -->
 ```java
 /** The payment contract every sample host must satisfy (AC-TEST-05); shipped as this module's test-jar. */
 public abstract class AbstractPaymentTest {
@@ -423,14 +423,38 @@ public abstract class AbstractPaymentTest {
     }
 ```
 
-Each host runs them by extending the class. The monolith needs nothing more than a Boot test:
+Each host runs them by extending the class and naming the mode payment runs in; a shared case checks that payment
+really runs in it. The monolith runs them twice. First with payment internal behind the by-value proxy, which passes
+every argument and result as a JSON copy and fails the test when payment changes an object it shares with its caller,
+as an HTTP call would never let it:
 
 <!-- snippet: samples/hosts/monolith/src/test/java/io/github/rey5137/topolith/samples/hosts/monolith/MonolithPaymentTest.java#monolith-payment-test -->
 ```java
 @SpringBootTest(classes = MonolithApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
+@TopolithByValue("payment")
 class MonolithPaymentTest extends AbstractPaymentTest {
+    @Override
+    protected Mode paymentMode() {
+        return Mode.INTERNAL;
+    }
+```
+
+Then with payment in loopback mode: still in the same JVM, but every call goes over HTTP to the test's own server:
+
+<!-- snippet: samples/hosts/monolith/src/test/java/io/github/rey5137/topolith/samples/hosts/monolith/MonolithLoopbackPaymentTest.java#monolith-loopback-payment-test -->
+```java
+@SpringBootTest(classes = MonolithApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "spring.datasource.url=jdbc:h2:mem:monolith-loopback;DB_CLOSE_DELAY=-1")
+@AutoConfigureTestRestTemplate
+@TopolithModuleMode(id = "payment", mode = Mode.LOOPBACK)
+class MonolithLoopbackPaymentTest extends AbstractPaymentTest {
+    @Override
+    protected Mode paymentMode() {
+        return Mode.LOOPBACK;
+    }
 ```
 
 The hybrid test starts the real `payment-service` JAR in a Testcontainers container and points the host at it:
@@ -459,8 +483,9 @@ class HybridPaymentTest extends AbstractPaymentTest {
     }
 ```
 
-The same test methods run in all three hosts. The order-route case runs only where `user` is internal, so the payment
-host skips it. To test `user` without running payment at all, use mock mode; see
+The same test methods run in all three hosts, and payment runs internal, loopback and external among them: a contract
+that only works in-process fails one of the runs. The order-route case runs only where `user` is internal, so the
+payment host skips it. To test `user` without running payment at all, use mock mode; see
 [Testing](../testing.md).
 
 ## Apply It to Your Project

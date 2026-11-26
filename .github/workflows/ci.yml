@@ -32,3 +32,33 @@ jobs:
       - run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
       - run: python3 .github/scripts/ac_audit.py
       - run: ./mvnw -B -ntp verify
+
+  release-dry-run:
+    name: Release dry run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+          server-id: central
+          server-username: DRY_RUN_USER
+          server-password: DRY_RUN_PASSWORD
+      - name: Build and sign release bundle (dry run)
+        env:
+          DRY_RUN_USER: dry-run
+          DRY_RUN_PASSWORD: dry-run
+        run: |
+          gnupghome="$(mktemp -d)"
+          export GNUPGHOME="${gnupghome}"
+          gpg --batch --passphrase '' --quick-gen-key "Topolith CI <ci@example.com>" rsa3072 sign 1d
+          export MAVEN_GPG_KEY="$(gpg --armor --export-secret-keys)"
+          export MAVEN_GPG_PASSPHRASE=""
+          ./mvnw -B -ntp -Prelease -DskipTests -Drevision=0.1.0 -DskipPublishing=true deploy
+      - name: Verify release bundle
+        run: python3 .github/scripts/check_release_bundle.py target/central-staging
+

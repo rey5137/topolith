@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.env.Environment;
+import io.github.rey5137.topolith.core.Incubating;
 import io.github.rey5137.topolith.core.Topology;
 import org.springframework.core.Ordered;
 
@@ -15,6 +16,7 @@ import org.springframework.core.Ordered;
  * Activates the internal modules (D-30). It is ordered first and imports a non-deferred selector, so a module's beans
  * are parsed before the conditions of every later auto-configuration are evaluated.
  */
+@Incubating
 @AutoConfiguration
 @AutoConfigureOrder(Ordered.HIGHEST_PRECEDENCE)
 @Import({TopolithModuleImportSelector.class, TopolithEndpointConfiguration.class,

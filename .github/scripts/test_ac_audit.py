@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -184,8 +185,10 @@ class AuditTest(unittest.TestCase):
 
     def test_ac_ci_08_ci_fetches_full_history(self):
         workflow = WORKFLOW.read_text()
-        self.assertEqual(workflow.count('actions/checkout@'), 1)
-        self.assertRegex(workflow, r'(?m)^\s+- uses: actions/checkout@v\d+\s*\n\s+with:\s*\n\s+fetch-depth:\s*0\s*$')
+        checkouts = re.findall(r'(?m)^\s+- uses: actions/checkout@v\d+\s*\n\s+with:\s*\n\s+fetch-depth:\s*0\s*$',
+                               workflow)
+        self.assertGreaterEqual(len(checkouts), 1)
+        self.assertEqual(len(checkouts), workflow.count('actions/checkout@'))
 
 
 if __name__ == '__main__':

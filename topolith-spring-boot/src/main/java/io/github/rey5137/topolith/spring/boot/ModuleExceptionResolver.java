@@ -1,5 +1,6 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import io.github.rey5137.topolith.spring.boot.internal.Outcomes;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.net.URI;
@@ -33,7 +34,7 @@ import org.springframework.web.servlet.ModelAndView;
  */
 final class ModuleExceptionResolver implements HandlerExceptionResolver, Ordered {
     /** The {@code type} of every problem Topolith writes; a caller rebuilds only problems carrying it. */
-    static final String TYPE = "urn:topolith:problem:contract-exception";
+    static final String TYPE = Outcomes.PROBLEM_TYPE;
     static final String EXCEPTION = "exception";
     static final String MODULE = "module";
 

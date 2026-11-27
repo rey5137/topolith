@@ -566,7 +566,10 @@ auto-configuration (which is not gated on `EnvironmentChangeEvent` or `spring-cl
   `remote.retry.*` key, an invalid value (`max-attempts` outside `[1, 10]`, a negative or unparsable duration, an
   explicit `max-backoff` below `initial-backoff`, `multiplier` below `1.0` or non-finite, `safe-methods-idempotent` not
   a boolean), or setting `remote.retry.max-attempts > 1` while Spring Cloud's global
-  `spring.cloud.circuitbreaker.http-services.enabled=true` is also set fails startup with TL0003 naming the key. Tuning
+  `spring.cloud.circuitbreaker.http-services.enabled=true` is also set fails startup with TL0003 naming the key. Spring
+  Cloud enables its global breaker when that key is unset, so Topolith defaults the key to `false` (a lowest-priority
+  property a host's own value overrides) while a module has `remote.retry.max-attempts > 1` or
+  `remote.circuit-breaker.enabled=true` (D-106). Tuning
   keys (`initial-backoff`, `max-backoff`, `multiplier`, `safe-methods-idempotent`) are allowed when `max-attempts` is
   unset or `1`: their values are validated at startup and refresh, and they are inactive while `max-attempts=1`.
   Setting `remote.retry.max-attempts > 1` without `topolith-spring-cloud`'s resilience configuration on the classpath
@@ -618,8 +621,8 @@ later as an internal adapter with no key, diagnostic code or rule change (D-105)
 | `enabled` | boolean, `false` | Wraps module `<id>`'s group exchanges in a Spring Cloud `CircuitBreaker` named `<id>` |
 | `failure-rate-threshold` | float in `(0, 100]`, `50` | Failure percentage at or above which the circuit opens |
 | `sliding-window-size` | int `>= 1`, `100` | Number of calls in the count-based sliding window |
-| `minimum-number-of-calls` | int in `[1, sliding-window-size]`, `10` | Minimum calls recorded before the failure rate can open the circuit |
-| `wait-duration-in-open-state` | duration `> 0`, `60s` | How long the circuit stays open before entering half-open |
+| `minimum-number-of-calls` | int in `[1, sliding-window-size]`, `10` (the window size when that is smaller) | Minimum calls recorded before the failure rate can open the circuit |
+| `wait-duration-in-open-state` | duration of at least `1ms`, `60s` | How long the circuit stays open before entering half-open |
 
 - **What trips the breaker and D-51 translation.** Topolith classifies each attempt's outcome itself, identically in
   every breaker implementation. A breaker failure is recorded only for a transport or availability failure of the
@@ -644,7 +647,7 @@ later as an internal adapter with no key, diagnostic code or rule change (D-105)
 - **Validation, ownership, activation and refresh.** A `remote.circuit-breaker.*` key on an `internal`, `none` or
   unknown module, an unknown key, or an invalid value (`enabled` not a boolean, `failure-rate-threshold` outside
   `(0, 100]` or non-finite, `sliding-window-size` or `minimum-number-of-calls` below `1`, `minimum-number-of-calls`
-  above the effective `sliding-window-size`, `wait-duration-in-open-state` not positive) fails startup with TL0003
+  above the effective `sliding-window-size`, `wait-duration-in-open-state` below `1ms`) fails startup with TL0003
   naming the key. Threshold keys are allowed when `enabled` is unset or `false`: their values are validated at startup
   and refresh, and they are inactive while `enabled=false`. When `remote.circuit-breaker.enabled=true`, Topolith alone
   owns breaker `<id>`: another source configuring `<id>` (a Spring Cloud `Customizer` or `configure` callback for
@@ -692,7 +695,7 @@ Implements INV-2, INV-4, INV-6, INV-7, D-51 and D-102 through D-105.
   invalid value (`max-attempts` outside `[1, 10]`, a negative backoff, an explicit `max-backoff` below
   `initial-backoff`, `multiplier` below `1.0`, `safe-methods-idempotent` or `circuit-breaker.enabled` not a boolean,
   `failure-rate-threshold` outside `(0, 100]`, `sliding-window-size` or `minimum-number-of-calls` below `1`,
-  `minimum-number-of-calls` above the effective `sliding-window-size`, `wait-duration-in-open-state` not positive),
+  `minimum-number-of-calls` above the effective `sliding-window-size`, `wait-duration-in-open-state` below `1ms`),
   `max-attempts` above `1` or `circuit-breaker.enabled=true` together with
   `spring.cloud.circuitbreaker.http-services.enabled=true`, another source configuring breaker `<id>`, a breaker named
   `<id>` already in `CircuitBreakerRegistry`, an active Resilience4j bulkhead provider on the factory, or a host

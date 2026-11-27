@@ -9,9 +9,9 @@ import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 
 import io.github.rey5137.topolith.contract.ModuleUnavailableException;
+import io.github.rey5137.topolith.spring.boot.internal.Outcomes;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
-import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
@@ -24,7 +24,7 @@ import org.springframework.web.client.RestClientResponseException;
  */
 final class ContractCallTranslator implements MethodInterceptor {
     /** The prefix of Spring Cloud LoadBalancer's no-instance {@code IllegalStateException}. */
-    static final String NO_INSTANCES = "No instances available for";
+    static final String NO_INSTANCES = Outcomes.NO_INSTANCES;
     /** The kind of a {@link ModuleUnavailableException} propagated by the provider. */
     static final String DOWNSTREAM = "unavailable downstream";
     private static final int MAX_NAME_LENGTH = 512;
@@ -120,7 +120,7 @@ final class ContractCallTranslator implements MethodInterceptor {
     }
 
     private RuntimeException translate(RestClientResponseException e) {
-        ProblemDetail problem = problem(e);
+        ProblemDetail problem = Outcomes.problem(e);
         if (problem != null) {
             Object name = problem.getProperties() == null ? null : problem.getProperties().get(ModuleExceptionResolver
                     .EXCEPTION);
@@ -133,21 +133,6 @@ final class ContractCallTranslator implements MethodInterceptor {
             return unavailable(module, "status " + e.getStatusCode().value(), e);
         }
         return e;
-    }
-
-    /** The response's Topolith problem, or null for any other body. */
-    private static ProblemDetail problem(RestClientResponseException e) {
-        MediaType type = e.getResponseHeaders() == null ? null : e.getResponseHeaders().getContentType();
-        if (type == null || !MediaType.APPLICATION_PROBLEM_JSON.isCompatibleWith(type)) {
-            return null;
-        }
-        try {
-            ProblemDetail problem = e.getResponseBodyAs(ProblemDetail.class);
-            return problem != null && problem.getType() != null
-                    && ModuleExceptionResolver.TYPE.equals(problem.getType().toString()) ? problem : null;
-        } catch (RuntimeException unreadable) {
-            return null;
-        }
     }
 
     private RuntimeException rebuild(String className, ProblemDetail problem, RestClientResponseException e) {

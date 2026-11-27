@@ -23,6 +23,7 @@ import io.github.rey5137.topolith.core.ModuleDescriptor;
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.core.Topology;
+import io.github.rey5137.topolith.spring.boot.internal.ResilienceSettings;
 
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.config.SingletonBeanRegistry;
@@ -62,7 +63,7 @@ final class TopologyResolver {
     record Resolution(Topology topology, Map<String, String> importOwners, Map<String, String> rootOwners,
             List<String> versionWarnings, Map<String, Set<String>> contracts, Set<String> exposed,
             Map<String, String> apiVersions, Map<String, String> hostApiVersions,
-            Map<String, Map<String, String>> httpInterfaces) {
+            Map<String, Map<String, String>> httpInterfaces, Map<String, Set<String>> idempotent) {
     }
 
     private TopologyResolver() {
@@ -132,6 +133,7 @@ final class TopologyResolver {
         unknownModules(binder, topology, problems);
         LoopbackFaults.check(binder, topology, problems);
         OutgoingAuth.check(binder, topology, problems);
+        ResilienceSettings.check(env, binder, topology, classLoader, problems);
         Set<String> exposed = exposed(env, binder, topology, problems);
         Map<String, Set<String>> contracts = new TreeMap<>();
         found.apis().forEach(api -> contracts.computeIfAbsent(api.id(), key -> new LinkedHashSet<>())
@@ -168,12 +170,17 @@ final class TopologyResolver {
                 }
             }
         }
+        Map<String, Set<String>> idempotent = new TreeMap<>();
+        found.apis().forEach(api -> idempotent.computeIfAbsent(api.id(), key -> new TreeSet<>())
+                .addAll(api.idempotent()));
+        found.modules().forEach(module -> idempotent.computeIfAbsent(module.id(), key -> new TreeSet<>())
+                .addAll(module.idempotent()));
         Map<String, String> versions = new TreeMap<>();
         found.modules().forEach(module -> versions.put(module.id(), module.apiVersion()));
         Map<String, String> hostVersions = new TreeMap<>();
         found.apis().forEach(api -> hostVersions.put(api.id(), api.apiVersion()));
         return new Resolution(topology, found.importOwners(), found.rootOwners(), List.copyOf(warnings), contracts,
-                Set.copyOf(exposed), Map.copyOf(versions), Map.copyOf(hostVersions), mappings);
+                Set.copyOf(exposed), Map.copyOf(versions), Map.copyOf(hostVersions), mappings, idempotent);
     }
 
     /**

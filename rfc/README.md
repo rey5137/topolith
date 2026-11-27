@@ -11,3 +11,4 @@ Bug fixes, new tests, documentation and anything behind an existing escape hatch
 | RFC | Title | Status |
 |---|---|---|
 | [0001](0001-architecture.md) | Topolith architecture | accepted |
+| [0002](0002-open-questions-0-1.md) | Answering the open questions before 0.1.0 | accepted |

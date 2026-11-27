@@ -42,8 +42,10 @@ descriptor major, or for an external module against its remote provider's versio
 `/<id>/.topolith/api-version` (plain text; D-44 to D-47). The remote read is asynchronous (D-24). A mismatch logs warning TL0023 once and neither fails startup nor changes readiness
 (D-34). Use the mandatory client timeouts in R-EXT-03 for the
 remote check. If the endpoint is unreachable, returns any non-2xx response, or returns a 2xx response without a readable
-version, log warning TL0015; the failed version check does not make an otherwise-ready host unready. Implements INV-4,
-D-22, D-24 and D-34.
+version, log warning TL0015; the failed version check does not make an otherwise-ready host unready. Closing the
+context interrupts a remote check still running, and no TL0015 or TL0023 is logged after close starts, so no warning
+outlives its context (D-118); a test waits for the check with R-TEST-06's helper. Implements INV-4, D-22, D-24, D-34
+and D-118.
 
 - AC-VAL-05 (M1.5): Internal readiness warns by default on a host API versus internal descriptor major mismatch.
 - AC-VAL-06 (M2.4): The provider exposes its API version at `/<id>/.topolith/api-version`.
@@ -54,6 +56,8 @@ D-22, D-24 and D-34.
 - AC-VAL-12 (M2.4): A version endpoint response 404 logs warning TL0015 without making an otherwise-ready host unready.
 - AC-VAL-13 (M2.4): A 5xx response or a 2xx response with an unreadable body each logs warning TL0015 without making
   an otherwise-ready host unready.
+- AC-VAL-15 (M8.7): A context closed while its remote version check waits on a slow provider stops the check, and no
+  TL0015 or TL0023 is logged after the close.
 
 ### R-VAL-05 — Running topology status
 

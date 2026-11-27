@@ -58,16 +58,26 @@ P-2 and D-40.
 ### R-EXT-04 — Errors
 
 Declared exceptions cross HTTP as ProblemDetail and are reconstructed as the same exception type; transport
-failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6, D-3 and D-43.
+failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6, D-3, D-43, D-116 and D-117.
 
 - **Declared.** An unchecked exception is declared when its class, or its nearest non-abstract superclass, lies in an
   api package the host knows (exact packages, D-27). Only the top-level exception counts, never its cause chain.
   `ModuleUnavailableException` is always declared, so a provider's own failed call reaches its caller unchanged.
+  `IllegalArgumentException`, `IllegalStateException` and `UnsupportedOperationException` are declared for every
+  module, and a subclass of one outside the api packages is declared as its nearest listed class (D-117). A checked
+  exception class named in a contract method's `throws` clause must itself lie in an api package (TL0027 otherwise);
+  a checked exception the provider throws is then declared as R-EXT-04's declared class, the thrown class in an api
+  package or else its nearest non-abstract superclass there, which is the named class or a subclass of it, so the
+  method can throw it (D-116). It crosses and is rebuilt like an unchecked one. An exception's other fields and its
+  cause chain never cross.
 - **Provider.** On a handler whose bean type lies in an internal or loopback module's `package`, a declared exception answers
   `application/problem+json` with `type` `urn:topolith:problem:contract-exception`, the status of its
   `@ResponseStatus` (default 500; 503 for `ModuleUnavailableException`), `detail` set to the message (for
   `ModuleUnavailableException` the fixed message below), and the
-  properties `exception` (the declared class name) and `module`. On those handlers this takes precedence over the
+  properties `exception` (the declared class name) and `module`. Before such a handler runs, once R-EXT-12's tenant
+  check has passed, Topolith sets the response header `Topolith-Module: <id>`, so every response the handler produces,
+  an error included, is marked as the module's own (D-117); a handler or filter that resets the response drops it.
+  On those handlers this takes precedence over the
   host's `@ControllerAdvice`s and the module's own `@ExceptionHandler`s, which would run only in external mode; any
   other exception, and any other handler, is left to the host and Boot, and an undeclared exception's message is not sent by Topolith (it is
   left to the host's error handling, so a host setting `server.error.include-message=always` sends it, and the caller's
@@ -81,9 +91,17 @@ failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6
   Spring Cloud CircuitBreaker on the group (R-EXT-15's per-group breaker or
   `spring.cloud.circuitbreaker.http-services.enabled=true`) the translation sees through the breaker's no-fallback
   wrapper (D-51), a time-limiter timeout raises `ModuleUnavailableException` with kind `timeout`, and a call rejected
-  by an open circuit raises it with kind `circuit open`; a host's own wrapper exception propagates as thrown.
-- **Unspecified.** Any other failure (an undeclared exception, a 4xx or 500 without a Topolith problem) raises an
-  unchecked exception that is neither a declared type nor `ModuleUnavailableException`; its type is unspecified.
+  by an open circuit raises it with kind `circuit open`; a host's own wrapper exception propagates as thrown. A 401,
+  403, 404, 405 or 415 without a Topolith problem and without the `Topolith-Module` header (a missing route, a method
+  or media type the route does not take, the host's security chain, or R-EXT-12's tenant rejection: the module's
+  handler never ran) raises `ModuleUnavailableException` with kind `status <code>` and the HTTP exception as cause
+  (D-117); R-EXT-14 and R-EXT-15 still ignore these statuses (no retry, no breaker failure). The same status carrying
+  the header came from the module's handler (a `ResponseStatusException`, method security, an undeclared
+  `@ResponseStatus` exception), so it is undeclared, as in internal mode. A caller rebuilds a checked exception and
+  throws it from the contract method that declares it.
+- **Unspecified.** Any other failure (an undeclared exception, a 4xx carrying the `Topolith-Module` header, any other
+  4xx, or a 500 without a Topolith problem) raises an unchecked exception that is neither a declared type nor
+  `ModuleUnavailableException`; its type is unspecified.
 
 - AC-EXT-09 (M2.3): A declared API exception returns as ProblemDetail and reconstructs the same type at the caller; a
   subclass outside the api packages is rebuilt as its declared ancestor, and an exception from another module's api
@@ -94,7 +112,8 @@ failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6
   or a downstream body.
 - AC-EXT-29 (M2.3): An undeclared exception is not rebuilt, and Topolith does not send its message (the host's
   `server.error.include-message` setting still applies).
-- AC-EXT-30 (M2.3): A contract method declaring a checked exception, or a concrete exception class in an api package
+- AC-EXT-30 (M2.3): A contract method declaring a checked exception outside its api packages (from M8.5, D-116; any
+  checked exception before), or a concrete exception class in an api package
   that a caller cannot rebuild or whose `@ResponseStatus` is not 4xx or 5xx, fails startup with TL0027 for an internal, loopback or external module, in a monolith too; a
   `none` module is not checked.
 - AC-EXT-31 (M2.3): The provider resolver exists only with an internal module, and the caller advice only with an
@@ -102,6 +121,26 @@ failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6
   untouched, except that a group named like an external module is Topolith's and fails with TL0003 if it holds another
   interface.
 - AC-EXT-32 (M2.3): A host `@ControllerAdvice` does not change what a module route sends for a declared exception.
+- AC-EXT-70 (M8.5): A contract method declaring a checked exception from its api package starts in every topology; the
+  provider's checked exception reaches a loopback and an external caller as the same type with its message, thrown
+  from the contract method, as it does in internal mode and through the by-value proxy.
+- AC-EXT-71 (M8.5): A contract method whose `throws` clause names a checked exception class outside the api packages
+  (even one extending an api-package exception), or a checked exception class in an api package that a caller cannot
+  rebuild, fails startup with TL0027; a provider throwing a subclass, outside the api packages, of a named api-package
+  checked exception reaches the caller as the named class, thrown from the contract method.
+- AC-EXT-72 (M8.5): A 401, 403, 404, 405 and 415 without a Topolith problem and without the `Topolith-Module` header
+  (an unmapped path, a wrong method or media type, the host's security chain) each raise `ModuleUnavailableException`
+  with kind `status <code>`, naming only the module, in loopback and external mode; none is retried or recorded by the
+  circuit breaker; a 400, 409 or 500 without a problem still raises the unspecified exception. A provider handler
+  throwing `ResponseStatusException(NOT_FOUND)`, an `AccessDeniedException` from method security, or an undeclared
+  `@ResponseStatus(404)` exception answers with the header, and the caller receives the unspecified exception with
+  R-EXT-11's `exception` `undeclared`, as in internal mode.
+- AC-EXT-73 (M8.5): An `IllegalArgumentException`, `IllegalStateException`, `UnsupportedOperationException` and a
+  `NumberFormatException` thrown by a provider reach a loopback and an external caller as the first three types and
+  `IllegalArgumentException` respectively, with their messages, and R-EXT-11's `exception` names the same class in
+  every mode.
+- AC-EXT-74 (M8.5): A `TenantContext` rejection (403) reaches the loopback or external caller as
+  `ModuleUnavailableException` with kind `status 403`.
 
 ### R-EXT-05 — Exposure
 
@@ -110,13 +149,50 @@ all an internal module's routes and is `false` in every topology, so a monolith 
 are always mapped (R-MODE-06, D-76). A module that is neither internal nor loopback, or a reactive host, cannot be
 exposed (TL0003, TL0028; D-44). Exposed endpoints have a security hook: the public
 `ExposedEndpoints` and `ExposedRequestMatcher` beans, for the host's own `SecurityFilterChain` (D-46). One application
-has one discovery registration. Implements INV-8 and P-2.
+has one discovery registration. Implements INV-8, P-2, D-125 and D-126.
+
+- **Route coverage (D-126).** At startup, for each module that is internal and exposed, or loopback, every abstract
+  method of every contract it provides must be served by a module route: a handler method of a bean the module owns
+  (by definition) that implements that contract method, or, from M8.6, a route Topolith registers for a listed
+  contract. An uncovered method, for example an inferred contract implemented only by a non-handler `@Service`, fails
+  startup with TL0044 (new, M8.3) naming the module, contract and method, and the fix (a module `@RestController`
+  implementing the contract, D-53). An unexposed internal module and a `none` or `external` module are not checked.
+- **Routes for listed contracts (D-125, from M8.6).** For a contract listed in a module declaration's `provides`
+  (R-DESC-02) of a module that is internal and exposed, or loopback, Topolith registers one route per abstract contract
+  method, invoking the module's bean of that contract, selected by bean-definition ownership and never by type (so an
+  external module's client proxy, which is not module-owned, is never picked). The `RequestMappingInfo` comes from
+  Spring's own `getMappingForMethod(method, contract)` on a private, non-bean `RequestMappingHandlerMapping` subclass
+  that copies the host mapping's configuration (pattern parser, content negotiation, API version strategy) and the
+  `/<id>` prefix and detects no handlers itself; it is registered on the host's mapping with `registerMapping` from a
+  `SmartInitializingSingleton`, before the server starts. No functional route is used. Every abstract contract method
+  must carry an `@HttpExchange`-family annotation, or startup fails with TL0026 naming the method (AC-EXT-28's
+  meaning); a path clash with another handler fails with TL0005 naming both. A registry maps each registered handler
+  to its module and is consulted first wherever Topolith decides a handler's module, so the route gets the `/<id>`
+  prefix, R-EXT-12's tenant check, D-117's `Topolith-Module` header, R-EXT-04's problem translation and exactly one
+  R-EXT-11 observation per call, as a module controller does; the route invokes the context bean, so R-EXT-07's
+  boundary and the by-value proxy apply. A `BeanPostProcessor` on `RequestMappingHandlerAdapter` puts a delegating
+  return-value handler first, only for those registered methods, which writes the result as `@ResponseBody` would.
+  AOT reflection hints cover the contract methods and their binding types. A `none` module has no definition and an
+  unexposed internal module no route, so neither gets anything (INV-2).
 
 - AC-EXT-11 (M2.4): An exposed module's endpoint uses its fixed id prefix in each topology.
 - AC-EXT-12 (M2.4): A monolith defaults exposure off, and disabling exposure removes that module's routes.
 - AC-EXT-13 (M2.4): A host can supply security through the exposed-endpoint hook: a matcher over every exposed prefix
   for its own `SecurityFilterChain`, and no chain registered by Topolith.
 - AC-EXT-14 (M2.4): An application exposing multiple modules registers once with discovery.
+- AC-EXT-82 (M8.3): An exposed internal module, and a loopback one, whose provided contract is implemented only by a
+  non-handler `@Service` fail startup with TL0044 (new, M8.3) naming the module, contract and method; a module whose
+  `@RestController` implements every contract method starts, and the same module unexposed, `none` or `external` is
+  not checked.
+- AC-EXT-80 (M8.6): A contract listed in `provides` and provided by a `@Bean` lambda, with the module loopback or
+  exposed, starts and is served under `/<id>`: in internal, loopback and external mode a `String` result is equal, a
+  declared exception is rebuilt as its declared type, a `TenantContext` rejection reaches the caller as
+  `ModuleUnavailableException` with kind `status 403`, a handler error carries the `Topolith-Module` header, and each
+  call records exactly one `topolith.module.call` observation.
+- AC-EXT-81 (M8.6): A listed contract method without an `@HttpExchange`-family annotation fails startup with TL0026
+  naming the method, and a registered route clashing with another handler fails with TL0005 naming both; the route
+  invokes the module-owned bean even when an external module's client proxy of the same contract type exists; an
+  unexposed internal module, a `none` module and an `external` module register no route (INV-2).
 
 ### R-EXT-06 — Client customization
 
@@ -279,7 +355,13 @@ or Boot's `management.observations.enable.topolith=false`); Topolith has no prop
 - **Activation.** The advice exists only with an internal module and the client instrumentation only on external and
   loopback groups; a `none` module gets neither, and Topolith registers no observation bean for it (INV-2).
 
-Implements INV-2, INV-4, INV-6 and D-86 through D-89.
+- **Error tag (D-123).** The `exception` key is the parity contract of a call's error. Micrometer's meter handler
+  adds its own `error` tag from the observation's error, the exception the caller receives, so `error` names the
+  thrown subclass in internal mode and the rebuilt declared class in loopback and external mode, and differs for an
+  undeclared exception; Topolith neither replaces the host's meter handler (INV-4) nor records a substitute error.
+  Dashboards and alerts that must hold across modes use `exception`.
+
+Implements INV-2, INV-4, INV-6, D-86 through D-89 and D-123.
 
 - AC-EXT-42 (M6.2): A contract call from host code records exactly one `topolith.module.call` observation in internal,
   loopback and external mode, with the same contextual name and the same `module.id`, `caller.module`, `contract`,
@@ -303,6 +385,10 @@ Implements INV-2, INV-4, INV-6 and D-86 through D-89.
   `management.observations.enable.topolith=false`.
 - AC-EXT-47 (M6.2): A `ModuleCallObservationConvention` bean renames the observation's keys or adds one, in every
   mode; two such beans fail startup with TL0033.
+- AC-EXT-79 (M8.7): With Micrometer's meter handler, a provider throwing a declared exception's subclass outside the
+  api packages tags the `topolith.module.call` timer with `exception` set to the declared class in internal, loopback
+  and external mode, while `error` is the subclass's simple name in internal mode and the declared class's in loopback
+  and external mode; the observability docs page states that `exception` is the key to use across modes.
 
 ### R-EXT-12 — Context propagation
 
@@ -338,8 +424,8 @@ A loopback or external contract call carries the caller's MDC values for the key
   request carries the principal (`HttpServletRequest.getUserPrincipal()`, which under Spring Security is the
   request's `Authentication`, null when anonymous or unauthenticated) and must reject a tenant that principal may not
   act for by throwing. A rejection answers 403 without calling the provider and without sending the exception's
-  message, and the caller receives R-EXT-04's unspecified exception (`exception` is `undeclared`). Internal calls do
-  not cross a route, so they are never checked.
+  message, and the caller receives R-EXT-04's `ModuleUnavailableException` with kind `status 403` (D-117, from M8.5;
+  the unspecified exception before). Internal calls do not cross a route, so they are never checked.
 - **`TenantContext`.** A public `@Incubating` interface in `io.github.rey5137.topolith.spring.boot`: `String current()`
   returns the calling thread's tenant or null, and `TenantContext.Scope open(TenantContext.Request request)` checks the
   request's tenant against its principal and module, then makes it current, or makes no tenant current for null, until
@@ -364,7 +450,20 @@ A loopback or external contract call carries the caller's MDC values for the key
   (D-98); it costs one pass over the request's header names on a module route and nothing elsewhere. A host that
   exposes no module, and a `none` module, get nothing (INV-2).
 
-Implements INV-1, INV-2, INV-4, INV-6, INV-7, D-90 and D-91.
+- **Context carriers (D-122).** A host bean of the public `@Incubating` interface `ContextCarrier`
+  (`io.github.rey5137.topolith.spring.boot`; host beans only, as `TenantContext`, so INV-1 holds) carries one more
+  string value: `String name()`, `String current()` (the calling thread's value, or null for none) and
+  `ContextCarrier.Scope open(String value)` (makes the value current until the scope is closed; null makes none
+  current). The caller sends `Topolith-Context-<name>` under the MDC rules above (encoding, 1024-character limit,
+  control characters), and an oversize value or one with a control character is not sent and logs TL0035 naming the
+  carrier, never the value. The provider opens every carrier for each module-route request, with the sent value or
+  null, before the handler, and closes it when the request completes, as for MDC keys. A name follows the MDC key
+  pattern; an invalid name, two carriers with names equal ignoring case, or more than 16 MDC keys and carriers together
+  fail startup with TL0034. A carrier adds the client side only to external and loopback groups and nothing for a
+  `none` module (INV-2). Values that a Micrometer `ThreadLocalAccessor` holds are not carried; W3C baggage with a
+  tracer is Micrometer Tracing's (`management.tracing.baggage.remote-fields`), which the docs show.
+
+Implements INV-1, INV-2, INV-4, INV-6, INV-7, D-90, D-91 and D-122.
 
 - AC-EXT-48 (M6.3): A loopback and an external call carry each listed key's MDC value, a non-ASCII value included, and
   the tenant to the provider, which sees the values the provider sees in internal mode; a key with no caller value
@@ -391,7 +490,14 @@ Implements INV-1, INV-2, INV-4, INV-6, INV-7, D-90 and D-91.
 - AC-EXT-58 (M6.3): `TenantContext.open` receives a `Request` whose `principal()` is the `Authentication` under Spring
   Security and null for an anonymous request, and whose `moduleId()` is the module whose route is called; when it rejects the tenant, the module route answers 403 without calling the
   provider or sending the exception's message, and the loopback or external caller receives an exception that is
-  neither declared nor `ModuleUnavailableException`.
+  neither declared nor `ModuleUnavailableException` (until M8.5; AC-EXT-74 then replaces this clause, D-117).
+- AC-EXT-77 (M8.8): With a `ContextCarrier` bean, a loopback and an external call carry its `current()` value as
+  `Topolith-Context-<name>` and the provider's handler sees it through the carrier, which is closed after the request
+  so a pooled thread keeps nothing; a request without the header opens the carrier with null; an internal call needs no
+  header and sees the caller's value.
+- AC-EXT-78 (M8.8): An invalid carrier name, two names equal ignoring case, or more than 16 MDC keys and carriers
+  together fail startup with TL0034; an oversize value is not sent and logs TL0035 naming the carrier only; a `none`
+  module, and a host with no carrier, install no carrier hook.
 
 ### R-EXT-13 — Outgoing authentication
 
@@ -408,7 +514,23 @@ Each external or loopback module's client authenticates its calls through at mos
   `AbstractOAuth2TokenAuthenticationToken` (a `JwtAuthenticationToken` or `BearerTokenAuthentication`), the call
   sends `Authorization: Bearer <token value>`. With no `Authentication`, or any other kind, it sends no `Authorization`
   and nothing fails. Without Spring Security's resource-server classes on the classpath there is no token to relay and
-  no hook is installed.
+  no hook is installed. With `spring-security-oauth2-client` on the classpath, an `OAuth2AuthenticationToken` (a
+  session login) relays the access token of its `OAuth2AuthorizedClient`, resolved for its registration id and name
+  through an `OAuth2AuthorizedClientManager` Topolith builds from the host's `ClientRegistrationRepository` and
+  `OAuth2AuthorizedClientRepository` (the repository the login stored the client in) with Spring Security's
+  authorization-code and refresh-token providers, so an expired token is refreshed; a host manager bean is not used,
+  as for `client-credentials`. As for `client-credentials`, it needs exactly one `ClientRegistrationRepository` and one
+  `OAuth2AuthorizedClientRepository` bean: with none of either the host has no session login and session relay is
+  off; with two or more of either, a host with a `relay` module fails startup with TL0047 (new, M8.8) naming the beans
+  (INV-4). That manager needs the current servlet request, so a call with no current request (on another thread,
+  even with the `SecurityContext` propagated) sends no `Authorization` and nothing fails, which is a documented gap.
+  When no client resolves it sends no `Authorization` and nothing fails (D-121). The relay hook is then installed with
+  either classpath.
+- **Unauthenticated relay warning (D-121).** On a host with Spring Security, a request to an internal or loopback
+  module's route that carries `Authorization: Bearer` but reaches the handler with no `Authentication`, an
+  unauthenticated one or an `AnonymousAuthenticationToken` logs warning TL0046 (new, M8.8) once per module, naming the
+  module and the fix (configure the host as a resource server for the caller's tokens), never the token. The call
+  still runs.
 - **Client credentials.** Topolith always builds the hook's own
   `AuthorizedClientServiceOAuth2AuthorizedClientManager`, with a client-credentials provider only, from the context's
   single `ClientRegistrationRepository` and single `OAuth2AuthorizedClientService` beans; it never uses a host
@@ -456,10 +578,11 @@ Each external or loopback module's client authenticates its calls through at mos
   Topolith neither copies nor clears it. With `relay`, in loopback and external mode the provider sees the
   `Authentication` its host's resource-server configuration builds from the relayed token. "The same
   `Authentication`" means the same `getName()` and the same set of authorities, never the same object, type or
-  credentials, and parity tests compare those two (D-94). A caller authenticated without a bearer token (a session
-  login, anonymous) relays nothing, and a loopback host with no resource-server configuration does not authenticate a
-  relayed token, so in loopback and external mode the provider sees whatever its security chain makes of a request
-  without credentials; these are documented gaps that loopback shows before extraction, not startup failures (D-95).
+  credentials, and parity tests compare those two (D-94). An anonymous caller, or a session login whose authorized
+  client does not resolve, relays nothing, and a loopback host with no resource-server configuration does not
+  authenticate a relayed token, so in loopback and external mode the provider sees whatever its security chain makes of
+  a request without credentials; these are documented gaps that loopback shows before extraction, not startup failures
+  (D-95), and the second one logs TL0046 at the first such call (D-121).
   `client-credentials` deliberately relaxes this parity: the provider sees the client's principal in loopback and
   external mode and the caller's in internal mode.
 - **Activation.** Only an external or loopback module's client gets a hook; a `none` or internal module has no client
@@ -468,12 +591,24 @@ Each external or loopback module's client authenticates its calls through at mos
   nothing assumes the caller and provider share a thread (INV-6); a call made on another thread relays what that
   thread's `SecurityContext` holds, which is also what an internal provider would see there.
 
-Implements INV-2, INV-4, INV-6, INV-7 and D-92 through D-97.
+Implements INV-2, INV-4, INV-6, INV-7, D-92 through D-97 and D-121.
 
 - AC-EXT-53 (M6.4): With `relay`, a loopback and an external call from a thread whose `Authentication` is a
   `JwtAuthenticationToken` send its token as `Authorization: Bearer`, and the provider sees an `Authentication` with
   the caller's name and authorities, as an internal provider does; with no `Authentication` or one without a token the
-  call sends no `Authorization` and succeeds.
+  call sends no `Authorization` and succeeds (from M8.8 a session login sends its authorized client's token,
+  AC-EXT-75).
+- AC-EXT-75 (M8.8): With `relay` and `spring-security-oauth2-client`, a loopback and an external call from a thread
+  whose `Authentication` is an `OAuth2AuthenticationToken` send its authorized client's access token, refreshed when
+  expired, also with a host `OAuth2AuthorizedClientManager` bean present; with no authorized client, and from an
+  `@Async` thread with the `SecurityContext` propagated but no current request, the call sends no `Authorization` and
+  succeeds; two `OAuth2AuthorizedClientRepository` beans (or two `ClientRegistrationRepository` beans) with a `relay`
+  module fail startup with TL0047 (new, M8.8); with no `ClientRegistrationRepository` session relay is off.
+- AC-EXT-76 (M8.8): A relayed bearer token that a loopback host without resource-server configuration leaves
+  unauthenticated logs TL0046 (new, M8.8) once per module, naming the module and never the token, and the call runs; an
+  authenticated relayed call and a call without `Authorization` log nothing; a host without Spring Security, and a
+  host that exposes no internal module and serves no loopback one (only `none` or `external` modules), installs no
+  check (INV-2).
 - AC-EXT-54 (M6.4): An unset `auth.type` relays, `none` sends no `Authorization`, and `client-credentials` sends the
   access token Spring Security's OAuth2 client obtains for `auth.registration-id`, also from a thread outside any
   servlet request and with a host `OAuth2AuthorizedClientManager` bean present; calls by two different users obtain
@@ -664,7 +799,11 @@ later as an internal adapter with no key, diagnostic code or rule change (D-105)
   conflicting source. Setting `remote.circuit-breaker.enabled=true` requires `topolith-spring-cloud`'s resilience
   configuration and exactly one `CircuitBreakerFactory` bean of a supported implementation (0.1:
   `Resilience4JCircuitBreakerFactory`); zero, two or more, or an unsupported `CircuitBreakerFactory` bean fails startup
-  with TL0041 naming the module and the beans found (never `@Primary` or `getIfUnique`, INV-4). A `none` or `internal`
+  with TL0041 naming the module and the beans found (never `@Primary` or `getIfUnique`, INV-4). The adapter to the
+  supported implementation is internal; a later supported implementation adds another internal adapter and the key
+  `topolith.resilience.circuit-breaker.factory=<bean name>` to select among several supported factories, still
+  failing with TL0041 without it, and no public adapter SPI is offered until two implementations exist (D-124,
+  decision only in 0.1). A `none` or `internal`
   module registers no circuit-breaker bean, configurer or decorator (INV-2). On refresh (`EnvironmentChangeEvent`), an
   `external` module rebuilds its circuit breaker only when `remote.circuit-breaker.*` changes — resetting the rebuilt
   breaker to closed with an empty window under the new thresholds, or removing it when `enabled` becomes `false`, while
@@ -675,7 +814,7 @@ later as an internal adapter with no key, diagnostic code or rule change (D-105)
   Spring Cloud's global breaker is applied (its configurer bean is in the context, D-106). A `loopback` module's `remote.circuit-breaker.*` keys are restart-only (TL0010,
   D-77).
 
-Implements INV-2, INV-4, INV-6, INV-7, D-51 and D-102 through D-107.
+Implements INV-2, INV-4, INV-6, INV-7, D-51, D-102 through D-107 and D-124.
 
 - AC-EXT-65 (M7.3): With `remote.circuit-breaker.enabled=true`, calls to that module's group run on the calling thread
   through a Spring Cloud CircuitBreaker configured with the group's `failure-rate-threshold`, `sliding-window-size`,

@@ -12,7 +12,8 @@ for each known module. A module is known when a module descriptor or an API desc
 standalone `*-service` may default its own module to `internal`, by setting `topolith.standalone=<id>`; other missing
 modes, and invalid values, fail with TL0001. A mode for an id with no descriptor fails with TL0016, or with TL0002 when
 it is `internal` or `loopback`. Resolution is deterministic from configuration and cached as the `topolithTopology`
-bean. Implements INV-3, INV-4, INV-9, P-3, D-5, D-8 and D-31.
+bean. A module whose descriptor has no `api-packages` (R-DESC-01, D-115) has no contracts to call, so `external` or
+`loopback` for it fails with TL0003. Implements INV-3, INV-4, INV-9, P-3, D-5, D-8, D-31 and D-115.
 
 - AC-MODE-01 (M1.3): Each explicit mode resolves to its declared value regardless of an implementation JAR's presence.
 - AC-MODE-02 (M1.3): A host missing a known module's mode fails with TL0001 rather than activating it implicitly.
@@ -22,6 +23,8 @@ bean. Implements INV-3, INV-4, INV-9, P-3, D-5, D-8 and D-31.
 - AC-MODE-22 (M1.3): An invalid mode value fails with TL0001.
 - AC-MODE-39 (M5.3): `loopback` (trimmed, case-insensitive) resolves to the loopback mode, which `Topology.mode(id)`
   reports; with no module descriptor it fails with TL0002, as `internal` does.
+- AC-MODE-62 (M8.2): `external` or `loopback` for a module without api packages fails with TL0003 naming the module
+  and the fix (`internal` or `none`).
 
 ### R-MODE-02 — Inclusion-based activation
 
@@ -34,8 +37,14 @@ non-internal modules: a class under the module's `package`, or one listed by an 
 the imports file or the class is in the classpath root that holds exactly that module's descriptor (conflicting roots
 own nothing). A host component scan that covers a non-internal
 module's package fails with TL0007. An internal module needs its implementation JAR (its module descriptor);
-otherwise startup fails with TL0002. A `loopback` module is internal for activation (R-MODE-06). Implements INV-2,
-INV-8, P-3, D-7 and D-30.
+otherwise startup fails with TL0002. A `loopback` module is internal for activation (R-MODE-06).
+
+The import filter runs even when Topolith's own auto-configuration does not. An `AutoConfigurationImportListener`
+registered in `META-INF/spring.factories` therefore reads the exclusions of each `@EnableAutoConfiguration` import
+(`spring.autoconfigure.exclude`, `exclude` and `excludeName`): an excluded `io.github.rey5137.topolith.*`
+auto-configuration while the resolved topology has an `internal` or `loopback` module fails startup with TL0042 (new,
+M8.2) naming the class (D-111). A test slice that never includes Topolith's auto-configuration excludes nothing and is
+not checked. Implements INV-2, INV-4, INV-8, P-3, D-7, D-30 and D-111.
 
 - AC-MODE-04 (M1.3): An internal module's configuration and packages are imported when its implementation is present.
 - AC-MODE-05 (M1.3): A missing internal implementation fails with TL0002 and a fix-it message.
@@ -44,6 +53,9 @@ INV-8, P-3, D-7 and D-30.
 - AC-MODE-23 (M1.3): A non-internal module's auto-configuration outside its package, listed by an
   `AutoConfiguration.imports` file, is removed, also when the imports file and the class sit in separate roots.
 - AC-MODE-24 (M1.3): A host component scan covering a non-internal module's package fails with TL0007.
+- AC-MODE-55 (M8.2): Excluding `TopolithAutoConfiguration`, or another Topolith auto-configuration, by property or by
+  `@SpringBootApplication(exclude)` while a module is `internal` or `loopback` fails startup with TL0042 (new, M8.2)
+  naming the class; the same exclusion with only `none` modules, and a `@WebMvcTest` slice of the host, start.
 
 ### R-MODE-03 — Non-internal isolation and dependencies
 
@@ -78,6 +90,23 @@ must not overlap a module package, except that the `topolith.standalone` module'
 application, and Topolith then adds nothing the host's scans already cover). JPA, Spring Data, Flyway and Liquibase support is guarded by `@ConditionalOnClass`, so a host
 without those libraries starts unchanged. Implements INV-2, INV-4, INV-9, D-7, D-30 and D-32.
 
+- **Module DataSource migrations (D-112).** A module that contributes exactly one DataSource and has scripts under
+  `db/modules/<id>` but no Flyway, `FlywayMigrationInitializer` or `SpringLiquibase` of its own gets Topolith's module
+  runner on that DataSource, with the same tool detection, tracking tables, ordering after the modules it requires and
+  limits as on the host's DataSource. A runner the module declares still owns its migrations, and Topolith adds none.
+  A module with several DataSources of its own and no runner fails with TL0020.
+- **Other stores (D-113).** Topolith also registers each internal and loopback module's Spring Data R2DBC and MongoDB
+  repositories and MyBatis mappers, as it does JPA and JDBC: one auto-configuration per store, each
+  `@ConditionalOnClass` on its store, scanning only the module's `package`, backing off for the module's own
+  `@Enable<Store>Repositories` or `@MapperScan` (as AC-MODE-35 does for JDBC), and restoring Boot's scan of the host's
+  packages when only module registrations made it back off. Mappers bind to the host's single `SqlSessionFactory`; with
+  several and none of them the module's own, an uncovered mapper fails with TL0024. With multiple stores Spring Data's
+  strict store selection still applies.
+- **MyBatis mapper locations (D-114).** The host's `mybatis.mapper-locations` are resolved at startup, and a resource
+  owned by a module (D-61's resource ownership) fails startup with TL0043 (new, M8.2) naming the location and the
+  resource, whatever the module's mode, as TL0020 does for a host migration location. A module's mapper XML lives beside
+  its mapper interface, where MyBatis loads it.
+
 - AC-MODE-10 (M1.4): Internal modules register only their own managed entities, repositories and migration locations.
 - AC-MODE-11 (M1.4): A non-internal module leaves no entity, repository, migration or table, even with its JAR present.
 - AC-MODE-12 (M1.4): An internal module's own DataSource and entity-manager configuration works.
@@ -105,6 +134,21 @@ without those libraries starts unchanged. Implements INV-2, INV-4, INV-9, D-7, D
 - AC-MODE-37 (M1.6): An internal module's default-candidate `AbstractJdbcConfiguration` fails with TL0019.
 - AC-MODE-38 (M1.6): With JPA and JDBC present, repositories assignable to each store register with that store;
   an interface neither store can assign fails with TL0024, and a JDBC factory-bean registration covers its interface.
+- AC-MODE-56 (M8.3): An internal module with its own non-default-candidate DataSource, Flyway or Liquibase scripts
+  under `db/modules/<id>` and no runner of its own has them run once on its DataSource, with its own tracking tables,
+  and none on the host's; a second start finds nothing pending.
+- AC-MODE-57 (M8.3): A module that declares its own runner gets no Topolith runner; a module with two DataSources of
+  its own and no runner fails with TL0020; a `none` module's scripts run on no DataSource.
+- AC-MODE-58 (M8.4): An internal module's MyBatis mapper is registered once under its fully qualified name against the
+  host's `SqlSessionFactory` and its XML beside the interface is loaded; with two host factories and none the module's
+  own it fails with TL0024; a module's own `@MapperScan` is not registered again.
+- AC-MODE-59 (M8.4): An internal module's Spring Data MongoDB and R2DBC repositories are each registered once under
+  their fully qualified names (bean definitions, no server), a module's own `@Enable<Store>Repositories` is not
+  registered again, and the host's repositories of that store remain registered.
+- AC-MODE-60 (M8.4): A `none` or `external` module leaves no MyBatis mapper, MongoDB or R2DBC repository definition and
+  no module class loaded, and a host without each store's classes loads none of its registration.
+- AC-MODE-61 (M8.2): A host `mybatis.mapper-locations` pattern that reaches a module's mapper XML fails startup with
+  TL0043 (new, M8.2) in every mode, `internal` and `none` included; a pattern that reaches only the host's XML starts.
 
 ### R-MODE-05 — Refresh does not change topology
 
@@ -148,7 +192,9 @@ unchanged, and INV-2's non-internal module is one that is neither `internal` nor
   "Inside the module" is the package alone, so production code in the module's package gets the provider (package =
   module, by design); a test class there fails with TL0032 (D-85, R-TEST-05).
 - **Scope of parity.** Loopback checks contract-call parity only. Events, persistence and listeners behave as in
-  `internal` mode, and event parity is RFC 0001 §7 (0.3) (Q-27).
+  `internal` mode in 0.1. When mode-aware events land (RFC 0001 §7, 0.3), a loopback module's cross-module events go
+  through the externalization adapter as an external module's do, and without an adapter startup fails as for an
+  external module (D-120, decision only in 0.1).
 - **Routes.** The module's routes are mapped under its fixed `/<id>` prefix, as for an exposed module (R-EXT-05), and
   belong to `ExposedEndpoints` and `ExposedRequestMatcher`, so the host's `SecurityFilterChain` sees them and applies to
   loopback calls as to any other request. `expose.enabled` unset or `true` changes nothing; an explicit `false`
@@ -180,7 +226,7 @@ unchanged, and INV-2's non-internal module is one that is neither `internal` nor
 - **Where.** Loopback is allowed in any host. It is chosen explicitly per module (INV-3), so no host gets it by
   accident, and Topolith logs no warning for it (D-76).
 
-Implements INV-2, INV-3, INV-4, INV-6, INV-8, P-3, D-74, D-75, D-76, D-77, D-81, D-82, D-83, D-84 and D-85.
+Implements INV-2, INV-3, INV-4, INV-6, INV-8, P-3, D-74, D-75, D-76, D-77, D-81, D-82, D-83, D-84, D-85 and D-120.
 
 - AC-MODE-40 (M5.3): A loopback module's configuration, packages, auto-configurations, entities and migrations are
   imported as for an internal module.

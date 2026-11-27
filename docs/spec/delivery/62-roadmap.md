@@ -72,9 +72,9 @@ Items below refer to RFC 0001; rows for design sections cover the parts used by 
 ## 0.1 exclusions
 
 - RFC §6 and §10: outgoing authentication, context propagation and Observation tags are scheduled for 0.1.0 in M6
-  (D-74); M6.1 writes their rules. Loopback, latency and fault injection, the by-value (mutation) proxy and the mode
-  matrix are in scope (R-MODE-06, R-EXT-09, R-EXT-10, R-TEST-04, R-TEST-05), as are D-2 and the M3.1 contract-type
-  checks.
+  (D-74); their rules are R-EXT-11 through R-EXT-13 (M6.1, D-86 through D-95). Loopback, latency and fault
+  injection, the by-value (mutation) proxy and the mode matrix are in scope (R-MODE-06, R-EXT-09, R-EXT-10, R-TEST-04,
+  R-TEST-05), as are D-2 and the M3.1 contract-type checks.
 - RFC §3.3, §7 and §10: mode-aware events, cross-process event adapters and lost-event validation are 0.3.
 - RFC §9 and §10: topology file generation, Helm/Kubernetes generation and extraction reports are 0.4.
 - RFC §4.3, §8 and §10: the automated adoption goal, per-module config tooling and data-ownership checks are 0.5;

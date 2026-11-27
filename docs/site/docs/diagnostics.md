@@ -42,7 +42,18 @@ keeps running.
 | `TL0026` | An external module has no usable client: no spring-web or `spring-boot-starter-restclient`, a provided contract cannot be loaded, or it carries no `@HttpExchange`. | failure | Add `spring-boot-starter-restclient`; annotate the contract or map a separate HTTP interface. |
 | `TL0027` | A contract's exceptions cannot cross HTTP: a contract method declares a checked exception, or an unchecked exception class in its API packages is not public, lacks a public `(String)` or no-arg constructor, or has a `@ResponseStatus` that is not 4xx or 5xx. Raised in every topology. | failure | Declare only unchecked exceptions with a public constructor and a 4xx or 5xx status. |
 | `TL0028` | A module is exposed in a reactive (WebFlux) application, which has no exposure support. | failure | Set `expose.enabled=false`, or use a servlet application. |
-| `TL0029` | A `final` handler class (`@Controller`, `@RestController`, `@RequestMapping`) provides an internal module's contract while a transaction manager exists. | failure | Make the class non-final. |
+| `TL0029` | A `final` handler class (`@Controller`, `@RestController`, `@RequestMapping`) provides an internal module's contract, whatever beans the host has; turning observation off does not avoid it. | failure | Make the class non-final. |
+
+## Call context and authentication
+
+| Code | Meaning | Severity | Fix |
+|---|---|---|---|
+| `TL0033` | More than one `ModuleCallObservationConvention` bean exists. | failure | Keep one convention bean. |
+| `TL0034` | Context propagation is misconfigured: an invalid or duplicate `topolith.context.mdc-keys` entry, more than 16 keys, a key without SLF4J, or more than one `TenantContext` bean. | failure | Fix the key list, or keep one `TenantContext` bean. |
+| `TL0035` | An outgoing MDC value is over 1024 characters once encoded, so it is not sent. | warning | Shorten the value, or stop listing the key. |
+| `TL0036` | A module has more than one outgoing-auth hook, or a hook changes an `Authorization` header a client customizer set. | failure | Keep one hook: `topolith.modules.<id>.auth.type` or one `ModuleClients.authenticate` bean. |
+| `TL0037` | `auth.type=client-credentials` cannot be satisfied: no OAuth2 client classes, a missing or unknown `auth.registration-id`, or not exactly one `ClientRegistrationRepository` and one `OAuth2AuthorizedClientService` bean. | failure | Add Spring Security's OAuth2 client (`spring-security-oauth2-client`) and a matching client registration. |
+| `TL0038` | An outgoing tenant is over 1024 characters once encoded, so the call fails before it is sent. | failure | Shorten the tenant id your `TenantContext` returns. |
 
 ## Boundaries
 

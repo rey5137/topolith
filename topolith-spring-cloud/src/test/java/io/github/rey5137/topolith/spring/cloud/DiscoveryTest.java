@@ -18,6 +18,7 @@ import io.github.rey5137.topolith.core.Descriptors;
 import io.github.rey5137.topolith.core.ModuleDescriptor;
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
+import io.github.rey5137.topolith.spring.boot.internal.VersionChecks;
 import io.github.rey5137.topolith.spring.cloud.fixture.host.Host;
 import io.github.rey5137.topolith.spring.cloud.fixture.user.api.UserContract;
 import org.junit.jupiter.api.BeforeEach;
@@ -209,16 +210,7 @@ class DiscoveryTest {
                 var source = context.getSourceApplicationContext();
                 source.publishEvent(new ApplicationReadyEvent(new SpringApplication(), new String[0], source,
                         Duration.ZERO));
-                try {
-                    // the remote check runs on its own thread: wait for it (package-private in the boot module)
-                    Object readiness = context.getBean("topolithVersionReadiness");
-                    java.lang.reflect.Method await = readiness.getClass().getDeclaredMethod("await", long.class,
-                            java.util.concurrent.TimeUnit.class);
-                    await.setAccessible(true);
-                    assertTrue((boolean) await.invoke(readiness, 10L, java.util.concurrent.TimeUnit.SECONDS));
-                } catch (ReflectiveOperationException e) {
-                    throw new IllegalStateException(e);
-                }
+                assertTrue(context.getBean(VersionChecks.class).await(Duration.ofSeconds(10)));
                 // the service id resolved, so the request reached the instance, and 3 differs from 1.0.0
                 assertEquals(1, hits.get());
                 assertTrue(output.getAll().contains("TL0023"), output.getAll());

@@ -51,8 +51,7 @@ import org.springframework.web.client.RestClient;
 
 /**
  * The by-value proxy (R-TEST-04, D-79): installs the recorder, the checks and a bean post-processor that puts
- * {@link Advice} in front of the contract beans of the selected internal modules. Everything here is installed only
- * when a test selects the proxy, so a context without it has no trace of it.
+ * {@link Advice} in front of the contract beans of the selected internal modules.
  */
 final class ByValue {
     static final String RECORDER = ByValueRecorder.class.getName();
@@ -65,25 +64,34 @@ final class ByValue {
     static void install(ConfigurableApplicationContext context, Set<String> ids) {
         DefaultListableBeanFactory beans = (DefaultListableBeanFactory) context.getBeanFactory();
         if (beans.containsSingleton(RECORDER)) { return; }
-        ByValueRecorder recorder = new ByValueRecorder(() -> serializer(beans));
+        ByValueRecorder recorder = new ByValueRecorder(() -> serializer(beans),
+                () -> "warn".equals(context.getEnvironment().getProperty("topolith.test.parity", "fail")));
         beans.registerSingleton(RECORDER, recorder);
+        context.addBeanFactoryPostProcessor(factory -> {
+            String parity = context.getEnvironment().getProperty("topolith.test.parity", "fail");
+            if (!parity.equals("fail") && !parity.equals("warn")) {
+                throw new IllegalStateException("topolith.test.parity must be fail or warn");
+            }
+        });
         Set<String> selected = Set.copyOf(ids);
         context.addBeanFactoryPostProcessor(new Unknown(selected));
-        var definition = BeanDefinitionBuilder.rootBeanDefinition(Processor.class, () -> new Processor(selected))
+        Processor processor = new Processor(selected);
+        var definition = BeanDefinitionBuilder.rootBeanDefinition(Processor.class, () -> processor)
                 .setRole(BeanDefinition.ROLE_INFRASTRUCTURE).getBeanDefinition();
         beans.registerBeanDefinition(Processor.class.getName(), definition);
-        // after every bean is created: a context with no JSON converter fails here, as a load failure
-        context.addApplicationListener((ApplicationListener<ContextRefreshedEvent>) event -> recorder.serializer());
+        context.addApplicationListener((ApplicationListener<ContextRefreshedEvent>) event -> {
+            processor.checkConverter(beans, recorder);
+        });
     }
 
     private static ByValueSerializer serializer(BeanFactory beans) {
         if (!ClassUtils.isPresent("org.springframework.web.client.RestClient", beans.getClass().getClassLoader())) {
-            throw new IllegalStateException("@TopolithByValue needs spring-web and a JSON HTTP message converter");
+            throw new IllegalStateException("By-value parity needs spring-web and a JSON converter such as Jackson");
         }
         List<RestClient.Builder> builders = beans.getBeanProvider(RestClient.Builder.class).stream().toList();
         if (builders.isEmpty()) {
             throw new IllegalStateException("@TopolithByValue needs the host's HTTP message converters: the context"
-                    + " has no RestClient.Builder bean, so it has no JSON HTTP message converter");
+                    + " has no RestClient.Builder bean; configure a JSON converter such as Jackson");
         }
         if (builders.size() > 1) {
             throw new IllegalStateException("@TopolithByValue needs one RestClient.Builder bean to take the JSON HTTP"
@@ -92,7 +100,7 @@ final class ByValue {
         try {
             return new RestClientSerializer(builders.get(0));
         } catch (RuntimeException e) {
-            throw new IllegalStateException("@TopolithByValue needs a JSON HTTP message converter in the context: "
+            throw new IllegalStateException("By-value parity needs a JSON HTTP converter such as Jackson: "
                     + e.getMessage(), e);
         }
     }
@@ -118,8 +126,42 @@ final class ByValue {
         private final Set<String> ids;
         private BeanFactory beans;
         private ByValueRecorder recorder;
+        private volatile boolean eligible;
 
         Processor(Set<String> ids) { this.ids = ids; }
+
+        void checkConverter(DefaultListableBeanFactory factory, ByValueRecorder recorder) {
+            if (eligible) {
+                recorder.serializer();
+                return;
+            }
+            if (!factory.containsSingleton(TOPOLOGY)) { return; }
+            Topology topology = factory.getBean(TOPOLOGY, Topology.class);
+            Set<String> lazy = new TreeSet<>();
+            for (String id : topology.known()) {
+                if (topology.mode(id) != Mode.INTERNAL || !(ids.isEmpty() || ids.contains(id))) { continue; }
+                for (String contract : topology.graph().module(id).orElseThrow().provides()) {
+                    try {
+                        Class<?> type = Class.forName(contract, false, factory.getBeanClassLoader());
+                        for (String name : factory.getBeanNamesForType(type, true, false)) {
+                            if (!factory.containsSingleton(name)) { lazy.add(name); }
+                        }
+                    } catch (ClassNotFoundException | LinkageError e) {
+                        // no loadable contract to wrap
+                    }
+                }
+            }
+            if (lazy.isEmpty()) { return; }
+            try {
+                recorder.serializer();
+            } catch (RuntimeException failure) {
+                // Resolve candidates only when needed to distinguish a real provider from a mock.
+                for (String name : lazy) {
+                    factory.getBean(name);
+                    if (eligible) { throw failure; }
+                }
+            }
+        }
 
         @Override
         public void setBeanFactory(BeanFactory beanFactory) throws BeansException { this.beans = beanFactory; }
@@ -141,6 +183,7 @@ final class ByValue {
             }
             List<Class<?>> contracts = contracts(topology, module, type);
             if (contracts.isEmpty()) { return bean; }
+            eligible = true;
             var advisor = new DefaultPointcutAdvisor(new Advice(module, contracts, topology.apiPackages(),
                     () -> recorder()));
             if (bean instanceof Advised advised && !advised.isFrozen()) {
@@ -220,16 +263,21 @@ final class ByValue {
             Method method = found.method();
             ByValueRecorder recorder = recorders.get();
             AssertionError later = recorder.recheck(module);
-            if (later != null) { throw later; }
+            if (later != null && !recorder.warning()) { throw later; }
             String label = method.getDeclaringClass().getSimpleName() + "." + method.getName();
             Object[] arguments = invocation.getArguments();
             Type[] types = found.parameterTypes();
             Object[] trees = new Object[arguments.length];
+            boolean violated = false;
             for (int i = 0; i < arguments.length; i++) {
                 if (!immutable(arguments[i])) {
                     ByValueSerializer.Copy copy = copy(recorder, label, "argument " + i, arguments[i], types[i]);
-                    arguments[i] = copy.copy();
-                    trees[i] = copy.tree();
+                    if (copy == null) {
+                        violated = true;
+                    } else {
+                        arguments[i] = copy.copy();
+                        trees[i] = copy.tree();
+                    }
                 }
             }
             Object result = null;
@@ -242,8 +290,19 @@ final class ByValue {
             for (int i = 0; i < arguments.length; i++) {
                 if (trees[i] == null) { continue; }
                 String where = label + ", argument " + i;
-                String path = ByValueJson.diff(trees[i], recorder.serializer().tree(arguments[i], types[i]), "$");
+                String path;
+                try {
+                    path = ByValueJson.diff(trees[i], recorder.serializer().tree(arguments[i], types[i]), "$");
+                } catch (RuntimeException e) {
+                    if (!recorder.warning()) { throw e; }
+                    path = "$";
+                }
                 if (path != null) {
+                    if (recorder.warning()) {
+                        recorder.warning(module, where, path);
+                        violated = true;
+                        continue;
+                    }
                     AssertionError changed = recorder.record(new AssertionError("By-value proxy: module '" + module
                             + "', " + where + " (" + types[i].getTypeName() + "): the provider changed the argument"
                             + " during the call, at " + path));
@@ -252,10 +311,12 @@ final class ByValue {
                 }
                 recorder.keep(module, new ByValueRecorder.Kept(where, arguments[i], types[i], trees[i]));
             }
-            if (thrown != null) { throw rebuilt(thrown); }
+            if (thrown != null) { throw violated ? thrown : rebuilt(thrown); }
             if (result == null || method.getReturnType() == void.class || immutable(result)) { return result; }
             Type type = found.returnType();
             ByValueSerializer.Copy copy = copy(recorder, label, "result", result, type);
+            if (copy == null) { return result; }
+            if (violated) { return result; }
             recorder.keep(module, new ByValueRecorder.Kept(label + ", result", result, type, copy.tree()));
             return copy.copy();
         }
@@ -269,10 +330,18 @@ final class ByValue {
                 copy = recorder.serializer().copy(value, type);
                 path = ByValueJson.diff(copy.tree(), recorder.serializer().tree(copy.copy(), type), "$");
             } catch (RuntimeException e) {
+                if (recorder.warning()) {
+                    recorder.warning(module, label + ", " + part, "$");
+                    return null;
+                }
                 throw recorder.record(new AssertionError("By-value proxy: " + where(label, part, type)
                         + " does not survive the JSON round trip: " + e.getMessage(), e));
             }
             if (path != null) {
+                if (recorder.warning()) {
+                    recorder.warning(module, label + ", " + part, path);
+                    return null;
+                }
                 throw recorder.record(new AssertionError("By-value proxy: " + where(label, part, type)
                         + " does not survive the JSON round trip: the copy differs from the original at " + path));
             }

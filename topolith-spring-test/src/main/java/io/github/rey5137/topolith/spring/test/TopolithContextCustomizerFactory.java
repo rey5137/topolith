@@ -45,7 +45,7 @@ final class TopolithContextCustomizerFactory implements ContextCustomizerFactory
         collectModes(testClass, modes, new HashSet<>());
         var byValue = new ArrayList<TopolithByValue>();
         collectByValue(testClass, byValue, new HashSet<>());
-        Set<String> ids = null;
+        Set<String> ids = Set.of();
         if (!byValue.isEmpty()) {
             ids = new TreeSet<>();
             for (TopolithByValue annotation : byValue) { ids.addAll(List.of(annotation.value())); }
@@ -53,7 +53,7 @@ final class TopolithContextCustomizerFactory implements ContextCustomizerFactory
             if (byValue.stream().anyMatch(annotation -> annotation.value().length == 0)) { ids.clear(); }
             ids = Set.copyOf(ids);
         }
-        return modes.isEmpty() && ids == null ? null : new Customizer(Map.copyOf(modes), ids);
+        return new Customizer(Map.copyOf(modes), ids);
     }
 
     private static void collectByValue(Class<?> type, List<TopolithByValue> found, Set<Class<?>> visited) {
@@ -142,11 +142,11 @@ final class TopolithContextCustomizerFactory implements ContextCustomizerFactory
         }
     }
 
-    /** {@code byValue} is null without {@link TopolithByValue}, and empty for every internal module. */
+    /** An empty selection covers every internal module. */
     private record Customizer(Map<String, Mode> modes, Set<String> byValue) implements ContextCustomizer {
         @Override
         public void customizeContext(ConfigurableApplicationContext context, MergedContextConfiguration configuration) {
-            if (byValue != null) { ByValue.install(context, byValue); }
+            ByValue.install(context, byValue);
             if (modes.isEmpty()) { return; }
             Map<String, Object> properties = new LinkedHashMap<>();
             DefaultListableBeanFactory beans = (DefaultListableBeanFactory) context.getBeanFactory();

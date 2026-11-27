@@ -132,7 +132,10 @@ again with payment loopback, and the hybrid host with payment external against t
 contract-call parity only: events, persistence and listeners behave as in `internal` mode, and event parity is RFC 0001
 §7 (0.3) (Q-27). In a loopback run a test class must be outside the module's package: "inside the module" is the package
 alone (package = module, by design), so a test class in the module's package or a subpackage fails with
-TL0032, because it would get the provider and never cross HTTP (D-85). Implements INV-6, P-2, D-74, D-80 and D-85.
+TL0032, because it would get the provider and never cross HTTP (D-85). The matrix also compares the call context
+across modes: the `topolith.module.call` observation (R-EXT-11), the listed MDC keys and tenant the provider sees
+(R-EXT-12), and the provider's `Authentication` by principal name and authorities with token relay (R-EXT-13, D-94).
+Implements INV-6, P-2, D-74, D-80, D-85, D-87, D-91 and D-94.
 
 - AC-TEST-14 (M5.5): The shared payment test cases pass with payment internal under the by-value proxy, loopback, and
   external against the payment service, and each run asserts that payment runs in the mode it names.
@@ -146,3 +149,13 @@ TL0032, because it would get the provider and never cross HTTP (D-85). Implement
 - AC-TEST-15 (M5.5): A deliberately mutable payment fixture, whose provider changes an argument or a result it
   returned, fails the by-value run with R-TEST-04's `AssertionError`; a fixture contract returning `Page` fails both
   `TopolithArchitecture.verify()` (R-ARCH-02) and the by-value round trip.
+- AC-TEST-21 (M6.2): In each mode-matrix run a shared payment test's contract call records one
+  `topolith.module.call` observation, and its contextual name and its `module.id`, `caller.module`, `contract`,
+  `method` and `exception` values are the same in the internal, loopback and external runs, with `module.mode` naming
+  the run's mode.
+- AC-TEST-22 (M6.4): In each mode-matrix run a call made with a bearer-token `Authentication` reaches the payment
+  provider with the same principal name and authorities: unchanged on the caller's thread in the internal run, and
+  relayed end to end over HTTP to the provider's resource-server `Authentication` in the loopback run and, against
+  the payment service, in the external run.
+- AC-TEST-23 (M6.3): In each mode-matrix run the payment provider sees the caller's value of a listed MDC key and the
+  caller's tenant, the same in the internal, loopback and external runs.

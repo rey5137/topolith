@@ -2,12 +2,14 @@ package io.github.rey5137.topolith.samples.hosts.hybrid;
 
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.samples.paymenttests.AbstractPaymentTest;
+import io.github.rey5137.topolith.samples.paymenttests.PaymentObservations;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -21,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Runs payment-service as its Boot fat JAR in a container and reaches it over the fixed URL (D-69). The payment module
  * is not on the test classpath at all, so the host context can hold no trace of it (INV-2).
  */
+@Import(PaymentObservations.class)
 // snippet:start hybrid-payment-test
 @SpringBootTest(classes = HybridApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)

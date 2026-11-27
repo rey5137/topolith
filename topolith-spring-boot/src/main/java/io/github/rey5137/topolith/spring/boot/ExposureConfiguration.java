@@ -12,6 +12,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.PathMatchConfigurer;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
@@ -41,6 +46,23 @@ class ExposureConfiguration implements WebMvcConfigurer {
         for (String id : exposed) {
             configurer.addPathPrefix("/" + id, type -> id.equals(ModuleHandlers.internalOwner(topology, type)));
         }
+    }
+
+    /** Marks each request to a module route with its handler, for the call observation (D-86). */
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new HandlerInterceptor() {
+            @Override
+            public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+                if (handler instanceof HandlerMethod method) {
+                    String owner = ModuleHandlers.internalOwner(topology, method.getBeanType());
+                    if (owner != null && exposed.contains(owner)) {
+                        RouteMark.mark(request, method);
+                    }
+                }
+                return true;
+            }
+        });
     }
 
     @Bean

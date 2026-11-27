@@ -13,4 +13,10 @@ public interface AccountContract {
     /** Starts a JSON answer, then throws a declared exception. */
     @GetExchange("/partial")
     String partial();
+
+    /** A default method calling contract methods through this interface. */
+    default String findTwice(String failure) {
+        find(failure);
+        return find(failure);
+    }
 }

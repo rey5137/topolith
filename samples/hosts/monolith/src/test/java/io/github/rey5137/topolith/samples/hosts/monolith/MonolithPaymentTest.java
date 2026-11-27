@@ -7,6 +7,7 @@ import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.samples.payment.api.ChargeRequest;
 import io.github.rey5137.topolith.samples.payment.api.PaymentDeclinedException;
 import io.github.rey5137.topolith.samples.paymenttests.AbstractPaymentTest;
+import io.github.rey5137.topolith.samples.paymenttests.PaymentObservations;
 import io.github.rey5137.topolith.samples.user.UserAutoConfiguration;
 import io.github.rey5137.topolith.samples.user.api.UserApi;
 import io.github.rey5137.topolith.spring.test.TopolithByValue;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.ApplicationContext;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /** The internal column of the payment mode matrix: payment runs in-process behind the by-value proxy (R-TEST-05). */
+@Import(PaymentObservations.class)
 // snippet:start monolith-payment-test
 @SpringBootTest(classes = MonolithApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)

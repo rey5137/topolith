@@ -1,6 +1,7 @@
 package io.github.rey5137.topolith.spring.test;
 
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.Advised;
+import org.springframework.test.util.AopTestUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -99,7 +101,9 @@ class TopolithByValueTest {
             assertNull(context.getStartupFailure());
             Invoice argument = invoice();
             context.getBean(Invoices.class).total(argument);
-            assertSame(argument, context.getBean(InvoicesImpl.class).lastArgument);
+            // the provider bean is class-proxied by the call observation advice (D-86): read its target
+            assertSame(argument, ((InvoicesImpl) AopTestUtils.getUltimateTargetObject(
+                    context.getBean(InvoicesImpl.class))).lastArgument);
             assertTrue(context.getBeansOfType(ByValueRecorder.class).isEmpty());
         });
     }
@@ -487,7 +491,9 @@ class TopolithByValueTest {
         Invoice argument = invoice();
         instance.invoices.total(argument);
         org.mockito.Mockito.verify(instance.invoices).total(org.mockito.ArgumentMatchers.same(argument));
-        assertFalse(instance.invoices instanceof Advised);
+        // the observation advice may proxy the spy (D-86), but the by-value advice must not
+        assertFalse(instance.invoices instanceof Advised advised && Arrays.stream(advised.getAdvisors())
+                .anyMatch(advisor -> advisor.getAdvice() instanceof ByValue.Advice));
     }
 
     @Test

@@ -22,8 +22,8 @@ flowchart LR
 ```
 
 A `final` handler class (`@Controller`, `@RestController` or `@RequestMapping`) that implements a contract of an
-internal module cannot be proxied by class, so startup fails with `TL0029` when a transaction manager exists. Make the
-class non-final.
+internal module cannot be proxied by class, so startup fails with `TL0029`, whether or not the host has a transaction
+manager or an `ObservationRegistry` bean. Make the class non-final.
 
 ## In-process-only traps
 

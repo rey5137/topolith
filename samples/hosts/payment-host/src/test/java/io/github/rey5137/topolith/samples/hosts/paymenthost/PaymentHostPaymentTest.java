@@ -11,6 +11,7 @@ import javax.sql.DataSource;
 
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.samples.paymenttests.AbstractPaymentTest;
+import io.github.rey5137.topolith.samples.paymenttests.PaymentObservations;
 import io.github.rey5137.topolith.samples.user.UserAutoConfiguration;
 import io.github.rey5137.topolith.samples.user.api.UserApi;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
@@ -28,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @SpringBootTest(classes = PaymentHostApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
+@Import(PaymentObservations.class)
 class PaymentHostPaymentTest extends AbstractPaymentTest {
     private static final String USER_PACKAGE = "io.github.rey5137.topolith.samples.user";
 

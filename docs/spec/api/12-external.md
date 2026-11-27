@@ -253,7 +253,8 @@ or Boot's `management.observations.enable.topolith=false`); Topolith has no prop
   known module's package is the caller; otherwise frames of the JDK, Spring, Micrometer, Topolith's own library
   packages, Mockito and Byte Buddy, the servlet containers (Tomcat, Jetty, Undertow) and generated proxy classes are
   skipped, and the first other frame, or none, is host code, tagged `_host` (a module id cannot start with `_`). The
-  walk runs only for an observation that is not a no-op. A
+  walk runs only for an observation that is not a no-op. A frame
+  in the called contract's own package (a default method running on a client proxy) counts as the called module. A
   module's call to its own contract is not observed: in internal mode the advice sees it, but loopback hands that
   caller the provider and an external module's code is not in the host (D-88).
 - **Convention.** The public `@Incubating` `ModuleCallObservationConvention` (an `ObservationConvention` of

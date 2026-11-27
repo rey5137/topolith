@@ -14,6 +14,8 @@ import io.github.rey5137.topolith.samples.payment.api.ChargeResult;
 import io.github.rey5137.topolith.samples.payment.api.PaymentApi;
 import io.github.rey5137.topolith.samples.payment.api.PaymentDeclinedException;
 import io.github.rey5137.topolith.samples.payment.api.PaymentNotFoundException;
+import io.micrometer.observation.tck.TestObservationRegistry;
+import io.micrometer.observation.tck.TestObservationRegistryAssert;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,12 +57,41 @@ public abstract class AbstractPaymentTest {
     @Autowired
     protected Topology topology;
 
+    @Autowired
+    protected TestObservationRegistry observations;
+
     /** The mode this run names for payment: each subclass is one column of the mode matrix (R-TEST-05). */
     protected abstract Mode paymentMode();
 
     @Test
     void ac_test_14_payment_runs_in_the_mode_this_run_names() {
         assertEquals(paymentMode(), topology.mode("payment"));
+    }
+
+    /** The same name and keys in every column of the matrix, but for {@code module.mode} (AC-TEST-21). */
+    @Test
+    void ac_test_21_a_contract_call_records_one_observation_named_the_same_in_every_mode() {
+        observations.clear();
+        ChargeResult charged = paymentApi.charge(new ChargeRequest("observed-" + UUID.randomUUID(),
+                new BigDecimal("3.00")));
+        assertNotNull(charged.id());
+        assertCall("charge", "none");
+        observations.clear();
+        assertThrows(PaymentNotFoundException.class, () -> paymentApi.find("missing-" + UUID.randomUUID()));
+        assertCall("find", "PaymentNotFoundException");
+    }
+
+    private void assertCall(String method, String exception) {
+        TestObservationRegistryAssert.assertThat(observations)
+                .hasNumberOfObservationsWithNameEqualTo("topolith.module.call", 1)
+                .hasObservationWithNameEqualTo("topolith.module.call").that()
+                .hasContextualNameEqualTo("payment PaymentApi." + method)
+                .hasLowCardinalityKeyValue("module.id", "payment")
+                .hasLowCardinalityKeyValue("module.mode", paymentMode().id())
+                .hasLowCardinalityKeyValue("caller.module", "_host")
+                .hasLowCardinalityKeyValue("contract", PaymentApi.class.getName())
+                .hasLowCardinalityKeyValue("method", method)
+                .hasLowCardinalityKeyValue("exception", exception);
     }
 
     @Test

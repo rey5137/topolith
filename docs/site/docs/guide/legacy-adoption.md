@@ -100,8 +100,7 @@ public class PaymentProperties {
   `lb://<service-id>/<id>`.
 - **How to check:** Routes appear under `/<id>/...` when `expose.enabled=true` and are absent when
   `expose.enabled=false` (default). Exposing a non-internal module fails with `TL0003`; exposing on a reactive WebFlux
-  host fails with `TL0028`; a `final` controller provider class when a transaction manager is present fails with
-  `TL0029`.
+  host fails with `TL0028`; a `final` controller provider class fails with `TL0029`, whatever beans the host has.
 
 <!-- snippet: samples/payment/payment-module/src/main/java/io/github/rey5137/topolith/samples/payment/PaymentController.java#payment-controller-header -->
 ```java

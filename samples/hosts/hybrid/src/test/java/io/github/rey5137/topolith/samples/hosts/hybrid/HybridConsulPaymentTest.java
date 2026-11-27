@@ -2,10 +2,12 @@ package io.github.rey5137.topolith.samples.hosts.hybrid;
 
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.samples.paymenttests.AbstractPaymentTest;
+import io.github.rey5137.topolith.samples.paymenttests.PaymentObservations;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.consul.ConsulContainer;
@@ -22,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @SpringBootTest(classes = HybridApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
+@Import(PaymentObservations.class)
 class HybridConsulPaymentTest extends AbstractPaymentTest {
     private static final String SERVICE_ID = "payment-service";
     private static final int PAYMENT_PORT = PaymentServiceContainers.freePort();

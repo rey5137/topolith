@@ -106,3 +106,19 @@ rebuilds that client in place; calls in flight finish on the old client. Invalid
 
 `ModuleClients.configure("payment", customizer)` adjusts a module's client. A customizer cannot replace the base URL,
 request factory, interceptors or message converters.
+
+## Observing calls
+
+Each call to a contract of an internal, loopback or external module made from outside that module is one Micrometer
+Observation named `topolith.module.call`, recorded on the caller's side and the same in every mode. It needs an
+`ObservationRegistry` bean; without one nothing is observed. Its contextual name is
+`<module.id> <contract simple name>.<method>`, and its low-cardinality keys are `module.id`, `module.mode`,
+`caller.module` (the calling module's id, or `_host` for host code), `contract`, `method` and `exception` (`none`, the
+declared exception class's simple name, or `undeclared`). In loopback and external mode Spring's `http.client.requests`
+observation is its child, and tracing headers are Micrometer Tracing's.
+
+Turn it off with Micrometer's own means: an `ObservationPredicate`, or
+`management.observations.enable.topolith=false`. Topolith has no property of its own. To rename the observation or
+change its keys, define one `ModuleCallObservationConvention` bean (two fail startup with `TL0033`) or register a
+`GlobalObservationConvention<ModuleCallContext>`; the types are `@Incubating` in
+`io.github.rey5137.topolith.spring.boot.observation`.

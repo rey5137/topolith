@@ -102,6 +102,8 @@ class ResilienceTest {
         final Map<String, List<Reply>> script = new ConcurrentHashMap<>();
         final Map<String, AtomicInteger> counts = new ConcurrentHashMap<>();
         final Map<String, List<Map<String, List<String>>>> headers = new ConcurrentHashMap<>();
+        /** Runs when the nth request of a path arrives, before it is answered: a test holds a call there. */
+        final Map<String, java.util.function.IntConsumer> arrivals = new ConcurrentHashMap<>();
 
         Stub() throws IOException {
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -111,6 +113,10 @@ class ResilienceTest {
                 int n = counts.computeIfAbsent(path, key -> new AtomicInteger()).getAndIncrement();
                 headers.computeIfAbsent(path, key -> new CopyOnWriteArrayList<>())
                         .add(new LinkedHashMap<>(exchange.getRequestHeaders()));
+                java.util.function.IntConsumer arrival = arrivals.get(path);
+                if (arrival != null) {
+                    arrival.accept(n);
+                }
                 List<Reply> replies = script.getOrDefault(path, List.of(Reply.ok()));
                 Reply reply = replies.get(Math.min(n, replies.size() - 1));
                 try {
@@ -130,6 +136,11 @@ class ResilienceTest {
 
         Stub on(String path, Reply... replies) {
             script.put("/orders" + path, List.of(replies));
+            return this;
+        }
+
+        Stub onArrival(String path, java.util.function.IntConsumer hook) {
+            arrivals.put("/orders" + path, hook);
             return this;
         }
 
@@ -828,4 +839,22 @@ class ResilienceTest {
                 TopolithCode.TL0041, "OtherFactory", SecondFactory.class);
     }
 
+    /** A host that declares Spring Cloud's global breaker configurer itself stacks it on the module's group. */
+    @Configuration(proxyBeanMethods = false)
+    static class DeclaresGlobalBreaker {
+        @Bean
+        org.springframework.cloud.client.circuitbreaker.httpservice.CircuitBreakerRestClientHttpServiceGroupConfigurer
+                global(CircuitBreakerFactory<?, ?> factory) {
+            return new org.springframework.cloud.client.circuitbreaker.httpservice
+                    .CircuitBreakerRestClientHttpServiceGroupConfigurer(factory);
+        }
+    }
+
+    @Test
+    void ac_ext_67_a_global_breaker_configurer_in_the_context_fails_a_resilient_module_with_tl0003()
+            throws Exception {
+        startupFails(props("http://127.0.0.1:1", R + "retry.max-attempts=2",
+                "spring.cloud.circuitbreaker.http-services.enabled=false"), TopolithCode.TL0003,
+                "global HTTP-service circuit breaker", DeclaresGlobalBreaker.class);
+    }
 }

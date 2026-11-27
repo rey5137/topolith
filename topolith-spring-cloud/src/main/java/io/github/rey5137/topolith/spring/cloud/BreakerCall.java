@@ -8,4 +8,9 @@ import java.util.function.Supplier;
  */
 interface BreakerCall {
     <T> T run(Supplier<T> attempt);
+
+    /** Whether the breaker registry still holds this call's own breaker under its name (a host may have swapped it). */
+    default boolean registered() {
+        return false;
+    }
 }

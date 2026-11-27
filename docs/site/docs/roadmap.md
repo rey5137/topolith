@@ -24,7 +24,6 @@
 ## Not in 0.1
 
 - The Maven goal that verifies a hand-written descriptor against bytecode. Startup still validates descriptors.
-- Retry, circuit-breaker settings and declarations of idempotency in Topolith itself. Timeouts remain mandatory.
 - Native images and the build-time topology guard.
 
 ## Not planned

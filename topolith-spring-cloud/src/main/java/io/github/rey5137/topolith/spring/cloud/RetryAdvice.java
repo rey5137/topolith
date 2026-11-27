@@ -4,6 +4,7 @@ import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.rey5137.topolith.spring.boot.internal.Outcomes;
 import io.github.rey5137.topolith.spring.boot.internal.ResilienceModules;
@@ -28,14 +29,23 @@ final class RetryAdvice implements MethodInterceptor {
     private final String module;
     private final Class<?> service;
     private final ResilienceModules modules;
-    private final ResilienceSettings.Retry settings;
-    private final RetryTemplate template;
+    private final AtomicReference<Policy> policy;
+    private final AtomicReference<BreakerCall> breaker;
 
-    RetryAdvice(String module, Class<?> service, ResilienceModules modules) {
+    /** One module's retry settings and the template built from them, swapped as a whole on refresh (D-104). */
+    record Policy(ResilienceSettings.Retry settings, RetryTemplate template) {
+    }
+
+    RetryAdvice(String module, Class<?> service, ResilienceModules modules, AtomicReference<Policy> policy,
+            AtomicReference<BreakerCall> breaker) {
+        this.breaker = breaker;
         this.module = module;
         this.service = service;
         this.modules = modules;
-        this.settings = modules.module(module).retry();
+        this.policy = policy;
+    }
+
+    static Policy policy(ResilienceSettings.Retry settings) {
         RetryPolicy.Builder policy = RetryPolicy.builder().maxRetries(settings.maxAttempts() - 1L)
                 .delay(settings.initialBackoff()).multiplier(settings.multiplier()).jitter(Duration.ZERO)
                 .predicate(failure -> Outcomes.classify(failure) == Outcomes.Outcome.TRANSIENT);
@@ -43,26 +53,36 @@ final class RetryAdvice implements MethodInterceptor {
         if (!settings.maxBackoff().isZero()) {
             policy.maxDelay(settings.maxBackoff());
         }
-        this.template = new RetryTemplate(policy.build());
+        return new Policy(settings, new RetryTemplate(policy.build()));
     }
 
     @Override
     public Object invoke(MethodInvocation invocation) throws Throwable {
+        // the call's breaker is captured with its policy, once, for every attempt (D-107)
+        try (CallScope.Scope scope = CallScope.open(breaker)) {
+            return invokeWith(invocation);
+        }
+    }
+
+    private Object invokeWith(MethodInvocation invocation) throws Throwable {
         Method method = invocation.getMethod();
-        if (!(invocation instanceof ProxyMethodInvocation call) || method.getDeclaringClass() == Object.class
-                || method.isDefault() || !idempotent(method)) {
+        // captured once: a call in flight finishes on the policy it started with
+        Policy current = policy.get();
+        if (!current.settings().active() || !(invocation instanceof ProxyMethodInvocation call)
+                || method.getDeclaringClass() == Object.class || method.isDefault()
+                || !idempotent(method, current.settings())) {
             return invocation.proceed();
         }
         try {
             // each attempt runs a fresh copy of the rest of the chain: a proceeded invocation cannot run twice
-            return template.execute(() -> call.invocableClone().proceed());
+            return current.template().execute(() -> call.invocableClone().proceed());
         } catch (RetryException exhausted) {
             throw exhausted.getLastException();
         }
     }
 
     /** Whether the descriptor lists the method, or {@code safe-methods-idempotent} admits its HTTP method (D-100). */
-    private boolean idempotent(Method method) {
+    private boolean idempotent(Method method, ResilienceSettings.Retry settings) {
         return modules.declaredIdempotent(module, service, method)
                 || settings.safeMethodsIdempotent() && SAFE.contains(httpMethod(method));
     }

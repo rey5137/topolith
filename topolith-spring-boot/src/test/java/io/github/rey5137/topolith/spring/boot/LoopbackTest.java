@@ -601,4 +601,35 @@ class LoopbackTest {
             }
         });
     }
+
+    @Test
+    void ac_ext_68_a_refreshed_retry_or_breaker_key_on_a_loopback_module_needs_a_restart(CapturedOutput output)
+            throws Exception {
+        String backoff = "topolith.modules.wallet.remote.retry.initial-backoff";
+        String window = "topolith.modules.wallet.remote.circuit-breaker.sliding-window-size";
+        serve(context -> {
+            TopolithRefreshStatus status = context.getBean(TopolithRefreshStatus.class);
+            for (String key : List.of(backoff, window)) {
+                int before = output.getAll().length();
+                refresh(context, key, key.equals(backoff) ? "7ms" : "20");
+                String last = output.getAll().substring(before);
+                assertTrue(last.contains("TL0010") && last.contains("loopback module 'wallet' keeps its client "
+                        + "settings: the refreshed " + key), last);
+                assertFalse(last.contains("TL0011"), last);
+                assertTrue(status.restartPending());
+                assertEquals(Set.of("wallet"), status.wiring());
+            }
+            // a key stays pending until it matches its running value again
+            refresh(context, backoff, "1ms");
+            assertTrue(status.restartPending(), "the window key still differs");
+            refresh(context, window, "10");
+            assertFalse(status.restartPending());
+            // a key the module did not set at startup is pending until it is removed again
+            String threshold = "topolith.modules.wallet.remote.circuit-breaker.failure-rate-threshold";
+            refresh(context, threshold, "30");
+            assertTrue(status.restartPending());
+            refresh(context, threshold, null);
+            assertFalse(status.restartPending());
+        }, backoff + "=1ms", window + "=10");
+    }
 }

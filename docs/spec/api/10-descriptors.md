@@ -1,7 +1,7 @@
 # 10 — Module descriptors
 
 This file specifies module metadata, its generated and hand-written forms, and the module graph.
-It routes work on `@TopolithModule`, contract inference and API descriptors.
+It routes work on `@TopolithModule`, `@Idempotent`, contract inference and API descriptors.
 
 ## Rules
 
@@ -32,11 +32,13 @@ invisible. A concrete class outside the package that implements such an interfac
 the required processor option `-Atopolith.apiVersion=${project.version}`; its absence or a blank value is a compile
 error citing TL0013 at the annotation, and descriptor problems the core builder reports (D-27) are compile errors,
 never exceptions from the processor. The processor writes the lowest `format-version` that can express the
-descriptor (D-39). Output is sorted and has no timestamp. When the api packages are not in the
+descriptor (D-39). Output is sorted and has no timestamp. The processor also records the `idempotent` methods of the
+provided contracts (R-DESC-05, D-100). When the api packages are not in the
 compilation the build reads the API declaration, the `@TopolithModule` in the package-info class of an api package on
 the classpath (a JAR or a class directory), and fails if there is none or its `id` or `api` differ from the module's. It
-recomputes the API's `provides` from the classpath types of the api packages with the API declaration's rule and fails
-if they differ from the inferred ones. This does not prove that the API artifact carries its descriptor file.
+recomputes the API's `provides` and `idempotent` from the classpath types of the api packages with the API
+declaration's rule and fails if they differ from the inferred ones. This does not prove that the API artifact carries
+its descriptor file.
 The api packages are classified by the types they contain (compiled now, already in the output directory, or on the
 classpath), and an api package with both compiled and classpath types, or a classpath declaration, fails as split.
 Implementers are read from this compilation plus the declaring package's own output, so a partial compile (an IDE, or
@@ -53,9 +55,9 @@ INV-5, P-6, D-9 and D-29.
 
 An `@TopolithModule` on a package that is in its own `api` list is an API declaration (D-29): it sets neither
 `requires` nor `optional`, each `api` package holds a type in the compilation, and it emits
-`META-INF/topolith/apis/<id>.properties` with id, API packages, `provides` and `api-version`. Its `provides` are the
-public, non-sealed, non-annotation interfaces in the api packages, keeping only the most-derived. Implements INV-5, P-6
-and D-29.
+`META-INF/topolith/apis/<id>.properties` with id, API packages, `provides`, `idempotent` (R-DESC-05) and `api-version`.
+Its `provides` are the public, non-sealed, non-annotation interfaces in the api packages, keeping only the most-derived.
+Implements INV-5, P-6 and D-29.
 
 - AC-DESC-06 (M1.2): An API declaration emits a descriptor with all four fields for its module, and a module build
   fails when the classpath API declaration is missing or differs.
@@ -74,3 +76,60 @@ whatever the modes. Discovery of descriptors on the classpath is not core's (M1.
 - AC-DESC-09 (M1.1): An absent optional dependency does not make the graph fail an unmet-requirement check.
 - AC-DESC-10 (M1.3): Two module packages that are equal or nested, or another module's api package equal to or under a
   module's package, fail with TL0017 naming both modules; a module's own api package under its own package is allowed.
+
+### R-DESC-05 — Idempotency declaration
+
+A contract method is recorded as idempotent in the module and API descriptors only when explicitly declared with
+`@Idempotent` (`io.github.rey5137.topolith.contract.Idempotent`, in `topolith-core`, `@Incubating`, `@Documented`,
+`RUNTIME` retention, targets `TYPE` and `METHOD`, no members); HTTP exchange annotations (`@GetExchange`,
+`@PutExchange`, `@DeleteExchange`, `@HttpExchange`) never add a method to the descriptor's `idempotent` set, and the
+caller-side `remote.retry.safe-methods-idempotent` setting (R-EXT-14) does not change the descriptor (D-100).
+
+- **Contract and method scope.** On a provided contract interface `C` (an entry of `provides`), a public, abstract
+  (non-`default`, non-`static`, non-`private`) interface method of `C` (declared on `C` or inherited from a
+  superinterface, `java.lang.Object` methods excluded) is idempotent when `C` carries `@Idempotent`, or when the method
+  declaration `C` exposes (on `C` if `C` declares or overrides it, else on the superinterface from which `C` inherits
+  it) or that declaration's enclosing interface carries `@Idempotent`. A `default` interface method is not an HTTP
+  exchange and is never recorded in `idempotent`, even when its enclosing interface carries `@Idempotent`. When `C`
+  overloads a method name, every abstract overload of that name on `C` must agree on whether it is idempotent.
+- **Processor.** For both module and API declarations (R-DESC-02, R-DESC-03), the processor records each idempotent
+  contract method as `<contract binary FQN>#<method name>`, sorted lexicographically, in the descriptor's `idempotent`
+  key. `@Idempotent` on a non-interface, on a type outside the module's `api` packages, on a `default`, `static` or
+  `private` interface method, or on one overload of a method name when another abstract overload of that name on the
+  same contract is not idempotent fails compilation with TL0013. When the module build reads its `api` packages from
+  the classpath or the same compilation, it recomputes `idempotent` from the API types and fails with TL0013 if the
+  sets differ.
+- **Descriptor format.** In `format-version=1`, `idempotent` is an optional comma-separated list in both
+  `apis/<id>.properties` and `modules/<id>.properties`, exposed as `ApiDescriptor.idempotent()` and
+  `ModuleDescriptor.idempotent()`; keeping `format-version=1` rather than bumping the format version (D-39) is allowed
+  only because `0.1.0` is not yet released (D-100). An absent or empty `idempotent` key means no method of the module
+  is declared `@Idempotent` (empty set), so descriptors written without `idempotent` remain readable and valid. Each
+  entry has the form `<contract>#<method>`, where `<contract>` is listed in the descriptor's own `provides` and
+  `<method>` is a valid Java identifier; a duplicate entry, a malformed entry, or a `<contract>` not in `provides`
+  fails with TL0013 (D-27, D-100). `Descriptors.write` writes `idempotent` after `provides`.
+- **Startup check.** For every `internal`, `loopback` or `external` module (`none` is not checked, INV-2), startup
+  recomputes the idempotent methods of each loaded provided contract interface from its `@Idempotent` annotations and
+  compares them against the module's effective descriptor (`modules/<id>.properties` for an internal or loopback
+  module, `apis/<id>.properties` for an external module). Any difference, any difference between an internal or
+  loopback module's module descriptor and its host API descriptor on `idempotent`, `@Idempotent` on a `default` method
+  or disagreeing overloads of one method name on a loaded contract, or `@Idempotent` on a separate
+  `remote.http-interface` (D-49) fails startup with TL0040 naming the module and contract (R-VAL-01, D-100).
+
+Implements INV-1, INV-2, INV-4, INV-6, P-6, D-27, D-39, D-54 and D-100.
+
+- AC-DESC-11 (M7.2): Parsing and writing a module or API descriptor round-trips its `idempotent` set of
+  `<contract>#<method>` entries under `format-version=1`; a descriptor with a missing or empty `idempotent` key parses
+  with an empty set; a duplicate entry, an entry not of the form `<contract>#<method>`, a `<contract>` not in the
+  descriptor's `provides`, or a `<method>` that is not a Java identifier fails with TL0013.
+- AC-DESC-12 (M7.2): `@Idempotent` on an abstract contract method, a contract interface or an inherited superinterface
+  declaration emits the sorted `<contract>#<method>` entries in `idempotent` in both `apis/<id>.properties` and
+  `modules/<id>.properties` (skipping `default` methods on a type-annotated interface); `@GetExchange`, `@PutExchange`
+  and `@DeleteExchange` without `@Idempotent` emit none; `@Idempotent` on a concrete class, an interface outside
+  `api-packages`, a `default`, `static` or `private` interface method, or one overload of a method name when another
+  abstract overload on the same contract is not idempotent fails compilation with TL0013, as does a module build whose
+  classpath API's idempotent methods differ.
+- AC-DESC-13 (M7.2): At startup, for an `internal`, `loopback` or `external` module, a mismatch between the descriptor's
+  `idempotent` set and the `@Idempotent` annotations on the loaded provided contract interfaces, a mismatch between an
+  internal or loopback module's module and API descriptors on `idempotent`, `@Idempotent` on a `default` method or
+  disagreeing overloads of one method name on a loaded contract, or `@Idempotent` on a separate
+  `remote.http-interface` fails with TL0040; a `none` module is not checked.

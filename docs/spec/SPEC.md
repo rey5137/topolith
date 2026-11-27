@@ -26,9 +26,9 @@ Child files are written in milestone M0 (`docs/plan/mvp-plan.md` §1, slice M0.1
 | If you are working on… | Read |
 |---|---|
 | Anything at all | this file (invariants, principles) |
-| `@TopolithModule`, the descriptor format, `provides` inference, api descriptors | `api/10-descriptors.md` |
+| `@TopolithModule`, `@Idempotent`, the descriptor format, `provides` inference, api descriptors | `api/10-descriptors.md` |
 | Modes, activation, persistence and migration filtering | `api/11-modes-activation.md` |
-| External HTTP groups, endpoints, timeouts, errors, exposure, loopback calls, the call Observation, context propagation, outgoing auth | `api/12-external.md` |
+| External HTTP groups, endpoints, timeouts, errors, exposure, loopback calls, the call Observation, context propagation, outgoing auth, retry, circuit breaker | `api/12-external.md` |
 | Startup validation, the actuator endpoint, `TLnnnn` diagnostics | `api/13-validation-actuator.md` |
 | ArchUnit boundary rules, the frozen baseline, the startup ownership check | `test/20-boundaries.md` |
 | `topolith-spring-test`: mode test configuration, test helpers | `test/21-test-helpers.md` |

@@ -134,8 +134,9 @@ contract-call parity only: events, persistence and listeners behave as in `inter
 alone (package = module, by design), so a test class in the module's package or a subpackage fails with
 TL0032, because it would get the provider and never cross HTTP (D-85). The matrix also compares the call context
 across modes: the `topolith.module.call` observation (R-EXT-11), the listed MDC keys and tenant the provider sees
-(R-EXT-12), and the provider's `Authentication` by principal name and authorities with token relay (R-EXT-13, D-94).
-Implements INV-6, P-2, D-74, D-80, D-85, D-87, D-91 and D-94.
+(R-EXT-12), the provider's `Authentication` by principal name and authorities with token relay (R-EXT-13, D-94), and
+`@Idempotent` retry and circuit-breaker exception survival (R-EXT-14, R-EXT-15, D-101 through D-103).
+Implements INV-6, P-2, D-74, D-80, D-85, D-87, D-91, D-94 and D-101 through D-103.
 
 - AC-TEST-14 (M5.5): The shared payment test cases pass with payment internal under the by-value proxy, loopback, and
   external against the payment service, and each run asserts that payment runs in the mode it names.
@@ -159,3 +160,9 @@ Implements INV-6, P-2, D-74, D-80, D-85, D-87, D-91 and D-94.
   the payment service, in the external run.
 - AC-TEST-23 (M6.3): In each mode-matrix run the payment provider sees the caller's value of a listed MDC key and the
   caller's tenant, the same in the internal, loopback and external runs.
+- AC-TEST-24 (M7.4): In the sample payment tests, an `@Idempotent` read contract method succeeds across the `internal`,
+  `loopback` and `external` runs; in the `loopback` run with `remote.retry.max-attempts` above `1` and a seeded
+  R-EXT-10 fault, the `@Idempotent` read method retries and recovers while a non-idempotent payment mutation makes one
+  attempt and fails with `ModuleUnavailableException`; and in the `loopback` and `external` runs with
+  `remote.circuit-breaker.enabled=true`, a declared payment exception survives the breaker as the declared exception
+  type without opening the circuit.

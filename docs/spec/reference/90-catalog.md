@@ -14,7 +14,7 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 |---|---|---|---|
 | TL0001 | A host has not declared a valid mode for a known module | failure | M1.3 |
 | TL0002 | An internal or loopback module has no implementation JAR | failure | M1.3 |
-| TL0003 | A module setting names an unknown module, contradicts the module's mode, or contradicts another setting. Uses: an external module has neither or both URL and service id; a Topolith client property conflicts with Boot's; a module that is neither internal nor loopback is exposed (D-44, D-76); `expose.enabled` is not a boolean; an `expose.*` key under `topolith.modules.<id>` names an unknown module; a host HTTP service group named like an external or loopback module holds an interface that is not that module's; a client customizer names a module that is neither external nor loopback (D-48); a `remote.http-interface` mapping is invalid (D-49); a loopback module sets a non-blank `remote.url` or `remote.service-id`, a user-set Boot `base-url` or `expose.enabled=false` (R-MODE-06), or a provider bean that is `@Primary` or whose class carries `@Priority` (D-84); a `loopback.*` key is set for a module that is not loopback, is unknown, or holds an invalid value (R-EXT-10); an `auth.*` key is set for a module that is neither external nor loopback, is unknown, or holds an invalid value, or `ModuleClients.authenticate` names such a module (R-EXT-13) | failure | M1.5 (AC-EXT-11) |
+| TL0003 | A module setting names an unknown module, contradicts the module's mode, or contradicts another setting. Uses: an external module has neither or both URL and service id; a Topolith client property conflicts with Boot's; a module that is neither internal nor loopback is exposed (D-44, D-76); `expose.enabled` is not a boolean; an `expose.*` key under `topolith.modules.<id>` names an unknown module; a host HTTP service group named like an external or loopback module holds an interface that is not that module's; a client customizer names a module that is neither external nor loopback (D-48); a `remote.http-interface` mapping is invalid (D-49); a loopback module sets a non-blank `remote.url` or `remote.service-id`, a user-set Boot `base-url` or `expose.enabled=false` (R-MODE-06), or a provider bean that is `@Primary` or whose class carries `@Priority` (D-84); a `loopback.*` key is set for a module that is not loopback, is unknown, or holds an invalid value (R-EXT-10); an `auth.*` key is set for a module that is neither external nor loopback, is unknown, or holds an invalid value, or `ModuleClients.authenticate` names such a module (R-EXT-13); a `remote.retry.*` or `remote.circuit-breaker.*` key is set for a module that is neither external nor loopback, is unknown, or holds an invalid value (`minimum-number-of-calls` above `sliding-window-size` or an explicit `max-backoff` below `initial-backoff` included), sets `remote.retry.max-attempts` above `1` or `remote.circuit-breaker.enabled=true` alongside `spring.cloud.circuitbreaker.http-services.enabled=true`, another source configures breaker `<id>`, a breaker named `<id>` already exists in `CircuitBreakerRegistry`, an active Resilience4j bulkhead provider is on the factory, or a host `@HttpServiceFallback` targets a module group (R-EXT-14, R-EXT-15) | failure | M1.5 (AC-EXT-11) |
 | TL0004 | An internal or loopback module's required module is unavailable | failure | M1.3 |
 | TL0005 | More than one provider supplies the same contract | failure | M1.5 |
 | TL0006 | Two module descriptors, or two API descriptors, declare the same id | failure | M1.1 |
@@ -22,7 +22,7 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0008 | Required module dependencies contain a cycle | failure | M1.1 |
 | TL0009 | Service-id discovery needs a missing Cloud integration (`spring-cloud-starter-loadbalancer`) | failure | M2.2 (AC-EXT-06) |
 | TL0010 | A refreshed mode or client wiring change (a URL/service-id switch, a loopback module's client settings, an `auth.*` key) needs a restart | warning | M2.6 |
-| TL0011 | Refreshed endpoint settings are invalid or the client rebuild failed | warning | M2.6 |
+| TL0011 | Refreshed endpoint, retry or circuit-breaker settings are invalid or the client rebuild failed | warning | M2.6 |
 | TL0012 | An internal class references another module's non-API class | failure | M3.3 |
 | TL0013 | A module or API descriptor is malformed | failure | M1.5 |
 | TL0014 | Cloud context classes are present without Topolith refresh integration | warning | M2.6 |
@@ -51,6 +51,8 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0037 | `auth.type=client-credentials` cannot be satisfied: Spring Security's OAuth2 client classes are missing, `auth.registration-id` is missing or names no registration in the `ClientRegistrationRepository`, or there is not exactly one `ClientRegistrationRepository` and one `OAuth2AuthorizedClientService` bean to build the hook's manager from, or more than one client-credentials `OAuth2AccessTokenResponseClient` bean (D-94, D-96) | failure | M6.4 (AC-EXT-56) |
 | TL0038 | An outgoing tenant is over 1024 characters once percent-encoded or has an ISO control character, so the call fails before it is sent with a `TopolithException` (D-91) | failure | M6.3 (AC-EXT-51) |
 | TL0039 | A request carrying `Topolith-Tenant` reached a module route of a host with no `TenantContext` bean, so the provider answers 500 without running it and the caller receives the unspecified exception (D-98) | failure | M6.3 (AC-EXT-51) |
+| TL0040 | A contract's idempotency declarations do not match or are invalid: for an internal, loopback or external module, the descriptor's `idempotent` set differs from the `@Idempotent` annotations on the loaded provided contracts (or an internal or loopback module's module and API descriptors declare different `idempotent` sets), a provided contract places `@Idempotent` on a `default` method or overloads a method name with conflicting `@Idempotent` annotations, or `@Idempotent` is placed on a separate `remote.http-interface` instead of the contract; rebuild the API and module artifacts with the processor or align the descriptor and keep `@Idempotent` on abstract contract methods or the contract interface with consistent overloads (D-100) | failure | M7.2 (AC-DESC-13) |
+| TL0041 | Per-group retry or circuit breaker is configured (`topolith.modules.<id>.remote.retry.max-attempts` above `1` or `remote.circuit-breaker.enabled=true`) without the needed Spring Cloud resilience integration: `topolith-spring-cloud`'s resilience configuration is missing, or `remote.circuit-breaker.enabled=true` does not have exactly one `CircuitBreakerFactory` bean of a supported implementation (in 0.1, `Resilience4JCircuitBreakerFactory`); add `topolith-spring-cloud` (and a single supported factory such as `spring-cloud-starter-circuitbreaker-resilience4j` for a circuit breaker) or turn the setting off (D-101, D-102, D-105) | failure | M7.3 (AC-EXT-67) |
 
 The owning slice names the slice that owns the code's acceptance criterion, not the first slice that raises it. M1.3
 raises TL0007 early, only when a host's component scan covers a non-internal module's package (AC-MODE-24); M1.4 also
@@ -62,12 +64,15 @@ scan cases (D-60). A host migration location or changelog that reaches a non-int
 TL0028 for a loopback module (AC-MODE-39, AC-MODE-42, AC-MODE-44, AC-MODE-45, AC-MODE-47, AC-MODE-51) and M5.4 raises
 TL0003 for `loopback.*` keys (AC-EXT-39). M6.2 raises TL0029 with no transaction manager and no
 `ObservationRegistry` bean too (AC-EXT-46), and M6.4 raises TL0003 for `auth.*` keys and TL0010 for their refresh
-(AC-EXT-56).
+(AC-EXT-56). M7.2 raises TL0013 for malformed `idempotent` entries and misplaced `@Idempotent` declarations (AC-DESC-11,
+AC-DESC-12), M7.3 raises TL0003 for `remote.retry.*` and `remote.circuit-breaker.*` keys (AC-EXT-67), and M7.4 raises
+TL0010 and TL0011 for their refresh (AC-EXT-68).
 
 Diagnostic criteria are AC-MODE-02, AC-MODE-05, AC-MODE-08, AC-MODE-21 through AC-MODE-24, AC-MODE-11, AC-MODE-25 through AC-MODE-28, AC-MODE-30, AC-MODE-31, AC-DESC-08,
-AC-DESC-10, AC-VAL-01 through AC-VAL-05, AC-VAL-14, AC-ARCH-09, AC-ARCH-11, AC-EXT-06, AC-MODE-13, AC-MODE-18, AC-EXT-22 through
+AC-DESC-10 through AC-DESC-13, AC-VAL-01 through AC-VAL-05, AC-VAL-14, AC-ARCH-09, AC-ARCH-11, AC-EXT-06, AC-MODE-13, AC-MODE-18, AC-EXT-22 through
 AC-EXT-24, AC-EXT-30, AC-VAL-10 through AC-VAL-12, AC-MODE-39, AC-MODE-42, AC-MODE-44, AC-MODE-45,
-AC-MODE-47, AC-MODE-51, AC-EXT-39, AC-EXT-46, AC-EXT-47, AC-EXT-51, AC-EXT-52, AC-EXT-55 and AC-EXT-56.
+AC-MODE-47, AC-MODE-51, AC-EXT-39, AC-EXT-46, AC-EXT-47, AC-EXT-51, AC-EXT-52, AC-EXT-55, AC-EXT-56, AC-EXT-67 and
+AC-EXT-68.
 
 ### R-CAT-02 — Exception catalog
 
@@ -100,6 +105,7 @@ Use these terms in descriptors, configuration and diagnostics. Implements P-1 an
 | Propagated context | The listed MDC values and the tenant a loopback or external call carries to its provider. |
 | Outgoing-auth hook | The one interceptor that sets an external or loopback module's call credentials. |
 | Token relay | The default hook: sends the calling thread's bearer token as the call's `Authorization`. |
+| Idempotent call | A call to an abstract contract method explicitly declared `@Idempotent` (recorded in `idempotent`) or, when `remote.retry.safe-methods-idempotent=true`, using a safe HTTP method (`GET`, `HEAD`, `OPTIONS`, `TRACE`). |
 
 - AC-CAT-01 (M4.3): The configuration reference uses these mode and restart-pending meanings.
 - AC-CAT-02 (M8.4): The configuration reference uses the loopback meaning.

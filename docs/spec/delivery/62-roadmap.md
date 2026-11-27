@@ -51,7 +51,7 @@ Items below refer to RFC 0001; rows for design sections cover the parts used by 
 | §4.3: adoption checklist and external consumption before adoption | R-BUILD-05, R-EXT-01, R-EXT-06 |
 | §4.4: normal host, platform, dependency enforcers, latest-module CI | R-BUILD-04 |
 | §5: contracts, service groups, endpoint selection and discovery | R-EXT-01, R-EXT-02 |
-| §5: timeouts, errors, exposure, client escape hatches | R-EXT-03, R-EXT-04, R-EXT-05, R-EXT-06 |
+| §5: timeouts, resilience, errors, exposure, client escape hatches | R-DESC-05, R-EXT-03, R-EXT-04, R-EXT-05, R-EXT-06, R-EXT-14, R-EXT-15 |
 | §3.2: loopback mode | R-MODE-01, R-MODE-06, R-EXT-09 |
 | §6: D-2 transaction boundary; contract types in the M3.1 plan | R-EXT-07, R-ARCH-02 |
 | §6: mutation (by-value proxy) | R-TEST-04 |
@@ -81,8 +81,8 @@ Items below refer to RFC 0001; rows for design sections cover the parts used by 
   0.1 includes the adoption documentation and persistence isolation.
 - D-19: the `topolith:verify` Maven goal for hand-written descriptor bytecode verification is deferred beyond 0.1;
   startup still validates descriptors.
-- D-16: retry, circuit breakers and declarations of idempotency are scheduled for 0.1.0 in M7 (D-74); M7.1 writes
-  their rules. Until then timeouts remain mandatory and nothing is retried.
+- D-16: retry, circuit breakers and declarations of idempotency are scheduled for 0.1.0 in M7 (D-74); their rules are
+  R-DESC-05, R-EXT-14 and R-EXT-15 (M7.1, D-100 through D-105).
 - RFC §8 and §10: the Modulith bridge, graph docs, Backstage export, API compatibility gate, hybrid local development
   and Consul registrar SPI are later. D-11 requires the topology actuator status in 0.1 despite the RFC's later row.
 - RFC §9 and D-5: native images and the AOT topology-drift guard are outside 0.1.

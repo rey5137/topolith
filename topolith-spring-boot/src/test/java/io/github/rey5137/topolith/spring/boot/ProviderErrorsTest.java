@@ -12,6 +12,7 @@ import java.util.function.Consumer;
 
 import io.github.rey5137.topolith.contract.ModuleUnavailableException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountContract;
+import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountCheckedException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountNotFoundException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.host.ErrorHost;
@@ -55,9 +56,14 @@ class ProviderErrorsTest {
 
     /** A web host on a random port, serving the account module of {@code root} in {@code mode}. */
     static void serve(Path root, String mode, Consumer<AssertableWebApplicationContext> check) throws Exception {
+        serve(root, mode, check, ErrorHost.class);
+    }
+
+    private static void serve(Path root, String mode, Consumer<AssertableWebApplicationContext> check,
+            Class<?>... configurations) throws Exception {
         try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
             new WebApplicationContextRunner(AnnotationConfigServletWebServerApplicationContext::new)
-                    .withClassLoader(loader).withUserConfiguration(ErrorHost.class)
+                    .withClassLoader(loader).withUserConfiguration(configurations)
                     .withPropertyValues("server.port=0", "spring.liquibase.enabled=false",
                             "topolith.modules.account.mode=" + mode, "topolith.modules.payment.mode=none",
                             "topolith.modules.account.expose.enabled=" + mode.equals("internal"),
@@ -69,7 +75,19 @@ class ProviderErrorsTest {
         }
     }
 
-    record Answer(int status, String contentType, String body) {
+    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    @org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
+    static class MethodSecurity {
+        @org.springframework.context.annotation.Bean
+        org.springframework.boot.web.servlet.FilterRegistrationBean<
+                org.springframework.security.web.access.ExceptionTranslationFilter> securityDenials() {
+            var filter = new org.springframework.security.web.access.ExceptionTranslationFilter(
+                    new org.springframework.security.web.authentication.Http403ForbiddenEntryPoint());
+            return new org.springframework.boot.web.servlet.FilterRegistrationBean<>(filter);
+        }
+    }
+
+    record Answer(int status, String contentType, String body, String module) {
     }
 
     static int port(AssertableWebApplicationContext context) {
@@ -82,7 +100,7 @@ class ProviderErrorsTest {
             HttpResponse<String> response = HTTP.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port
                     + path)).timeout(Duration.ofSeconds(10)).build(), HttpResponse.BodyHandlers.ofString());
             return new Answer(response.statusCode(), response.headers().firstValue("Content-Type").orElse(""),
-                    response.body());
+                    response.body(), response.headers().firstValue("Topolith-Module").orElse(""));
         } catch (IOException | InterruptedException e) {
             throw new IllegalStateException(e);
         }
@@ -115,6 +133,85 @@ class ProviderErrorsTest {
             // with a fixed detail: the exception's own message stays with the provider
             assertProblem(context, "unavailable", 503, ModuleUnavailableException.class, "payment",
                     "module 'payment' could not be reached (unavailable downstream)");
+        });
+    }
+
+    @Test
+    void ac_ext_70_and_71_checked_exceptions_are_problems() throws Exception {
+        serve("internal", context -> {
+            for (String failure : new String[] {"direct", "subclass"}) {
+                Answer answer = get(context, "/account/checked?case=" + failure);
+                assertEquals(500, answer.status());
+                assertTrue(answer.contentType().startsWith("application/problem+json"));
+                assertTrue(answer.body().contains(AccountCheckedException.class.getName()), answer.body());
+                assertTrue(answer.body().contains(failure.equals("direct") ? "checked message" : "checked subclass"));
+                assertEquals("account", answer.module());
+            }
+        });
+    }
+
+    @Test
+    void ac_ext_71_checked_exception_not_declared_by_contract_method_is_undeclared() throws Exception {
+        serve("internal", context -> {
+            try {
+                var bean = context.getBean(
+                        io.github.rey5137.topolith.spring.boot.errorfixture.account.AccountController.class);
+                var handler = new org.springframework.web.method.HandlerMethod(bean,
+                        bean.getClass().getMethod("find", String.class));
+                var resolver = new ModuleExceptionResolver(
+                        context.getBean(io.github.rey5137.topolith.core.Topology.class),
+                        context.getBean(TopologyResolver.RESOLUTION_BEAN, TopologyResolver.Resolution.class),
+                        java.util.List::of);
+                assertNull(resolver.resolveException(new org.springframework.mock.web.MockHttpServletRequest(),
+                        new org.springframework.mock.web.MockHttpServletResponse(), handler,
+                        new AccountCheckedException("secret checked")));
+            } catch (NoSuchMethodException e) {
+                throw new AssertionError(e);
+            }
+        });
+    }
+
+    @Test
+    void ac_ext_72_module_header_marks_handler_responses_and_not_host_routes() throws Exception {
+        serve("internal", context -> {
+            assertEquals("account", get(context, "/account/find?case=ok").module());
+            assertEquals("account", get(context, "/account/find?case=missing").module());
+            assertEquals("account", get(context, "/account/partial").module());
+            assertEquals("", get(context, "/host/fail").module());
+        });
+        serve("none", context -> assertEquals("", get(context, "/host/fail").module()));
+    }
+
+    @Test
+    void ac_ext_72_handler_status_exceptions_keep_the_module_header() throws Exception {
+        serve(root, "internal", context -> {
+            for (String failure : new String[] {"response-status", "status-annotated", "access-denied"}) {
+                Answer answer = get(context, "/account/find?case=" + failure);
+                assertEquals(failure.equals("access-denied") ? 403 : 404, answer.status());
+                assertEquals("account", answer.module());
+                assertFalse(answer.body().contains(ModuleExceptionResolver.TYPE));
+            }
+        }, ErrorHost.class, MethodSecurity.class);
+    }
+
+    @Test
+    void ac_ext_72_method_security_denial_keeps_the_module_header() throws Exception {
+        serve(root, "internal", context -> {
+            Answer answer = get(context, "/account/find?case=method-security");
+            assertEquals(403, answer.status());
+            assertEquals("account", answer.module());
+            assertFalse(answer.body().contains(ModuleExceptionResolver.TYPE));
+        }, ErrorHost.class, MethodSecurity.class);
+    }
+
+    @Test
+    void ac_ext_73_jdk_exceptions_are_problems() throws Exception {
+        serve("internal", context -> {
+            assertProblem(context, "jdk-argument", 500, IllegalArgumentException.class, "account", "argument");
+            assertProblem(context, "jdk-state", 500, IllegalStateException.class, "account", "state");
+            assertProblem(context, "jdk-unsupported", 500, UnsupportedOperationException.class, "account",
+                    "unsupported");
+            assertProblem(context, "jdk-number", 500, IllegalArgumentException.class, "account", "number");
         });
     }
 

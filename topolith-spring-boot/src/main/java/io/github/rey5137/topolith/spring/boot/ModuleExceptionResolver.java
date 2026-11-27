@@ -1,18 +1,22 @@
 package io.github.rey5137.topolith.spring.boot;
 
-import io.github.rey5137.topolith.spring.boot.internal.Outcomes;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.lang.reflect.Method;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 
 import io.github.rey5137.topolith.contract.ModuleUnavailableException;
 import io.github.rey5137.topolith.core.Topology;
+import io.github.rey5137.topolith.spring.boot.internal.Outcomes;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.core.BridgeMethodResolver;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.http.HttpHeaders;
@@ -21,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.http.server.ServletServerHttpResponse;
+import org.springframework.util.ClassUtils;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerExceptionResolver;
@@ -39,10 +44,13 @@ final class ModuleExceptionResolver implements HandlerExceptionResolver, Ordered
     static final String MODULE = "module";
 
     private final Topology topology;
+    private final TopologyResolver.Resolution resolution;
     private final Supplier<List<HttpMessageConverter<?>>> converters;
 
-    ModuleExceptionResolver(Topology topology, Supplier<List<HttpMessageConverter<?>>> converters) {
+    ModuleExceptionResolver(Topology topology, TopologyResolver.Resolution resolution,
+            Supplier<List<HttpMessageConverter<?>>> converters) {
         this.topology = topology;
+        this.resolution = resolution;
         this.converters = converters;
     }
 
@@ -55,7 +63,8 @@ final class ModuleExceptionResolver implements HandlerExceptionResolver, Ordered
         String module = ModuleHandlers.internalOwner(topology, method.getBeanType());
         Class<?> declared = module == null ? null : ContractExceptions.declared(exception.getClass(),
                 topology.apiPackages());
-        if (declared == null) {
+        if (declared == null || (!(exception instanceof RuntimeException)
+                && !declaredByContract(module, method, declared))) {
             return null;
         }
         HttpStatus status;
@@ -161,6 +170,29 @@ final class ModuleExceptionResolver implements HandlerExceptionResolver, Ordered
         }
         response.reset();
         kept.forEach((name, values) -> values.forEach(value -> response.addHeader(name, value)));
+    }
+
+    private boolean declaredByContract(String module, HandlerMethod handler, Class<?> exception) {
+        Class<?> beanType = ClassUtils.getUserClass(handler.getBeanType());
+        for (String name : resolution.contracts().getOrDefault(module, Set.of())) {
+            try {
+                Class<?> contract = Class.forName(name, false, beanType.getClassLoader());
+                if (!contract.isAssignableFrom(beanType)) {
+                    continue;
+                }
+                for (Method method : contract.getMethods()) {
+                    Method implementation = BridgeMethodResolver.findBridgedMethod(
+                            ClassUtils.getMostSpecificMethod(method, beanType));
+                    if (implementation.equals(BridgeMethodResolver.findBridgedMethod(handler.getMethod()))
+                            && Arrays.stream(method.getExceptionTypes()).anyMatch(t -> t.isAssignableFrom(exception))) {
+                        return true;
+                    }
+                }
+            } catch (ClassNotFoundException | LinkageError ignored) {
+                // An unreadable contract cannot declare the exception for this route.
+            }
+        }
+        return false;
     }
 
     @Override

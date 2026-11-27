@@ -26,10 +26,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.util.ClassUtils;
 
 /**
- * The exceptions a contract call carries across HTTP (R-EXT-04, D-43). A declared exception is an unchecked exception
- * whose class, or nearest non-abstract superclass, lies in a known api package (exact, D-27);
- * {@link ModuleUnavailableException} is always declared. TL0027 fails startup when a contract could not keep that
- * promise remotely.
+ * The exceptions a contract call carries across HTTP (R-EXT-04, D-43, D-116, D-117). TL0027 fails startup when
+ * a contract could not keep that promise remotely.
  */
 final class ContractExceptions {
     private ContractExceptions() {
@@ -40,11 +38,13 @@ final class ContractExceptions {
      * class from {@code type} up that lies in one of {@code apiPackages}; null when {@code type} is not declared.
      */
     static Class<?> declared(Class<?> type, Set<String> apiPackages) {
-        if (!RuntimeException.class.isAssignableFrom(type)) {
+        if (!Exception.class.isAssignableFrom(type)) {
             return null;
         }
-        for (Class<?> current = type; current != RuntimeException.class; current = current.getSuperclass()) {
-            if (current == ModuleUnavailableException.class) {
+        for (Class<?> current = type; current != Exception.class && current != RuntimeException.class;
+                current = current.getSuperclass()) {
+            if (current == ModuleUnavailableException.class || current == IllegalArgumentException.class
+                    || current == IllegalStateException.class || current == UnsupportedOperationException.class) {
                 return current;
             }
             if (!Modifier.isAbstract(current.getModifiers()) && apiPackages.contains(current.getPackageName())) {
@@ -56,7 +56,7 @@ final class ContractExceptions {
 
     /** Whether a caller can rebuild {@code type}: public, and a public {@code (String)} or no-arg constructor. */
     static boolean rebuildable(Class<?> type) {
-        if (!Modifier.isPublic(type.getModifiers())) {
+        if (!Modifier.isPublic(type.getModifiers()) || Modifier.isAbstract(type.getModifiers())) {
             return false;
         }
         for (Class<?>[] parameters : List.<Class<?>[]>of(new Class<?>[] {String.class}, new Class<?>[0])) {
@@ -72,7 +72,7 @@ final class ContractExceptions {
 
     /**
      * Adds a TL0027 diagnostic for every contract method of {@code modules} (internal and external, in every
-     * topology) that declares a checked exception, and every concrete unchecked exception class in their api
+     * topology) that declares an invalid checked exception, and every concrete exception class in their api
      * packages that a caller could not rebuild. Contracts load with {@code initialize=false}; api package classes are
      * only read as class files, never loaded, so an external module's classes stay unloaded (INV-2).
      */
@@ -82,12 +82,12 @@ final class ContractExceptions {
             for (String name : contracts.getOrDefault(id, Set.of())) {
                 Class<?> contract = load(name, loader);
                 if (contract != null) {
-                    checkMethods(id, contract, problems);
+                    checkMethods(id, contract, apiPackages.getOrDefault(id, Set.of()), loader, problems);
                 }
             }
             for (String name : classes(apiPackages.getOrDefault(id, Set.of()), loader)) {
                 ClassFile type = ClassFile.read(name, loader);
-                if (type == null || type.isAbstract() || !type.unchecked(loader)) {
+                if (type == null || type.isAbstract() || !type.exception(loader)) {
                     continue;
                 }
                 if (!type.rebuildable()) {
@@ -106,22 +106,39 @@ final class ContractExceptions {
         }
     }
 
-    private static void checkMethods(String id, Class<?> contract, List<Diagnostic> problems) {
+    private static void checkMethods(String id, Class<?> contract, Set<String> apiPackages, ClassLoader loader,
+            List<Diagnostic> problems) {
         Set<String> found = new TreeSet<>();
-        for (Method method : contract.getMethods()) {
-            if (Modifier.isStatic(method.getModifiers()) || method.getDeclaringClass() == Object.class) {
-                continue;
-            }
-            for (Class<?> thrown : method.getExceptionTypes()) {
-                if (!RuntimeException.class.isAssignableFrom(thrown) && !Error.class.isAssignableFrom(thrown)) {
-                    found.add(contract.getName() + "." + method.getName() + " declares checked exception "
-                            + thrown.getName());
+        try {
+            for (Method method : contract.getMethods()) {
+                if (Modifier.isStatic(method.getModifiers()) || method.getDeclaringClass() == Object.class) {
+                    continue;
+                }
+                for (Class<?> thrown : method.getExceptionTypes()) {
+                    if (RuntimeException.class.isAssignableFrom(thrown) || Error.class.isAssignableFrom(thrown)) {
+                        continue;
+                    }
+                    String name = contract.getName() + "." + method.getName() + " declares checked exception "
+                            + thrown.getName();
+                    ClassFile file = ClassFile.read(thrown.getName(), loader);
+                    String status = file == null ? null : file.responseStatus(loader, 0);
+                    if (!apiPackages.contains(thrown.getPackageName())) {
+                        found.add(name + ", which is outside the module's api packages");
+                    } else if (!rebuildable(thrown) || file == null) {
+                        found.add(name + ", which a caller cannot rebuild");
+                    } else if (status != null && !errorStatus(status, loader)) {
+                        found.add(name + " with @ResponseStatus " + status + ", which is not an error status");
+                    }
                 }
             }
+        } catch (LinkageError e) {
+            problems.add(new Diagnostic(TopolithCode.TL0027, "contract methods of module '" + id + "' "
+                    + contract.getName() + " cannot be read: " + e,
+                    "Put the contract's referenced classes on the classpath."));
         }
         for (String text : found) {
             problems.add(new Diagnostic(TopolithCode.TL0027, "contract method of module '" + id + "' " + text
-                    + ", which cannot cross HTTP.", "Throw an unchecked exception from an api package instead."));
+                    + ".", "Declare a rebuildable exception from an api package with a 4xx or 5xx status."));
         }
     }
 
@@ -173,8 +190,8 @@ final class ContractExceptions {
             List<String> annotations) {
         private static final String RESPONSE_STATUS = "Lorg/springframework/web/bind/annotation/ResponseStatus;";
 
-        private static final Set<String> NOT_UNCHECKED = Set.of("java/lang/Object", "java/lang/Throwable",
-                "java/lang/Exception", "java/lang/Error");
+        private static final Set<String> NOT_EXCEPTION = Set.of("java/lang/Object", "java/lang/Throwable",
+                "java/lang/Error");
 
         /** The class file of {@code name} (binary name), or null when it cannot be read. */
         static ClassFile read(String name, ClassLoader loader) {
@@ -240,14 +257,14 @@ final class ContractExceptions {
             return (access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_INTERFACE)) != 0;
         }
 
-        /** Whether a superclass, read the same way, is {@code RuntimeException}. */
-        boolean unchecked(ClassLoader loader) {
+        /** Whether a superclass, read the same way, is {@code Exception}. */
+        boolean exception(ClassLoader loader) {
             String parent = superName;
             for (int depth = 0; parent != null && depth < 64; depth++) {
-                if (parent.equals("java/lang/RuntimeException")) {
+                if (parent.equals("java/lang/Exception")) {
                     return true;
                 }
-                if (NOT_UNCHECKED.contains(parent)) {
+                if (NOT_EXCEPTION.contains(parent)) {
                     return false;
                 }
                 ClassFile next = read(parent.replace('/', '.'), loader);

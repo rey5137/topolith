@@ -11,6 +11,7 @@ import java.util.function.Consumer;
 import com.sun.net.httpserver.HttpServer;
 import io.github.rey5137.topolith.contract.ModuleUnavailableException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountContract;
+import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountCheckedException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountFailure;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountNotFoundException;
@@ -73,8 +74,16 @@ class CallerErrorsTest {
 
     /** A stub provider answering every request with {@code status}, {@code type} and {@code body}. */
     private static HttpServer stub(int status, String type, String body, long delayMillis) throws IOException {
+        return stub(status, type, body, delayMillis, false);
+    }
+
+    private static HttpServer stub(int status, String type, String body, long delayMillis, boolean moduleHeader)
+            throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
+            if (moduleHeader) {
+                exchange.getResponseHeaders().add("Topolith-Module", "account");
+            }
             try {
                 Thread.sleep(delayMillis);
             } catch (InterruptedException e) {
@@ -121,6 +130,74 @@ class CallerErrorsTest {
                     // another module's declared exception passing through the provider
                     assertEquals("card declined", assertThrows(PaymentDeclinedException.class,
                             () -> account.find("declined")).getMessage());
+                });
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
+    @Test
+    void ac_ext_70_checked_exception_round_trips_over_http() throws Exception {
+        ProviderErrorsTest.serve(root, "internal", provider -> {
+            try {
+                call(root, "http://127.0.0.1:" + ProviderErrorsTest.port(provider), context -> {
+                    AccountContract account = context.getBean(AccountContract.class);
+                    for (String value : List.of("direct", "subclass")) {
+                        AccountCheckedException failure = assertThrows(AccountCheckedException.class,
+                                () -> account.checked(value));
+                        assertEquals(value.equals("direct") ? "checked message" : "checked subclass",
+                                failure.getMessage());
+                    }
+                });
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
+    @Test
+    void ac_ext_72_and_74_bare_statuses_without_module_header_are_unavailable() throws Exception {
+        for (int status : new int[] {401, 403, 404, 405, 415}) {
+            HttpServer server = stub(status, "text/plain", "", 0);
+            try {
+                call(root, url(server), context -> {
+                    ModuleUnavailableException failure = assertThrows(ModuleUnavailableException.class,
+                            () -> context.getBean(AccountContract.class).find("ok"));
+                    assertEquals("module 'account' could not be reached (status " + status + ")", failure.getMessage());
+                    assertInstanceOf(RestClientResponseException.class, failure.getCause());
+                });
+            } finally {
+                server.stop(0);
+            }
+        }
+    }
+
+    @Test
+    void ac_ext_72_module_header_and_other_statuses_leave_the_response_unspecified() throws Exception {
+        for (int status : new int[] {401, 403, 404, 405, 415, 400, 409, 500}) {
+            boolean header = status < 400 || List.of(401, 403, 404, 405, 415).contains(status);
+            HttpServer server = stub(status, "text/plain", "", 0, header);
+            try {
+                call(root, url(server), context -> assertThrows(RestClientResponseException.class,
+                        () -> context.getBean(AccountContract.class).find("ok")));
+            } finally {
+                server.stop(0);
+            }
+        }
+    }
+
+    @Test
+    void ac_ext_73_jdk_exceptions_round_trip_over_http() throws Exception {
+        ProviderErrorsTest.serve(root, "internal", provider -> {
+            try {
+                call(root, "http://127.0.0.1:" + ProviderErrorsTest.port(provider), context -> {
+                    AccountContract account = context.getBean(AccountContract.class);
+                    assertThrows(IllegalArgumentException.class, () -> account.find("jdk-argument"));
+                    assertThrows(IllegalStateException.class, () -> account.find("jdk-state"));
+                    assertThrows(UnsupportedOperationException.class, () -> account.find("jdk-unsupported"));
+                    assertSame(IllegalArgumentException.class,
+                            assertThrows(IllegalArgumentException.class, () -> account.find("jdk-number")).getClass());
                 });
             } catch (Exception e) {
                 throw new IllegalStateException(e);
@@ -219,12 +296,10 @@ class CallerErrorsTest {
         String internal = ERRORS + ".account.LockedAccountException";
         List<HttpServer> servers = List.of(
                 stub(500, "text/plain", "boom", 0),
-                stub(404, "application/json", "{}", 0),
+                stub(400, "application/json", "{}", 0),
                 // a problem of another type, even one naming a declared class
                 stub(500, "application/problem+json", problem("about:blank", declared, "account"), 0),
-                // names outside every known api package: the JDK and the module's own package
-                stub(500, "application/problem+json", problem(topolith, IllegalStateException.class.getName(),
-                        "account"), 0),
+                // a name outside every known api package: the module's own package
                 stub(500, "application/problem+json", problem(topolith, internal, "account"), 0),
                 // a malformed name and an invalid module id on a propagated ModuleUnavailableException
                 stub(500, "application/problem+json", problem(topolith, "..x", "account"), 0),

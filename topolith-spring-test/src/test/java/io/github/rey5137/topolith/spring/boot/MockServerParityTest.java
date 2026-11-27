@@ -32,7 +32,7 @@ class MockServerParityTest {
                 var server = new TopolithMockServer("payment")) {
             var found = DescriptorDiscovery.discover(loader);
             Topology topology = Topology.resolve(found.modules(), found.apis(), Map.of("payment", "internal"), null);
-            var resolver = new ModuleExceptionResolver(topology, List::of);
+            var resolver = new ModuleExceptionResolver(topology, null, List::of);
             var response = new MockHttpServletResponse();
             var handler = new HandlerMethod(new PaymentRoute(), PaymentRoute.class.getMethod("payment"));
             assertNotNull(resolver.resolveException(new MockHttpServletRequest(), response, handler, thrown));
@@ -42,6 +42,7 @@ class MockServerParityTest {
             var mock = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
 
             assertEquals(response.getStatus(), mock.statusCode());
+            assertEquals("payment", mock.headers().firstValue("Topolith-Module").orElseThrow());
             assertTrue(response.getContentType().startsWith("application/problem+json"));
             assertTrue(mock.headers().firstValue("Content-Type").orElseThrow().startsWith("application/problem+json"));
             var mapper = JsonMapper.builder().build();
@@ -49,6 +50,48 @@ class MockServerParityTest {
             Map<String, Object> actual = mapper.readValue(mock.body(), Map.class);
             assertEquals(expected, actual);
             assertEquals("urn:topolith:problem:contract-exception", actual.get("type"));
+        }
+    }
+
+    private static Object call(TopolithMockServer server, String path, java.lang.reflect.Method method)
+            throws Throwable {
+        var invocation = (org.aopalliance.intercept.MethodInvocation) java.lang.reflect.Proxy.newProxyInstance(
+                MockServerParityTest.class.getClassLoader(),
+                new Class<?>[] {org.aopalliance.intercept.MethodInvocation.class}, (proxy, invoked, args) -> {
+                    if (invoked.getName().equals("getMethod")) { return method; }
+                    if (invoked.getName().equals("proceed")) {
+                        return org.springframework.web.client.RestClient.create().get()
+                                .uri(server.url().resolve("/payment/" + path)).retrieve().body(String.class);
+                    }
+                    throw new UnsupportedOperationException(invoked.getName());
+                });
+        return new ContractCallTranslator("payment", java.util.Set.of("fixture.invoice.api"),
+                MockServerParityTest.class.getClassLoader()).invoke(invocation);
+    }
+
+    @Test
+    void ac_test_04_stubbed_and_unstubbed_404_follow_provider_routing() throws Exception {
+        try (var server = new TopolithMockServer("payment")) {
+            server.stub("GET", "/missing", 404, "{}");
+            var method = fixture.invoice.api.Invoices.class.getMethod("checked");
+            assertThrows(org.springframework.web.client.HttpClientErrorException.NotFound.class,
+                    () -> call(server, "missing", method));
+            var error = assertThrows(ModuleUnavailableException.class, () -> call(server, "absent", method));
+            assertEquals("module 'payment' could not be reached (status 404)", error.getMessage());
+        }
+    }
+
+    @Test
+    void ac_test_04_checked_exception_problem_is_rebuilt() throws Exception {
+        try (var server = new TopolithMockServer("payment")) {
+            server.problem("GET", "/checked", fixture.invoice.api.InvoiceCheckedException.class, "checked");
+            var method = fixture.invoice.api.Invoices.class.getMethod("checked");
+            var error = assertThrows(fixture.invoice.api.InvoiceCheckedException.class,
+                    () -> call(server, "checked", method));
+            assertEquals("checked", error.getMessage());
+            server.problem("GET", "/checked", 500, fixture.invoice.api.InvoiceCheckedException.class, "again");
+            assertEquals("again", assertThrows(fixture.invoice.api.InvoiceCheckedException.class,
+                    () -> call(server, "checked", method)).getMessage());
         }
     }
 

@@ -49,7 +49,8 @@ calls by value. It also specifies the shared tests for the reference topologies 
   detail and the downstream module id. Status, content type and the `type`, `status`, `detail`, `exception` and
   `module` members equal `ModuleExceptionResolver`'s output for a declared exception with a `@ResponseStatus`, one
   without, and `ModuleUnavailableException`. The mock writes the exception class it is given, so pass the declared
-  contract type.
+  contract type, which may be checked. Every stubbed response carries `Topolith-Module: <id>`; an unstubbed 404
+  has no such header.
 
 ### R-TEST-03 — Reference topology tests
 

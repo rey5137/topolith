@@ -64,6 +64,13 @@ class CallObservationTest {
         CASES.put("declined", "PaymentDeclinedException");
         CASES.put("unavailable", "ModuleUnavailableException");
         CASES.put("secret", "undeclared");
+        CASES.put("response-status", "undeclared");
+        CASES.put("status-annotated", "undeclared");
+        CASES.put("access-denied", "undeclared");
+        CASES.put("jdk-argument", "IllegalArgumentException");
+        CASES.put("jdk-state", "IllegalStateException");
+        CASES.put("jdk-unsupported", "UnsupportedOperationException");
+        CASES.put("jdk-number", "IllegalArgumentException");
     }
 
     @TempDir
@@ -119,14 +126,19 @@ class CallObservationTest {
 
     private static void assertKeys(ModuleCallContext call, String module, String mode, String caller,
             String exception) {
+        assertKeys(call, module, mode, caller, "find", exception);
+    }
+
+    private static void assertKeys(ModuleCallContext call, String module, String mode, String caller,
+            String method, String exception) {
         assertEquals("topolith.module.call", call.getName());
         assertEquals(module, key(call, "module.id"));
         assertEquals(mode, key(call, "module.mode"));
         assertEquals(caller, key(call, "caller.module"));
         assertEquals(AccountContract.class.getName(), key(call, "contract"));
-        assertEquals("find", key(call, "method"));
+        assertEquals(method, key(call, "method"));
         assertEquals(exception, key(call, "exception"));
-        assertEquals("account AccountContract.find", call.getContextualName());
+        assertEquals("account AccountContract." + method, call.getContextualName());
     }
 
     /** Calls every case of {@code account} and checks the one observation each records. */
@@ -145,6 +157,39 @@ class CallObservationTest {
             // the observation's error is the exception the caller receives (D-87)
             assertSame(thrown, calls.get(0).getError(), mode + " " + entry.getKey());
             assertEquals("none".equals(entry.getValue()), thrown == null);
+            if (entry.getKey().startsWith("jdk-")) {
+                String suffix = entry.getKey().substring(4);
+                assertEquals(suffix.equals("argument") ? "argument" : suffix, thrown.getMessage());
+                Class<?> expected = switch (suffix) {
+                    case "argument" -> IllegalArgumentException.class;
+                    case "state" -> IllegalStateException.class;
+                    case "unsupported" -> UnsupportedOperationException.class;
+                    default -> mode.equals("internal") ? NumberFormatException.class : IllegalArgumentException.class;
+                };
+                assertSame(expected, thrown.getClass());
+            }
+        }
+    }
+
+    private static void assertChecked(Recorder recorder, AccountContract account, String mode) {
+        for (String value : List.of("direct", "subclass", "api-child")) {
+            recorder.clear();
+            var failure = org.junit.jupiter.api.Assertions.assertThrows(
+                    io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountCheckedException.class,
+                    () -> account.checked(value));
+            assertEquals(1, recorder.calls().size());
+            ModuleCallContext call = recorder.calls().get(0);
+            assertKeys(call, "account", mode, ModuleCallContext.HOST, "checked",
+                    value.equals("api-child") ? "AccountChildCheckedException" : "AccountCheckedException");
+            assertEquals(switch (value) {
+                case "direct" -> "checked message";
+                case "subclass" -> "checked subclass";
+                default -> "checked child";
+            }, failure.getMessage());
+            if (value.equals("api-child")) {
+                assertSame(io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountChildCheckedException
+                        .class, failure.getClass());
+            }
         }
     }
 
@@ -163,13 +208,15 @@ class CallObservationTest {
     }
 
     @Test
-    void ac_ext_42_and_ac_ext_44_internal_mode_records_one_observation() throws Exception {
+    void ac_ext_70_and_73_internal_mode_records_one_observation() throws Exception {
         Recorder recorder = new Recorder();
         try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
             runner(loader, ClientHost.class, recorder, "topolith.modules.account.mode=internal",
                     "topolith.modules.payment.mode=internal").run(context -> {
                         assertNull(context.getStartupFailure());
-                        assertMatrix(recorder, context.getBean(AccountContract.class), "internal");
+                        AccountContract account = context.getBean(AccountContract.class);
+                        assertMatrix(recorder, account, "internal");
+                        assertChecked(recorder, account, "internal");
                     });
         }
     }
@@ -218,7 +265,7 @@ class CallObservationTest {
             String... properties) {
         WebApplicationContextRunner runner = new WebApplicationContextRunner(
                 AnnotationConfigServletWebServerApplicationContext::new).withClassLoader(loader)
-                .withUserConfiguration(ErrorHost.class, Holders.class)
+                .withUserConfiguration(ErrorHost.class, Holders.class, ProviderErrorsTest.MethodSecurity.class)
                 .withPropertyValues("server.port=0", "spring.liquibase.enabled=false",
                         "topolith.modules.account.mode=none", "topolith.modules.payment.mode=none",
                         "topolith.modules.boundary.mode=none")
@@ -227,14 +274,25 @@ class CallObservationTest {
     }
 
     @Test
-    void ac_ext_42_and_ac_ext_44_loopback_mode_records_one_observation_on_the_caller_only() throws Exception {
+    void ac_ext_70_and_73_loopback_mode_records_one_observation_on_the_caller_only() throws Exception {
         Recorder recorder = new Recorder();
         try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
             server(loader, recorder, "topolith.modules.account.mode=loopback").run(context -> {
                 assertNull(context.getStartupFailure());
-                assertMatrix(recorder, context.getBean(Holder.class).account(), "loopback");
+                AccountContract account = context.getBean(Holder.class).account();
+                assertMatrix(recorder, account, "loopback");
+                assertChecked(recorder, account, "loopback");
+                assertMethodSecurity(recorder, account, "loopback");
             });
         }
+    }
+
+    private static void assertMethodSecurity(Recorder recorder, AccountContract account, String mode) {
+        recorder.clear();
+        RuntimeException thrown = assertThrows(RuntimeException.class, () -> account.find("method-security"));
+        assertFalse(thrown instanceof ModuleUnavailableException);
+        assertEquals(1, recorder.calls().size());
+        assertKeys(recorder.calls().get(0), "account", mode, ModuleCallContext.HOST, "undeclared");
     }
 
     /** One observation for a default method, whatever the contract calls inside it (INV-6). */
@@ -442,12 +500,15 @@ class CallObservationTest {
     }
 
     @Test
-    void ac_ext_42_and_ac_ext_44_and_ac_ext_45_external_mode_records_one_observation() throws Exception {
+    void ac_ext_70_and_73_external_mode_records_one_observation() throws Exception {
         Recorder provider = new Recorder();
         Recorder recorder = new Recorder();
         serveExposed(provider, context -> external("http://127.0.0.1:" + ProviderErrorsTest.port(context), recorder,
                 caller -> {
-                    assertMatrix(recorder, caller.getBean(AccountContract.class), "external");
+                    AccountContract account = caller.getBean(AccountContract.class);
+                    assertMatrix(recorder, account, "external");
+                    assertChecked(recorder, account, "external");
+                    assertMethodSecurity(recorder, account, "external");
                     recorder.clear();
                     caller.getBean(AccountContract.class).find("ok");
                     assertChild(recorder);
@@ -472,7 +533,8 @@ class CallObservationTest {
     private void serveExposed(Recorder recorder, Check check) throws Exception {
         try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
             new WebApplicationContextRunner(AnnotationConfigServletWebServerApplicationContext::new)
-                    .withClassLoader(loader).withUserConfiguration(ErrorHost.class)
+                    .withClassLoader(loader)
+                    .withUserConfiguration(ErrorHost.class, ProviderErrorsTest.MethodSecurity.class)
                     .withBean(ObservationRegistry.class, recorder::registry)
                     .withPropertyValues("server.port=0", "spring.liquibase.enabled=false",
                             "topolith.modules.boundary.mode=none", "topolith.modules.account.mode=internal",

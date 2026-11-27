@@ -1,9 +1,11 @@
 package io.github.rey5137.topolith.spring.boot;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.util.Arrays;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
@@ -50,12 +52,12 @@ final class ContractCallTranslator implements MethodInterceptor {
         try {
             return invocation.proceed();
         } catch (RuntimeException e) {
-            RuntimeException translated = translateOne(e);
-            // Spring Cloud CircuitBreaker wraps what the call threw (NoFallbackAvailableException(cause)): look one level down
+            Throwable translated = translateOne(e, invocation.getMethod());
+            // Spring Cloud CircuitBreaker wraps the failure in NoFallbackAvailableException; look one level down
             if (translated == e && noFallback(e)) {
                 Throwable cause = e.getCause();
                 if (cause instanceof RuntimeException runtime) {
-                    RuntimeException inner = translateOne(runtime);
+                    Throwable inner = translateOne(runtime, invocation.getMethod());
                     if (inner != runtime) {
                         translated = inner;
                     }
@@ -71,9 +73,9 @@ final class ContractCallTranslator implements MethodInterceptor {
     }
 
     /** The translation of one exception, or the exception itself when it is not one this advice maps. */
-    private RuntimeException translateOne(RuntimeException e) {
+    private Throwable translateOne(RuntimeException e, Method method) {
         if (e instanceof RestClientResponseException response) {
-            return translate(response);
+            return translate(response, method);
         }
         if (e instanceof ResourceAccessException access) {
             return unavailable(module, timeout(access) ? "timeout" : "connection failure", access);
@@ -119,12 +121,12 @@ final class ContractCallTranslator implements MethodInterceptor {
         return e != null && e.getClass().getSimpleName().equals("CallNotPermittedException");
     }
 
-    private RuntimeException translate(RestClientResponseException e) {
+    private Throwable translate(RestClientResponseException e, Method method) {
         ProblemDetail problem = Outcomes.problem(e);
         if (problem != null) {
             Object name = problem.getProperties() == null ? null : problem.getProperties().get(ModuleExceptionResolver
                     .EXCEPTION);
-            RuntimeException rebuilt = name instanceof String className ? rebuild(className, problem, e) : null;
+            Throwable rebuilt = name instanceof String className ? rebuild(className, problem, e, method) : null;
             if (rebuilt != null) {
                 return rebuilt;
             }
@@ -132,10 +134,15 @@ final class ContractCallTranslator implements MethodInterceptor {
                 || e.getStatusCode().value() == 504) {
             return unavailable(module, "status " + e.getStatusCode().value(), e);
         }
+        int status = e.getStatusCode().value();
+        if (problem == null && Set.of(401, 403, 404, 405, 415).contains(status)
+                && (e.getResponseHeaders() == null || e.getResponseHeaders().getFirst("Topolith-Module") == null)) {
+            return unavailable(module, "status " + status, e);
+        }
         return e;
     }
 
-    private RuntimeException rebuild(String className, ProblemDetail problem, RestClientResponseException e) {
+    private Throwable rebuild(String className, ProblemDetail problem, RestClientResponseException e, Method method) {
         String detail = problem.getDetail();
         if (className.equals(ModuleUnavailableException.class.getName())) {
             Object id = problem.getProperties().get(ModuleExceptionResolver.MODULE);
@@ -147,16 +154,20 @@ final class ContractCallTranslator implements MethodInterceptor {
         }
         int dot = className.lastIndexOf('.');
         if (className.length() > MAX_NAME_LENGTH || !BINARY_NAME.matcher(className).matches()
-                || !apiPackages.contains(className.substring(0, dot))) {
+                || !(apiPackages.contains(className.substring(0, dot))
+                        || Set.of(IllegalArgumentException.class.getName(), IllegalStateException.class.getName(),
+                                UnsupportedOperationException.class.getName()).contains(className))) {
             return null;
         }
         try {
             Class<?> type = Class.forName(className, false, contractLoader);
-            if (!RuntimeException.class.isAssignableFrom(type) || !Modifier.isPublic(type.getModifiers())
-                    || Modifier.isAbstract(type.getModifiers())) {
+            if (!Exception.class.isAssignableFrom(type) || !Modifier.isPublic(type.getModifiers())
+                    || Modifier.isAbstract(type.getModifiers())
+                    || (!RuntimeException.class.isAssignableFrom(type)
+                            && Arrays.stream(method.getExceptionTypes()).noneMatch(t -> t.isAssignableFrom(type)))) {
                 return null;
             }
-            RuntimeException rebuilt = construct(type.asSubclass(RuntimeException.class), detail);
+            Exception rebuilt = construct(type.asSubclass(Exception.class), detail);
             if (rebuilt != null) {
                 rebuilt.addSuppressed(e);
             }
@@ -166,9 +177,9 @@ final class ContractCallTranslator implements MethodInterceptor {
         }
     }
 
-    private static RuntimeException construct(Class<? extends RuntimeException> type, String detail) {
+    private static Exception construct(Class<? extends Exception> type, String detail) {
         try {
-            Constructor<? extends RuntimeException> withMessage = type.getConstructor(String.class);
+            Constructor<? extends Exception> withMessage = type.getConstructor(String.class);
             return withMessage.newInstance(detail);
         } catch (NoSuchMethodException e) {
             try {

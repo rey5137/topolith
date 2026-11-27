@@ -70,7 +70,11 @@ class ExposureConfiguration implements WebMvcConfigurer {
                     String owner = ModuleHandlers.internalOwner(topology, method.getBeanType());
                     if (owner != null && exposed.contains(owner)) {
                         RouteMark.mark(request, method);
-                        return context == null || context.open(request, response, owner);
+                        if (context != null && !context.open(request, response, owner)) {
+                            return false;
+                        }
+                        response.setHeader("Topolith-Module", owner);
+                        return true;
                     }
                 }
                 return true;

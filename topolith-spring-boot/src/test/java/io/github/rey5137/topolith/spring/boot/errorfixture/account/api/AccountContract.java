@@ -10,6 +10,9 @@ public interface AccountContract {
     @GetExchange("/find")
     String find(@RequestParam("case") String failure);
 
+    @GetExchange("/checked")
+    String checked(@RequestParam("case") String failure) throws AccountCheckedException;
+
     /** Starts a JSON answer, then throws a declared exception. */
     @GetExchange("/partial")
     String partial();

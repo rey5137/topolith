@@ -94,7 +94,8 @@ without those libraries starts unchanged. Implements INV-2, INV-4, INV-9, D-7, D
 - **Module DataSource migrations (D-112).** A module that contributes exactly one DataSource and has scripts under
   `db/modules/<id>` but no Flyway, `FlywayMigrationInitializer` or `SpringLiquibase` of its own gets Topolith's module
   runner on that DataSource, with the same tool detection, tracking tables, ordering after the modules it requires and
-  limits as on the host's DataSource. A runner the module declares still owns its migrations, and Topolith adds none.
+  limits as on the host's DataSource, but none of the host's tool settings (D-130). A runner the module declares still
+  owns its migrations, and Topolith adds none.
   A module with several DataSources of its own and no runner fails with TL0020.
 - **Other stores (D-113).** Topolith also registers each internal and loopback module's Spring Data R2DBC and MongoDB
   repositories and MyBatis mappers, as it does JPA and JDBC: one auto-configuration per store, each

@@ -153,7 +153,8 @@ has one discovery registration. Implements INV-8, P-2, D-125 and D-126.
 
 - **Route coverage (D-126).** At startup, for each module that is internal and exposed, or loopback, every abstract
   method of every contract it provides must be served by a module route: a handler method of a bean the module owns
-  (by definition) that implements that contract method, or, from M8.6, a route Topolith registers for a listed
+  (by definition, with its class in the module's package until M8.6, D-129) that implements that contract method, or, from
+  M8.6, a route Topolith registers for a listed
   contract. An uncovered method, for example an inferred contract implemented only by a non-handler `@Service`, fails
   startup with TL0044 (new, M8.3) naming the module, contract and method, and the fix (a module `@RestController`
   implementing the contract, D-53). An unexposed internal module and a `none` or `external` module are not checked.

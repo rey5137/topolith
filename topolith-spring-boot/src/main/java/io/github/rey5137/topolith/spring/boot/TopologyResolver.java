@@ -63,7 +63,8 @@ final class TopologyResolver {
     record Resolution(Topology topology, Map<String, String> importOwners, Map<String, String> rootOwners,
             List<String> versionWarnings, Map<String, Set<String>> contracts, Set<String> exposed,
             Map<String, String> apiVersions, Map<String, String> hostApiVersions,
-            Map<String, Map<String, String>> httpInterfaces, Map<String, Set<String>> idempotent) {
+            Map<String, Map<String, String>> httpInterfaces, Map<String, Set<String>> idempotent,
+            Map<String, Set<String>> listed) {
     }
 
     private TopologyResolver() {
@@ -182,8 +183,13 @@ final class TopologyResolver {
         found.modules().forEach(module -> versions.put(module.id(), module.apiVersion()));
         Map<String, String> hostVersions = new TreeMap<>();
         found.apis().forEach(api -> hostVersions.put(api.id(), api.apiVersion()));
+        // the contracts an internal or loopback module's declaration lists (D-110), read only for those (INV-2)
+        Map<String, Set<String>> listed = new TreeMap<>();
+        found.modules().stream().filter(module -> topology.internal().contains(module.id()))
+                .forEach(module -> listed.put(module.id(), ModuleDeclarations.listed(classLoader, module)));
         return new Resolution(topology, found.importOwners(), found.rootOwners(), List.copyOf(warnings), contracts,
-                Set.copyOf(exposed), Map.copyOf(versions), Map.copyOf(hostVersions), mappings, idempotent);
+                Set.copyOf(exposed), Map.copyOf(versions), Map.copyOf(hostVersions), mappings, idempotent,
+                Map.copyOf(listed));
     }
 
     /**

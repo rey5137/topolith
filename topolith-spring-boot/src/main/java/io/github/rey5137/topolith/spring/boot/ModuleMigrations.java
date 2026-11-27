@@ -154,17 +154,26 @@ final class ModuleMigrations {
     }
 
     /**
-     * The modules Topolith runs migrations for: internal, with exactly one tool, and no DataSource of their own (a
-     * module that has one owns its migrations). Sorted by id.
+     * The modules Topolith runs migrations for: internal, with exactly one tool, no runner of their own (which owns
+     * their migrations, whatever DataSource it uses), and either no DataSource of their own (the runner uses the
+     * host's) or exactly one (the runner uses that one, D-112); several are TL0020. Sorted by id.
      */
-    static Map<String, Tool> runners(Topology topology, ClassLoader loader, Set<String> ownDataSources) {
+    static Map<String, Tool> runners(Topology topology, ClassLoader loader, Map<String, List<String>> ownDataSources,
+            Set<String> ownRunners) {
         Map<String, Tool> runners = new TreeMap<>();
         withMigrations(topology, loader).forEach((id, migrations) -> {
-            if (migrations.tool() != null && !ownDataSources.contains(id)) {
+            List<String> own = ownDataSources.getOrDefault(id, List.of());
+            if (migrations.tool() != null && !ownRunners.contains(id) && own.size() <= 1) {
                 runners.put(id, migrations.tool());
             }
         });
         return runners;
+    }
+
+    /** The DataSource bean a module's runner uses: the module's one DataSource (D-112), or null for the host's. */
+    static String dataSource(String id, Map<String, List<String>> ownDataSources) {
+        List<String> own = ownDataSources.getOrDefault(id, List.of());
+        return own.size() == 1 ? own.get(0) : null;
     }
 
     /** The modules of {@code runners} that {@code id} requires, directly or through modules that run nothing. */

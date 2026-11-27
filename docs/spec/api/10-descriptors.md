@@ -67,8 +67,9 @@ contract that the SPI's implementers provide, unless it is marked too. A contrac
 lambda or factory result) is listed in the module declaration's `provides` (fully qualified, binary names for member
 interfaces): each entry must be in the API's inferred `provides` and must have no implementing class under the
 package, or the build fails; the listed and inferred contracts together are the module's `provides`. `provides` on an
-API declaration is a compile error. At startup an internal module needs exactly one bean of each listed contract among
-the definitions it contributes (owned by its bean definition, as D-61 assigns ownership, not by its class): several fail
+API declaration is a compile error. At startup (which reads the listed entries from the module's `package-info.class`,
+D-128) an internal module needs exactly one bean of each listed contract among the definitions it contributes (owned by
+its bean definition, as D-61 assigns ownership, not by its class): several fail
 with TL0005, none with TL0044 (new, M8.3). R-EXT-07's boundary and R-EXT-11's observation apply to that bean whatever
 its class, a JDK proxy or a factory result from outside the module's package included. A `@Bean` is not a handler, so a
 listed contract has no route, and until M8.6 a module whose declaration lists contracts fails startup with TL0044 when

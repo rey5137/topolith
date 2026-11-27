@@ -428,10 +428,10 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
     }
 
     /**
-     * TL0020: a module's migrations that would not run exactly once: both tools or several master files, a tool that
-     * is not on the class path, no DataSource for the runner, a module with its own DataSource that runs nothing, or
-     * a tracking table name that is too long. A host location or changelog that reaches the files is caught when the
-     * host's runner bean is created.
+     * TL0020: a module's migrations that would not run exactly once: both tools or several master files, a module
+     * runner of its own that runs the other tool, several DataSources of its own and no runner (D-112), a tool that
+     * is not on the class path, no DataSource for the runner, or a tracking table name that is too long. A host
+     * location or changelog that reaches the files is caught when the host's runner bean is created.
      */
     private List<Diagnostic> migrations(ConfigurableListableBeanFactory factory, ClassLoader loader,
             Resolution resolution) {
@@ -440,8 +440,8 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
         if (shipped.isEmpty()) {
             return found;
         }
-        Set<String> ownDataSources = new TreeSet<>(ModuleBeans.contributors(factory, loader, resolution,
-                ModuleBeans.DATA_SOURCE));
+        Map<String, List<String>> ownDataSources = ModuleBeans.dataSourcesByModule(factory, loader, resolution);
+        Set<String> ownRunners = ModuleBeans.ownRunners(factory, loader, resolution);
         Set<String> ownFlyway = ModuleBeans.flywayRunners(factory, loader, resolution);
         Set<String> ownLiquibase = new TreeSet<>(ModuleBeans.contributors(factory, loader, resolution,
                 ModuleBeans.LIQUIBASE));
@@ -461,22 +461,31 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                 found.add(new Diagnostic(TopolithCode.TL0020, "module '" + id + "' has " + migrations.masters().size()
                         + " master changelogs under " + location + ": " + migrations.masters() + ".",
                         "Keep one " + ModuleMigrations.MASTER + "<yaml|yml|xml|json|sql> file."));
-            } else if (ownDataSources.contains(id)) {
+            } else if (ownRunners.contains(id)) {
+                // a runner of its own owns the migrations on whichever DataSource (D-112), so it must run this tool
                 if (!(tool == Tool.LIQUIBASE ? ownLiquibase : ownFlyway).contains(id)) {
                     found.add(new Diagnostic(TopolithCode.TL0020, "module '" + id + "' has migrations under "
-                            + location + " and its own DataSource, but contributes no "
+                            + location + " and a runner of its own, but contributes no "
                             + (tool == Tool.LIQUIBASE ? "SpringLiquibase" : "Flyway") + " to run them.",
                             "Declare " + (tool == Tool.LIQUIBASE ? "a SpringLiquibase"
                             : "a Flyway and a FlywayMigrationInitializer") + " bean in the module, or remove the "
                             + "migrations."));
                 }
+            } else if (ownDataSources.getOrDefault(id, List.of()).size() > 1) {
+                found.add(new Diagnostic(TopolithCode.TL0020, "module '" + id + "' has migrations under " + location
+                        + " and " + ownDataSources.get(id).size() + " DataSources of its own "
+                        + ownDataSources.get(id) + ", but no runner of its own, so which one they run on is "
+                        + "ambiguous.", "Declare " + (tool == Tool.LIQUIBASE ? "a SpringLiquibase"
+                        : "a Flyway and a FlywayMigrationInitializer") + " bean in the module on the DataSource the "
+                        + "migrations belong to, or keep one DataSource in the module."));
             } else if (tool == Tool.FLYWAY ? !flyway : !liquibase) {
                 found.add(new Diagnostic(TopolithCode.TL0020, "module '" + id + "' has " + tool.name().toLowerCase()
                         + " migrations under " + location + " but " + (tool == Tool.FLYWAY ? "Flyway" : "Liquibase")
                         + " is not on the class path: Topolith needs "
                         + (tool == Tool.FLYWAY ? "flyway-core" : "liquibase-core") + ".",
                         "Add it to the host, or remove the migrations."));
-            } else if (dataSource != null && !(tool == Tool.FLYWAY ? hostFlyway : hostLiquibase)) {
+            } else if (!ownDataSources.containsKey(id) && dataSource != null
+                    && !(tool == Tool.FLYWAY ? hostFlyway : hostLiquibase)) {
                 found.add(new Diagnostic(TopolithCode.TL0020, "module '" + id + "' has migrations under " + location
                         + " but " + ("none".equals(dataSource) ? "the host has no DataSource to run them on."
                         : "the host has several DataSources, none of them primary, so no connection is "

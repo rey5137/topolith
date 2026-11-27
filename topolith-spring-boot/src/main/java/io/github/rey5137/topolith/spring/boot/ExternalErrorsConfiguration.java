@@ -2,7 +2,17 @@ package io.github.rey5137.topolith.spring.boot;
 
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.Topology;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+
+import io.github.rey5137.topolith.spring.boot.internal.ResilienceModules;
+import io.github.rey5137.topolith.spring.boot.internal.ResilienceSettings;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.core.env.Environment;
 import org.aopalliance.intercept.MethodInterceptor;
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,6 +32,25 @@ class ExternalErrorsConfiguration {
     @Bean(CLIENTS_BEAN)
     static ExternalClientBuilders topolithExternalClients() {
         return new ExternalClientBuilders();
+    }
+
+    /** The inputs of the retry and breaker of {@code topolith-spring-cloud}: external and loopback modules only. */
+    @Bean
+    static ResilienceModules topolithResilienceModules(Environment environment, BeanFactory beanFactory) {
+        TopologyResolver.Resolution resolution = beanFactory.getBean(TopologyResolver.RESOLUTION_BEAN,
+                TopologyResolver.Resolution.class);
+        Binder binder = Binder.get(environment);
+        Map<String, ResilienceModules.Module> modules = new TreeMap<>();
+        for (String id : ExternalHttpServicesRegistrar.clientModules(resolution.topology())) {
+            Map<String, String> mapped = resolution.httpInterfaces().getOrDefault(id, Map.of());
+            Set<String> services = new TreeSet<>();
+            resolution.contracts().getOrDefault(id, Set.of()).forEach(name -> services.add(mapped
+                    .getOrDefault(name, name)));
+            modules.put(id, new ResilienceModules.Module(ResilienceSettings.retry(binder, id),
+                    ResilienceSettings.breaker(binder, id), resolution.idempotent().getOrDefault(id, Set.of()),
+                    mapped, services));
+        }
+        return new ResilienceModules(modules);
     }
 
     /**

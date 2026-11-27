@@ -1,1 +1,2 @@
 io.github.rey5137.topolith.spring.cloud.TopolithCloudAutoConfiguration
+io.github.rey5137.topolith.spring.cloud.TopolithResilienceAutoConfiguration

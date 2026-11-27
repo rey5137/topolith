@@ -9,6 +9,8 @@ import java.util.Set;
 
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.Topology;
+import io.github.rey5137.topolith.spring.boot.internal.ResilienceSettings;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.MapPropertySource;
@@ -57,8 +59,25 @@ final class ExternalClientProperties {
      * {@code remote.service-id} (TL0003), so it maps its timeouts and a placeholder base URL (AC-MODE-53).
      */
     static Map<String, Object> properties(Environment environment, Topology topology) {
-        return properties(environment, ExternalHttpServicesRegistrar.clientModules(topology),
-                new HashSet<>(topology.idsOf(Mode.LOOPBACK)));
+        Set<String> clients = ExternalHttpServicesRegistrar.clientModules(topology);
+        Map<String, Object> values = properties(environment, clients, new HashSet<>(topology.idsOf(Mode.LOOPBACK)));
+        // Spring Cloud's global HTTP-service breaker is on unless its key says otherwise, and it would wrap every
+        // module group with a time limiter on another thread (R-EXT-15), so an unset key is defaulted to false while
+        // a module retries or enables its breaker; an explicit true is TL0003 (D-106)
+        if (!environment.containsProperty(ResilienceSettings.GLOBAL_BREAKER) && resilient(environment, clients)) {
+            values.put(ResilienceSettings.GLOBAL_BREAKER, "false");
+        }
+        return values;
+    }
+
+    private static boolean resilient(Environment environment, Set<String> ids) {
+        Binder binder = Binder.get(environment);
+        for (String id : ids) {
+            if (ResilienceSettings.retry(binder, id).active() || ResilienceSettings.breaker(binder, id).enabled()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

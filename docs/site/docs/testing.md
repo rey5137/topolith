@@ -44,6 +44,20 @@ class MonolithMockPaymentTest {
 - Selecting `none` leaves no contributions of the module in the context.
 - The `TopolithTestModes` builder offers the same selection in code.
 
+## By-value parity
+
+Spring TestContext tests check internal module contracts by value by default. Arguments and results cross the same
+JSON conversion boundary as remote calls, and mutations or values that cannot round-trip fail the test. Use
+`@TopolithByValue({"payment"})` to check only selected module IDs. `ApplicationContextRunner` does not install the
+check unless the `TopolithTestModes` builder calls `byValue()`.
+
+Set `topolith.test.parity=warn` to log violations as TL0045 warnings instead of failing the test; the default is `fail`.
+The warnings name the module, method and JSON path without logging values. An internal contract provider needs a JSON
+HTTP message converter such as Jackson.
+
+`TopolithTestSupport.awaitVersionChecks(context, duration)` waits for version checks and their logs to finish and
+returns whether they completed within the timeout.
+
 ## Stubbing an external module
 
 `@TopolithMock(id = "payment")` injects a `TopolithMockServer` and points the module's client at it.

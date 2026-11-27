@@ -54,6 +54,18 @@ public class InvoicesImpl implements Invoices {
     @Override
     public Lossy lossy(Lossy value) { return value; }
 
+    public Lossy lossyResultValue;
+
+    @Override
+    public Lossy lossyResult() { return lossyResultValue = new Lossy("secret-value"); }
+
+    @Override
+    public void failLossy(Lossy value) {
+        var failure = new InvoiceException("failure");
+        thrown = failure;
+        throw failure;
+    }
+
     @Override
     public void fail(String kind) {
         RuntimeException failure = switch (kind) {

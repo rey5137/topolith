@@ -46,7 +46,8 @@ final class ExternalClientEndpoints {
     private static final Logger LOG = LoggerFactory.getLogger(ExternalClientEndpoints.class);
     /** Userinfo up to the last {@code @} of the authority, with or without a scheme. */
     private static final Pattern USER_INFO = Pattern.compile(
-            "(?i)(?:\\b([a-z][a-z0-9+.-]*://)[^/\\s'\"]*@|(?<![\\w/@.:-])[\\w.~%!$&*+;=-]+:[^/\\s'\"]*@(?=[\\w.-]+(?::\\d+)?(?:[/\\s'\"]|$)))");
+            "(?i)(?:\\b([a-z][a-z0-9+.-]*://)[^/\\s'\"]*@|(?<![\\w/@.:-])[\\w.~%!$&*+;=-]+:"
+                    + "[^/\\s'\"]*@(?=[\\w.-]+(?::\\d+)?(?:[/\\s'\"]|$)))");
 
     private record Client(AtomicReference<UriBuilderFactory> uri, AtomicReference<ClientHttpRequestFactory> request,
             boolean balanced, HttpClientSettings settings, ClientHttpRequestFactoryBuilder<?> factories) {
@@ -152,7 +153,7 @@ final class ExternalClientEndpoints {
         status.succeed(id, TopolithRefreshStatus.ENDPOINT);
         TopologyResolver.Resolution resolution = beanFactory.getBean(TopologyResolver.RESOLUTION_BEAN,
                 TopologyResolver.Resolution.class);
-        VersionReadiness.startRemote(beanFactory, resolution, Set.of(id));
+        beanFactory.getBean(VersionReadiness.class).startRemote(resolution, Set.of(id));
         return true;
     }
 

@@ -29,6 +29,10 @@ public interface Invoices extends Store<Invoice> {
 
     Lossy lossy(Lossy value);
 
+    Lossy lossyResult();
+
+    void failLossy(Lossy value);
+
     void fail(String kind);
 
     void checked() throws InvoiceCheckedException;

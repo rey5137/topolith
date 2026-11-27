@@ -5,7 +5,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -108,7 +108,7 @@ class VersionReadinessTest {
                                 source, Duration.ZERO);
                         source.publishEvent(event);
                         source.publishEvent(event);
-                        assertTrue(context.getBean(VersionReadiness.class).await(10, TimeUnit.SECONDS));
+                        assertTrue(context.getBean(VersionReadiness.class).await(Duration.ofSeconds(10)));
                         // the check never changes readiness
                         if (!lazy) {
                             // (a lazy availability bean would have missed the event above)
@@ -239,7 +239,7 @@ class VersionReadinessTest {
                                 source, Duration.ZERO));
                         boolean returnedFirst = !output.getAll().contains("TL0015");
                         long taken = System.nanoTime() - start;
-                        assertTrue(context.getBean(VersionReadiness.class).await(10, TimeUnit.SECONDS));
+                        assertTrue(context.getBean(VersionReadiness.class).await(Duration.ofSeconds(10)));
                         assertTrue(returnedFirst, "the event returned only after the check: " + taken);
                         assertEquals(1, count(output, "TL0015"), output.getAll());
                     });
@@ -255,6 +255,52 @@ class VersionReadinessTest {
             ready(stub.url(), true, context -> {
                 assertEquals(1, count(output, "TL0023"), output.getAll());
                 assertEquals(1, stub.hits().get());
+            });
+        } finally {
+            stub.server().stop(0);
+        }
+    }
+
+    @Test
+    void ac_val_15_close_interrupts_a_check_and_suppresses_its_warning(CapturedOutput output) throws Exception {
+        Stub stub = stub(200, "2.0.0", 5000);
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(ClientHost.class)
+                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.modules.payment.mode=none",
+                            "topolith.modules.account.mode=external", "topolith.modules.account.remote.url="
+                                    + stub.url(), "topolith.modules.account.remote.read-timeout=5s")
+                    .run(context -> {
+                        var source = context.getSourceApplicationContext();
+                        var checks = context.getBean(VersionReadiness.class);
+                        source.publishEvent(new ApplicationReadyEvent(new SpringApplication(), new String[0],
+                                source, Duration.ZERO));
+                        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+                        while (stub.hits().get() == 0 && System.nanoTime() < deadline) {
+                            Thread.sleep(10);
+                        }
+                        assertEquals(1, stub.hits().get());
+                        assertFalse(checks.await(Duration.ZERO));
+                        source.close();
+                        assertTrue(checks.await(Duration.ofSeconds(2)), "the close should stop the check");
+                        assertFalse(output.getAll().contains("TL0015"), output.getAll());
+                        assertFalse(output.getAll().contains("TL0023"), output.getAll());
+                    });
+        } finally {
+            stub.server().stop(0);
+        }
+    }
+
+    @Test
+    void ac_test_25_waits_for_a_refresh_check_too() throws Exception {
+        Stub stub = stub(200, "1.0.0", 200);
+        try {
+            ready(stub.url(), context -> {
+                var checks = context.getBean(VersionReadiness.class);
+                var resolution = context.getBean(TopologyResolver.RESOLUTION_BEAN, TopologyResolver.Resolution.class);
+                checks.startRemote(resolution, Set.of("account"));
+                assertFalse(checks.await(Duration.ZERO));
+                assertTrue(checks.await(Duration.ofSeconds(10)));
+                assertEquals(2, stub.hits().get());
             });
         } finally {
             stub.server().stop(0);

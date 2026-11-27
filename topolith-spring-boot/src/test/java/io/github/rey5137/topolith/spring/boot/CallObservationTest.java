@@ -16,6 +16,7 @@ import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountContract;
+import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.boundary.BoundaryClient;
 import io.github.rey5137.topolith.spring.boot.errorfixture.boundary.api.BoundaryContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.host.ClientHost;
@@ -25,6 +26,9 @@ import io.github.rey5137.topolith.spring.boot.observation.DefaultModuleCallObser
 import io.github.rey5137.topolith.spring.boot.observation.ModuleCallContext;
 import io.micrometer.common.KeyValue;
 import io.micrometer.common.KeyValues;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationRegistry;
@@ -47,6 +51,7 @@ import org.springframework.web.service.invoker.HttpRequestValues;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -88,6 +93,15 @@ class CallObservationTest {
     /** Records every observation that stops, whatever its name. */
     static final class Recorder implements ObservationHandler<Observation.Context> {
         private final List<Observation.Context> stopped = new CopyOnWriteArrayList<>();
+        private final SimpleMeterRegistry meters;
+
+        Recorder() {
+            this(null);
+        }
+
+        Recorder(SimpleMeterRegistry meters) {
+            this.meters = meters;
+        }
 
         @Override
         public boolean supportsContext(Observation.Context context) {
@@ -102,6 +116,9 @@ class CallObservationTest {
         ObservationRegistry registry() {
             ObservationRegistry registry = ObservationRegistry.create();
             registry.observationConfig().observationHandler(this);
+            if (meters != null) {
+                registry.observationConfig().observationHandler(new DefaultMeterObservationHandler(meters));
+            }
             return registry;
         }
 
@@ -205,6 +222,42 @@ class CallObservationTest {
                         "topolith.modules.boundary.mode=none")
                 .withPropertyValues(properties);
         return recorder == null ? runner : runner.withBean(ObservationRegistry.class, recorder::registry);
+    }
+
+    @Test
+    void ac_ext_79_meter_exception_key_matches_across_modes() throws Exception {
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        try {
+            try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+                runner(loader, ClientHost.class, new Recorder(meters), "topolith.modules.account.mode=internal")
+                        .run(context -> {
+                            assertNull(context.getStartupFailure());
+                            assertMeterException(context.getBean(AccountContract.class), meters, "internal",
+                                    "LockedAccountException");
+                        });
+            }
+            try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+                server(loader, new Recorder(meters), "topolith.modules.account.mode=loopback").run(context -> {
+                    assertNull(context.getStartupFailure());
+                    assertMeterException(context.getBean(Holder.class).account(), meters, "loopback",
+                            "AccountException");
+                });
+            }
+            serveExposed(new Recorder(), context -> external("http://127.0.0.1:" + ProviderErrorsTest.port(context),
+                    new Recorder(meters), caller -> assertMeterException(caller.getBean(AccountContract.class),
+                            meters, "external", "AccountException")));
+        } finally {
+            meters.close();
+        }
+    }
+
+    private static void assertMeterException(AccountContract account, SimpleMeterRegistry meters, String mode,
+            String error) {
+        assertThrows(AccountException.class, () -> account.find("locked"));
+        Timer timer = meters.find("topolith.module.call").tag("module.mode", mode)
+                .tag("exception", "AccountException").tag("error", error).timer();
+        assertNotNull(timer, mode + " must record the expected exception and error tags");
+        assertEquals(1, timer.count());
     }
 
     @Test

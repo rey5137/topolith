@@ -179,6 +179,8 @@ Observation named `topolith.module.call`, recorded on the caller's side and the 
 `caller.module` (the calling module's id, or `_host` for host code), `contract`, `method` and `exception` (`none`, the
 declared exception class's simple name, or `undeclared`). In loopback and external mode Spring's `http.client.requests`
 observation is its child, and tracing headers are Micrometer Tracing's.
+Use `exception` for dashboards and alerts across modes: Micrometer's meter handler also adds an `error` tag whose
+exception class can differ between internal and remote calls.
 
 Turn it off with Micrometer's own means: an `ObservationPredicate`, or
 `management.observations.enable.topolith=false`. Topolith has no property of its own. To rename the observation or

@@ -41,6 +41,9 @@ final class ExternalVersionCheck {
         ExternalClientBuilders clients = beanFactory.getBean(ExternalErrorsConfiguration.CLIENTS_BEAN,
                 ExternalClientBuilders.class);
         for (String id : ids) {
+            if (Thread.currentThread().isInterrupted()) {
+                return;
+            }
             RestClient.Builder builder = clients.get(id);
             if (builder == null) {
                 continue;

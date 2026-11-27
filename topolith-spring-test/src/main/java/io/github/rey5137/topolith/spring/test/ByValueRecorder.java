@@ -10,21 +10,38 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Supplier;
 
+import io.github.rey5137.topolith.core.Diagnostic;
+import io.github.rey5137.topolith.core.TopolithCode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * What the by-value proxies of one context keep between calls (R-TEST-04): the argument copies and returned objects
  * with their serialized form, and the violations of the current test method. Present only in a context that enabled
  * the proxy; released after each test method.
  */
 final class ByValueRecorder {
+    private static final Logger LOG = LoggerFactory.getLogger(ByValueRecorder.class);
     /** An object a provider holds, with its form when the call ended. */
     record Kept(String where, Object object, Type type, Object tree) { }
 
     private final Supplier<ByValueSerializer> factory;
+    private final Supplier<Boolean> warn;
     private volatile ByValueSerializer serializer;
     private final Map<String, List<Kept>> kept = new TreeMap<>();
     private final List<AssertionError> violations = new ArrayList<>();
 
-    ByValueRecorder(Supplier<ByValueSerializer> factory) { this.factory = factory; }
+    ByValueRecorder(Supplier<ByValueSerializer> factory, Supplier<Boolean> warn) {
+        this.factory = factory;
+        this.warn = warn;
+    }
+
+    boolean warning() { return warn.get(); }
+
+    void warning(String module, String where, String path) {
+        LOG.warn(new Diagnostic(TopolithCode.TL0045, "By-value proxy: module '" + module + "', " + where
+                + ", at " + path, "Correct the contract or provider to preserve by-value parity.").toString());
+    }
 
     /** Built on first use; a context with no JSON converter fails here. */
     ByValueSerializer serializer() {
@@ -50,7 +67,7 @@ final class ByValueRecorder {
         kept.computeIfAbsent(module, key -> new ArrayList<>()).add(item);
     }
 
-    /** Serializes what the module's provider kept again; the first change is recorded, dropped and returned. */
+    /** Rechecks kept objects, removes violations and returns a marker when any changed. */
     synchronized AssertionError recheck(String module) {
         AssertionError first = null;
         List<Kept> items = kept.get(module);
@@ -61,10 +78,15 @@ final class ByValueRecorder {
             try {
                 path = ByValueJson.diff(item.tree(), serializer().tree(item.object(), item.type()), "$");
             } catch (RuntimeException e) {
-                path = "$ (no longer serializes: " + e.getMessage() + ")";
+                path = "$";
             }
             if (path != null) {
                 each.remove();
+                if (warning()) {
+                    warning(module, item.where(), path);
+                    if (first == null) { first = new AssertionError("By-value parity warning"); }
+                    continue;
+                }
                 AssertionError violation = record(new AssertionError("By-value proxy: module '" + module + "', "
                         + item.where() + " (" + item.type().getTypeName() + ") was changed after the call returned,"
                         + " at " + path));

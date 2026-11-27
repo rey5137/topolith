@@ -3,9 +3,13 @@ package io.github.rey5137.topolith.spring.test;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import fixture.invoice.InvoicesImpl;
 import fixture.invoice.api.Invoice;
 import fixture.invoice.api.InvoiceException;
@@ -15,12 +19,14 @@ import fixture.invoice.api.Lossy;
 import fixture.payment.api.Payment;
 import io.github.rey5137.topolith.contract.ModuleUnavailableException;
 import io.github.rey5137.topolith.core.Mode;
+import io.github.rey5137.topolith.core.ModuleDescriptor;
+import io.github.rey5137.topolith.core.Topology;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.aop.framework.Advised;
-import org.springframework.test.util.AopTestUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -96,7 +102,7 @@ class TopolithByValueTest {
     }
 
     @Test
-    void ac_test_08_without_the_proxy_the_provider_receives_the_callers_instance() {
+    void ac_test_08_runner_without_by_value_passes_the_callers_instance() {
         TopolithTestModes.module("invoice").internal().applyTo(runner()).run(context -> {
             assertNull(context.getStartupFailure());
             Invoice argument = invoice();
@@ -106,6 +112,122 @@ class TopolithByValueTest {
                     context.getBean(InvoicesImpl.class))).lastArgument);
             assertTrue(context.getBeansOfType(ByValueRecorder.class).isEmpty());
         });
+    }
+
+    @Test
+    void ac_test_26_test_context_installs_the_proxy_without_an_annotation() throws Exception {
+        var manager = new TestContextManager(Scenario.class);
+        var instance = new Scenario();
+        manager.prepareTestInstance(instance);
+        Invoice argument = invoice();
+        instance.invoices.total(argument);
+        InvoicesImpl target = AopTestUtils.getUltimateTargetObject(instance.invoices);
+        assertNotSame(argument, target.lastArgument);
+        run(manager, instance, "clean");
+    }
+
+    @Test
+    void ac_test_26_default_on_fails_a_provider_that_changes_its_argument() throws Exception {
+        var manager = new TestContextManager(Scenario.class);
+        var instance = new Scenario();
+        manager.prepareTestInstance(instance);
+        InvoicesImpl target = AopTestUtils.getUltimateTargetObject(instance.invoices);
+        target.mutateArgument = true;
+        try {
+            AssertionError error = assertThrows(AssertionError.class, () -> instance.invoices.total(invoice()));
+            for (String expected : List.of("module 'invoice'", "Invoices.total", "argument 0", "$.lines[0].qty")) {
+                assertTrue(error.getMessage().contains(expected), error.getMessage());
+            }
+        } finally {
+            target.mutateArgument = false;
+        }
+        assertThrows(AssertionError.class, () -> run(manager, instance, "clean"));
+        run(manager, instance, "clean");
+    }
+
+    @Test
+    void ac_test_28_invalid_parity_values_fail_context_load() {
+        for (String value : List.of("off", "other", "")) {
+            TopolithTestModes.module("invoice").internal().byValue().applyTo(runner())
+                    .withPropertyValues("topolith.test.parity=" + value).run(context -> {
+                        Throwable failure = context.getStartupFailure();
+                        assertInstanceOf(IllegalStateException.class, failure);
+                        assertTrue(failure.getMessage().contains("topolith.test.parity"));
+                        assertTrue(failure.getMessage().contains("fail"));
+                        assertTrue(failure.getMessage().contains("warn"));
+                    });
+        }
+    }
+
+    @Test
+    void ac_test_27_warn_logs_each_violation_once_without_values_and_listener_passes() {
+        Logger logger = (Logger) LoggerFactory.getLogger(ByValueRecorder.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            TopolithTestModes.module("invoice").internal().byValue().applyTo(runner())
+                    .withPropertyValues("topolith.test.parity=warn").run(context -> {
+                        assertNull(context.getStartupFailure());
+                        Invoices invoices = context.getBean(Invoices.class);
+                        InvoicesImpl target = provider(context);
+                        target.mutateArgument = true;
+                        assertEquals(5, invoices.total(invoice()));
+                        target.mutateArgument = false;
+                        invoices.keep(new Invoice("secret-value"));
+                        invoices.touchKept();
+                        assertNotSame(target.held, invoices.held());
+                        Lossy input = new Lossy("secret-value");
+                        assertSame(input, invoices.lossy(input));
+                        Lossy result = invoices.lossyResult();
+                        assertSame(target.lossyResultValue, result);
+                        assertNotNull(invoices.page());
+                        InvoiceException exception = assertThrows(InvoiceException.class,
+                                () -> invoices.failLossy(new Lossy("secret-value")));
+                        assertSame(target.thrown, exception);
+                        assertTrue(context.getBean(ByValueRecorder.class).finish().isEmpty());
+                        invoices.nothing();
+                    });
+            assertEquals(7, appender.list.size());
+            String logs = appender.list.toString();
+            for (String expected : List.of("TL0045", "invoice", "Invoices.total", "Invoices.keep",
+                    "Invoices.lossy", "Invoices.lossyResult", "Invoices.failLossy", "Invoices.page", "argument 0",
+                    "result", "$.lines[0].qty", "$.name", "$")) {
+                assertTrue(logs.contains(expected), logs);
+            }
+            assertFalse(logs.contains("secret-value"), logs);
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void ac_test_27_kept_copy_warning_does_not_prevent_copying_the_next_result() {
+        Logger logger = (Logger) LoggerFactory.getLogger(ByValueRecorder.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            TopolithTestModes.module("invoice").internal().byValue().applyTo(runner())
+                    .withPropertyValues("topolith.test.parity=warn").run(context -> {
+                        assertNull(context.getStartupFailure());
+                        Invoices invoices = context.getBean(Invoices.class);
+                        InvoicesImpl target = provider(context);
+                        invoices.keep(new Invoice("secret-value"));
+                        invoices.touchKept();
+                        Invoice result = invoices.held();
+                        assertNotSame(target.held, result);
+                        assertEquals(target.held.name, result.name);
+                        result.name = "caller changed";
+                        assertEquals("held", target.held.name);
+                        assertEquals(1, appender.list.size());
+                        assertTrue(appender.list.get(0).getFormattedMessage().contains("TL0045"));
+                    });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
@@ -176,7 +298,6 @@ class TopolithByValueTest {
     }
 
     @TopolithModuleMode(id = "invoice", mode = Mode.INTERNAL)
-    @TopolithByValue("invoice")
     @SpringBootTest(classes = TopolithTestModesTest.Host.class)
     static class Scenario {
         @Autowired Invoices invoices;
@@ -192,6 +313,44 @@ class TopolithByValueTest {
         }
 
         void clean() { invoices.nothing(); }
+    }
+
+    @TopolithModuleMode(id = "invoice", mode = Mode.INTERNAL)
+    @SpringBootTest(classes = TopolithTestModesTest.Host.class, properties = "topolith.test.parity=warn")
+    static class WarnScenario {
+        @Autowired Invoices invoices;
+
+        void changesKeptArgument() {
+            invoices.keep(new Invoice("secret-value"));
+            invoices.touchKept();
+        }
+    }
+
+    @Test
+    void ac_test_27_listener_does_not_fail_the_test_for_a_kept_copy() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(ByValueRecorder.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            var manager = new TestContextManager(WarnScenario.class);
+            var instance = new WarnScenario();
+            manager.prepareTestInstance(instance);
+            Method method = WarnScenario.class.getDeclaredMethod("changesKeptArgument");
+            manager.beforeTestMethod(instance, method);
+            instance.changesKeptArgument();
+            manager.afterTestMethod(instance, method, null);
+            assertEquals(1, appender.list.size());
+            String message = appender.list.get(0).getFormattedMessage();
+            for (String expected : List.of("TL0045", "invoice", "Invoices.keep", "argument 0", "$.name")) {
+                assertTrue(message.contains(expected), message);
+            }
+            assertFalse(message.contains("secret-value"), message);
+            assertFalse(message.contains("changed"), message);
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     private static void run(TestContextManager manager, Object instance, String name) throws Exception {
@@ -309,6 +468,41 @@ class TopolithByValueTest {
     }
 
     @Test
+    void ac_test_13_no_eligible_provider_needs_no_converter() {
+        TopolithTestModes.module("invoice").none().byValue().applyTo(runner())
+                .withBean(RestClient.Builder.class,
+                        () -> RestClient.builder().configureMessageConverters(c -> c.disableDefaults()))
+                .run(context -> assertNull(context.getStartupFailure()));
+        new ApplicationContextRunner().withInitializer(context -> ByValue.install(context, Set.of()))
+                .run(context -> assertNull(context.getStartupFailure()));
+        var module = ModuleDescriptor.builder("empty").packageName("fixture.empty")
+                .apiPackages(List.of("fixture.empty.api")).apiVersion("1.0.0").build();
+        Topology topology = Topology.resolve(List.of(module), List.of(), Map.of("empty", "internal"), null);
+        new ApplicationContextRunner().withBean("topolithTopology", Topology.class, () -> topology)
+                .withInitializer(context -> ByValue.install(context, Set.of()))
+                .run(context -> assertNull(context.getStartupFailure()));
+    }
+
+    @Test
+    void ac_test_13_lazy_internal_provider_needs_a_converter_at_context_load() {
+        var module = ModuleDescriptor.builder("invoice").packageName("fixture.invoice")
+                .apiPackages(List.of("fixture.invoice.api")).apiVersion("1.0.0")
+                .provides(List.of(Invoices.class.getName())).build();
+        Topology topology = Topology.resolve(List.of(module), List.of(), Map.of("invoice", "internal"), null);
+        new ApplicationContextRunner().withBean("topolithTopology", Topology.class, () -> topology)
+                .withBean("invoices", InvoicesImpl.class, InvoicesImpl::new, definition -> definition.setLazyInit(true))
+                .withInitializer(context -> ByValue.install(context, Set.of())).run(context -> {
+                    assertInstanceOf(IllegalStateException.class, context.getStartupFailure());
+                    assertTrue(context.getStartupFailure().getMessage().contains("Jackson"));
+                });
+        new ApplicationContextRunner().withBean("topolithTopology", Topology.class, () -> topology)
+                .withBean("invoices", InvoicesImpl.class, () -> org.mockito.Mockito.mock(InvoicesImpl.class),
+                        definition -> definition.setLazyInit(true))
+                .withInitializer(context -> ByValue.install(context, Set.of()))
+                .run(context -> assertNull(context.getStartupFailure()));
+    }
+
+    @Test
     void ac_test_13_external_module_gets_no_proxy() throws Exception {
         try (var payments = FixtureLoader.create(); var server = new TopolithMockServer("payment")) {
             server.stub("GET", "/ping", 200, "pong");
@@ -358,14 +552,15 @@ class TopolithByValueTest {
     }
 
     @Test
-    void ac_test_13_annotation_is_found_on_superclass_and_enclosing_class_and_absent_otherwise() {
+    void ac_test_13_annotation_is_found_on_superclass_and_enclosing_class_and_defaults_to_all() {
         var factory = new TopolithContextCustomizerFactory();
         var selected = factory.createContextCustomizer(Selected.class, List.of());
         assertNotNull(selected);
         assertEquals(selected, factory.createContextCustomizer(SelectedChild.class, List.of()));
         assertEquals(selected, factory.createContextCustomizer(Outer.Inner.class, List.of()));
         assertNotEquals(selected, factory.createContextCustomizer(AllModules.class, List.of()));
-        assertNull(factory.createContextCustomizer(Unselected.class, List.of()));
+        assertEquals(factory.createContextCustomizer(AllModules.class, List.of()),
+                factory.createContextCustomizer(Unselected.class, List.of()));
     }
 
     @Test
@@ -491,6 +686,21 @@ class TopolithByValueTest {
     @SpringBootTest(classes = TopolithTestModesTest.Host.class)
     static class MockScenario {
         @org.springframework.test.context.bean.override.mockito.MockitoBean Invoices invoices;
+    }
+
+    @TopolithModuleMode(id = "invoice", mode = Mode.INTERNAL)
+    @SpringBootTest(classes = TopolithTestModesTest.Host.class, properties = "spring.autoconfigure.exclude="
+            + "org.springframework.boot.restclient.autoconfigure.RestClientAutoConfiguration")
+    static class MockWithoutConverterScenario {
+        @org.springframework.test.context.bean.override.mockito.MockitoBean Invoices invoices;
+    }
+
+    @Test
+    void ac_test_13_only_a_mock_provider_needs_no_converter() throws Exception {
+        var instance = new MockWithoutConverterScenario();
+        new TestContextManager(MockWithoutConverterScenario.class).prepareTestInstance(instance);
+        assertNotNull(instance.invoices);
+        assertFalse(instance.invoices instanceof Advised);
     }
 
     @Test

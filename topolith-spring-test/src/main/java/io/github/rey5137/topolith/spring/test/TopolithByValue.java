@@ -11,8 +11,8 @@ import io.github.rey5137.topolith.core.Incubating;
 /**
  * Puts a by-value proxy in front of the contracts of internal modules for a Spring test context (R-TEST-04): each call
  * passes its arguments and result as JSON copies, and a mutation that would leak between caller and provider in
- * internal mode fails the test. Found on the test class, its superclasses and its enclosing classes, like
- * {@link TopolithModuleMode}.
+ * internal mode fails the test. The proxy is on by default; this annotation selects the modules to check. Found on the
+ * test class, its superclasses and its enclosing classes, like {@link TopolithModuleMode}.
  */
 @Incubating
 @Inherited

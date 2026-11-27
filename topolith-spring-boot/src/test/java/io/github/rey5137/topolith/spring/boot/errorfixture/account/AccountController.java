@@ -11,6 +11,7 @@ import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountNo
 import io.github.rey5137.topolith.spring.boot.errorfixture.payment.api.PaymentContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.payment.api.PaymentDeclinedException;
 import io.github.rey5137.topolith.contract.ModuleUnavailableException;
+import io.github.rey5137.topolith.spring.boot.errorfixture.host.SeenAuth;
 import io.github.rey5137.topolith.spring.boot.errorfixture.host.ThreadTenant;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.MDC;
@@ -44,6 +45,10 @@ public class AccountController implements AccountContract {
                 throw new IllegalStateException("secret detail");
             }
             return MDC.get("user.id") + "|" + MDC.get("trace") + "|" + MDC.get("other") + "|" + ThreadTenant.tenant();
+        }
+        if (failure.equals("auth")) {
+            // what the provider sees of the caller's authentication (R-EXT-13)
+            return SeenAuth.seen();
         }
         if (failure.equals("pay")) {
             // a call from a module's class, when the payment module is internal

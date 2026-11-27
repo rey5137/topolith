@@ -137,7 +137,7 @@ final class LoopbackFaults {
         });
     }
 
-    private static void flatten(String prefix, Object value, Map<String, String> into) {
+    static void flatten(String prefix, Object value, Map<String, String> into) {
         if (value instanceof Map<?, ?> map) {
             map.forEach((key, inner) -> flatten(prefix + "." + key, inner, into));
         } else {

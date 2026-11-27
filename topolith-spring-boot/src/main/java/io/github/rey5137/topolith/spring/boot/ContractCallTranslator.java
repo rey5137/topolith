@@ -81,6 +81,16 @@ final class ContractCallTranslator implements MethodInterceptor {
         if (e instanceof IllegalStateException && e.getMessage() != null && e.getMessage().startsWith(NO_INSTANCES)) {
             return unavailable(module, "no instance", e);
         }
+        // an I/O failure wrapped by another layer, such as a client-credentials token request (D-96); found by type
+        // in the cause chain, so no OAuth2 class is named (INV-7). A circuit breaker's wrapper is handled by invoke
+        if (!noFallback(e)) {
+            int depth = 0;
+            for (Throwable cause = e.getCause(); cause != null && depth < 8; cause = cause.getCause(), depth++) {
+                if (cause instanceof ResourceAccessException access) {
+                    return unavailable(module, timeout(access) ? "timeout" : "connection failure", e);
+                }
+            }
+        }
         return e;
     }
 

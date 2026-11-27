@@ -31,7 +31,8 @@ import org.springframework.core.env.Environment;
  * testable without one. A changed mode or a URL/service-id switch only logs TL0010 and marks restart pending: the
  * running topology never changes (INV-9). A changed URL, service id or timeout rebuilds that external module's client.
  * A loopback module's client settings are restart-only (D-77): a change logs TL0010 and keeps restart pending until
- * every such key again matches its running value.
+ * every such key again matches its running value. An external or loopback module's {@code auth.*} keys are
+ * restart-only in the same way (R-EXT-13).
  */
 @Incubating
 public final class TopolithRefresh implements BeanClassLoaderAware {
@@ -44,6 +45,7 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
     private final ObjectProvider<ExternalClientEndpoints> endpoints;
     private final Map<String, Boolean> runningBalanced = new HashMap<>();
     private final Map<String, Map<String, String>> runningLoopback = new HashMap<>();
+    private final Map<String, Map<String, String>> runningAuth = new HashMap<>();
     private ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
 
     TopolithRefresh(Environment environment, Topology topology, TopolithRefreshStatus status,
@@ -54,6 +56,10 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
         this.endpoints = endpoints;
         topology.idsOf(Mode.EXTERNAL).forEach(id -> runningBalanced.put(id, balanced(id)));
         topology.idsOf(Mode.LOOPBACK).forEach(id -> runningLoopback.put(id, loopbackSettings(id)));
+        // not ExternalHttpServicesRegistrar.clientModules: that class needs spring-web, which is optional (INV-7)
+        for (Mode mode : List.of(Mode.EXTERNAL, Mode.LOOPBACK)) {
+            topology.idsOf(mode).forEach(id -> runningAuth.put(id, authSettings(id)));
+        }
     }
 
     @Override
@@ -87,7 +93,16 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
                 wiring.add(id);
             }
         }
-        status.update(modes, wiring);
+        // a module's outgoing-auth hook is restart-only (R-EXT-13): pending until each auth.* key is back
+        Set<String> auth = new TreeSet<>();
+        runningAuth.forEach((id, running) -> {
+            if (!modes.containsKey(id) && !authSettings(id).equals(running)) {
+                auth.add(id);
+            }
+        });
+        Set<String> pending = new TreeSet<>(wiring);
+        pending.addAll(auth);
+        status.update(modes, pending);
         Map<String, Map<String, String>> current = new HashMap<>();
         for (String key : new TreeSet<>(changedKeys)) {
             String id = moduleOf(key);
@@ -98,6 +113,15 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
                         "Restart the application to apply it, or restore the running value"
                         + (urlKey(key, id) ? "; remote.url and remote.service-id are not allowed on a loopback "
                         + "module (the next start fails with TL0003)." : ".")).toString());
+            }
+        }
+        for (String key : new TreeSet<>(changedKeys)) {
+            String id = moduleOf(key);
+            if (id != null && auth.contains(id) && relaxed(key.substring(PREFIX.length() + id.length() + 1))
+                    .startsWith("auth.") && differs(key, id, authSettings(id), runningAuth.get(id))) {
+                LOG.warn(new Diagnostic(TopolithCode.TL0010, "module '" + id + "' keeps its outgoing-auth hook: "
+                        + "the refreshed " + key + " applies only after a restart.",
+                        "Restart the application to apply it, or restore the running value.").toString());
             }
         }
         modes.forEach((id, requested) -> {
@@ -138,8 +162,26 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
 
     /** Whether the refreshed {@code key} of loopback module {@code id} differs from its running value (D-77). */
     private boolean differs(String key, String id, Map<String, String> current) {
+        return differs(key, id, current, runningLoopback.get(id));
+    }
+
+    private static boolean differs(String key, String id, Map<String, String> current, Map<String, String> running) {
         String wanted = relaxed(key.substring(PREFIX.length() + id.length() + 1));
-        return !Objects.equals(valueOf(current, wanted), valueOf(runningLoopback.get(id), wanted));
+        return !Objects.equals(valueOf(current, wanted), valueOf(running, wanted));
+    }
+
+    /** Module {@code id}'s {@code auth.*} settings, by key, as its outgoing-auth hook was built from. */
+    private Map<String, String> authSettings(String id) {
+        Map<String, String> settings = new TreeMap<>();
+        if (environment instanceof ConfigurableEnvironment configurable) {
+            try {
+                Binder.get(configurable).bind(PREFIX + id + ".auth", Bindable.mapOf(String.class, String.class))
+                        .ifBound(values -> values.forEach((key, value) -> settings.put("auth." + key, value)));
+            } catch (BindException e) {
+                settings.put("auth", "invalid: " + e.getMessage());
+            }
+        }
+        return settings;
     }
 
     /** A setting's value by its relaxed name, so {@code readTimeout} and {@code read-timeout} name one key. */

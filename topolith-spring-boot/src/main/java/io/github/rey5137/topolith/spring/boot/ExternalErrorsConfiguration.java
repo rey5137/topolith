@@ -25,7 +25,8 @@ class ExternalErrorsConfiguration {
 
     @Bean
     RestClientHttpServiceGroupConfigurer topolithContractErrors(Topology topology, ExternalClientBuilders clients,
-            ObjectProvider<CallObserver> observers, ObjectProvider<ContextPropagation> propagation) {
+            ObjectProvider<CallObserver> observers, ObjectProvider<ContextPropagation> propagation,
+            ObjectProvider<OutgoingAuth> auth) {
         String[] externals = topology.idsOf(Mode.EXTERNAL).toArray(String[]::new);
         String[] callers = ExternalHttpServicesRegistrar.clientModules(topology).toArray(String[]::new);
         ContextPropagation found = propagation.getIfAvailable();
@@ -33,10 +34,19 @@ class ExternalErrorsConfiguration {
         return groups -> {
             groups.filterByName(externals).forEachClient((group, builder) -> clients.put(group.name(), builder));
             groups.filterByName(callers).forEachProxyFactory((group, factory) -> {
-                if (context != null) {
-                    // read on the calling thread, which a circuit breaker's exchange may not be on (R-EXT-12)
-                    factory.httpRequestValuesProcessor((method, parameters, arguments, values) -> context.headers()
-                            .forEach(values::addHeader));
+                OutgoingAuth hooks = auth.getIfAvailable();
+                boolean relay = hooks != null && hooks.relays(group.name());
+                if (context != null || relay) {
+                    // read on the calling thread, which a circuit breaker's exchange may not be on (R-EXT-12, D-93)
+                    factory.httpRequestValuesProcessor((method, parameters, arguments, values) -> {
+                        if (context != null) {
+                            context.headers().forEach(values::addHeader);
+                        }
+                        String token = relay ? BearerToken.current() : null;
+                        if (token != null) {
+                            values.addAttribute(RelayHook.TOKEN, token);
+                        }
+                    });
                 }
                 factory.proxyFactoryCustomizer((proxy, service) -> {
                         proxy.addAdvice(0, new ContractCallTranslator(group.name(), topology.apiPackages(),

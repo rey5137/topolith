@@ -164,3 +164,39 @@ An MDC value over 1024 characters once encoded is not sent and logs `TL0035` nam
 fails the call with a `TopolithException` carrying `TL0038`. A header that does not decode, or is over the limit,
 answers 400. An invalid key list, or two `TenantContext` beans, fails startup with `TL0034`. Routes outside every module
 ignore these headers. Trace and baggage propagation stay Micrometer Tracing's.
+
+## Authenticating calls
+
+Each loopback or external module's client authenticates its calls through one outgoing-auth hook, chosen by
+`topolith.modules.<id>.auth.type`:
+
+| `auth.type` | What a call sends |
+|---|---|
+| `relay` (default) | `Authorization: Bearer <token>` when the calling thread's `Authentication` is a bearer token (a `JwtAuthenticationToken` or `BearerTokenAuthentication`); nothing otherwise |
+| `client-credentials` | The access token Spring Security's OAuth2 client obtains for the registration `auth.registration-id` |
+| `none` | Nothing |
+
+With `relay`, give the provider a resource-server configuration and it sees the caller's name and authorities, as an
+internal provider sees the caller's own `SecurityContext`. A caller logged in without a bearer token (a session login,
+anonymous) relays nothing, so a loopback or external provider sees what its security chain makes of a request without
+credentials. Without Spring Security's resource-server classes there is nothing to relay and no hook is installed.
+
+With `client-credentials`, Topolith builds its own `AuthorizedClientServiceOAuth2AuthorizedClientManager` from your one
+`ClientRegistrationRepository` and one `OAuth2AuthorizedClientService` bean (Boot's OAuth2 client starter declares
+both) and authorizes the registration for a fixed principal named `topolith:<registration id>`: one token is obtained
+and cached whoever calls, and calls outside a servlet request (a scheduled job, an async thread) work. The provider sees
+the client's principal, not the caller's. The token request uses your one client-credentials
+`OAuth2AccessTokenResponseClient` bean if you declare one; otherwise it has the module's connect and read timeouts
+(refreshed with them), and never the module's SSL bundle, since the token endpoint is another server. A token request
+that fails on I/O fails the call with `ModuleUnavailableException`. When the provider rejects the token as
+`invalid_token` (a plain 401 counts), the call fails, is not retried, and the next call obtains a new token. Missing
+OAuth2 client classes, a missing or unknown registration, not exactly one repository and one service, or two token
+client beans fail startup with `TL0037`.
+
+To authenticate another way, declare `ModuleClients.authenticate("payment", interceptor)` as a bean: the interceptor
+becomes the module's hook, after every interceptor a `ModuleClients.configure` customizer adds. Two hooks for a module,
+or one together with an explicit `auth.type`, fail startup with `TL0036`, and so does, on the call, a hook that changes
+an `Authorization` header a customizer already set: the call fails with a `TopolithException` and is not sent. An
+`auth.*` key on an internal or `none` module, an unknown key or value, or `auth.registration-id` without
+`client-credentials` fails startup with `TL0003`. The keys take effect at startup only: a refresh changing one logs
+`TL0010` and marks a restart pending.

@@ -10,6 +10,7 @@ import java.util.UUID;
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.Topology;
 import io.github.rey5137.topolith.samples.payment.api.CallContext;
+import io.github.rey5137.topolith.samples.payment.api.CallerIdentity;
 import io.github.rey5137.topolith.samples.payment.api.ChargeRequest;
 import io.github.rey5137.topolith.samples.payment.api.ChargeResult;
 import io.github.rey5137.topolith.samples.payment.api.PaymentApi;
@@ -27,11 +28,18 @@ import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.context.annotation.Import;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 // snippet:start shared-payment-test
 /** The payment contract every sample host must satisfy (AC-TEST-05); shipped as this module's test-jar. */
@@ -63,6 +71,12 @@ public abstract class AbstractPaymentTest {
 
     @Autowired
     protected Topology topology;
+
+    /** The key a host's resource server checks this run's bearer tokens against (AC-TEST-22). */
+    @DynamicPropertySource
+    static void sampleJwtKey(DynamicPropertyRegistry registry) {
+        registry.add("sample.jwt.secret", SampleTokens::secret);
+    }
 
     @Autowired
     protected TestObservationRegistry observations;
@@ -102,6 +116,26 @@ public abstract class AbstractPaymentTest {
             Tenants.set(null);
         }
         assertEquals(new CallContext(null, null), paymentApi.context());
+    }
+
+    /**
+     * A bearer-token caller reaches the provider with the same name and authorities in every mode: unchanged on the
+     * caller's thread when internal, relayed over HTTP to the provider's resource server otherwise (AC-TEST-22).
+     */
+    @Test
+    void ac_test_22_the_provider_sees_the_callers_name_and_authorities() {
+        JwtAuthenticationToken caller = SampleTokens.authentication("alice", "payments:read payments:write");
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(caller);
+        SecurityContextHolder.setContext(context);
+        try {
+            List<String> authorities = caller.getAuthorities().stream().map(GrantedAuthority::getAuthority)
+                    .sorted().toList();
+            assertTrue(authorities.contains("SCOPE_payments:write"), authorities.toString());
+            assertEquals(new CallerIdentity("alice", authorities), paymentApi.caller());
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
     }
 
     private void assertCall(String method, String exception) {

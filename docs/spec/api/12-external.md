@@ -1,8 +1,8 @@
 # 12 — External contracts and clients
 
 This file specifies external HTTP clients, discovery, errors, exposure and endpoint refresh.
-It also specifies the internal transaction boundary, loopback calls, the call observation, context propagation and
-outgoing authentication.
+It also specifies the internal transaction boundary, loopback calls, the call observation, context propagation,
+outgoing authentication, per-group retry and the per-group circuit breaker.
 
 ## Rules
 
@@ -77,11 +77,11 @@ failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6
   or no-arg constructor, carrying the HTTP exception as suppressed. A connection failure, a timeout, a 502, 503 or 504
   without a Topolith problem, no LoadBalancer instance, or a problem naming `ModuleUnavailableException` raise
   `ModuleUnavailableException` with the original exception as cause and the fixed message `module '<id>' could not
-  be reached (<kind>)`, so no URL or downstream body travels on; after a read timeout the call may have run. With Spring Cloud
-  CircuitBreaker on the group (`spring.cloud.circuitbreaker.http-services.enabled=true`) the translation sees through
-  the breaker's no-fallback wrapper (D-51), a time-limiter timeout raises `ModuleUnavailableException` with kind
-  `timeout`, and a call rejected by an open circuit raises it with kind `circuit open`; a host's own wrapper exception
-  propagates as thrown.
+  be reached (<kind>)`, so no URL or downstream body travels on; after a read timeout the call may have run. With a
+  Spring Cloud CircuitBreaker on the group (R-EXT-15's per-group breaker or
+  `spring.cloud.circuitbreaker.http-services.enabled=true`) the translation sees through the breaker's no-fallback
+  wrapper (D-51), a time-limiter timeout raises `ModuleUnavailableException` with kind `timeout`, and a call rejected
+  by an open circuit raises it with kind `circuit open`; a host's own wrapper exception propagates as thrown.
 - **Unspecified.** Any other failure (an undeclared exception, a 4xx or 500 without a Topolith problem) raises an
   unchecked exception that is neither a declared type nor `ModuleUnavailableException`; its type is unspecified.
 
@@ -142,14 +142,21 @@ exists (D-89); a `final` provider that is not a handler takes an interface proxy
 ### R-EXT-08 — Endpoint refresh
 
 With `topolith-spring-cloud`, an `EnvironmentChangeEvent` changing an external module's URL, service id to another
-service id, or timeouts rebuilds its client. Validate settings before swapping; in-flight calls finish on the old
-client. On invalid settings or rebuild failure keep the old client, log TL0011 and report the failure on the actuator.
+service id, timeouts, `remote.retry.*` or `remote.circuit-breaker.*` rebuilds only the affected part of that module's
+client (R-EXT-14, R-EXT-15, D-104): changing URL, service id or timeouts swaps the endpoint delegates without
+rebuilding or resetting the module's retry policy or circuit breaker; changing `remote.retry.*` swaps only the retry
+policy without rebuilding or resetting the circuit breaker; and changing `remote.circuit-breaker.*` rebuilds only the
+circuit breaker, which resets its state to closed with an empty window under the new settings (or removes it when
+`enabled` becomes `false`). Validate settings before swapping; in-flight calls finish on the old client, policy and
+breaker. On invalid settings or rebuild failure keep the old client, policy and breaker, log TL0011 and report the
+failure on the actuator.
 A URL-to-service-id or service-id-to-URL switch instead uses TL0010 and restart-pending behavior in R-MODE-05.
 Without Spring Cloud on the classpath there is no refresh handling. A host's own unguarded
 `RestClientHttpServiceGroupConfigurer` setting `requestFactory` for all groups may win over the swap (same lowest order),
 so refreshed timeouts would not apply; a refresh changing only Boot keys (`spring.http.serviceclient.<id>.*`,
 `spring.http.clients.*`) is restart-only and unchecked until the next start (D-50). A rebuild also gives a
-client-credentials hook's token request the new timeouts (D-96). Implements INV-4, INV-9, D-11 through D-16, D-20.
+client-credentials hook's token request the new timeouts (D-96). Implements INV-4, INV-9, D-11 through D-15, D-20 and
+D-104.
 
 - AC-EXT-18 (M2.6): Changing the URL rebuilds the client.
 - AC-EXT-19 (M2.6): Changing timeout settings rebuilds the client.
@@ -411,7 +418,7 @@ Each external or loopback module's client authenticates its calls through at mos
   whoever calls. Its token request uses the host's single client-credentials `OAuth2AccessTokenResponseClient` bean
   when there is one, and otherwise the connect and read timeouts the module's client currently uses, never its SSL
   bundle or redirect settings; a token request failing on I/O or answered 5xx or 429 raises
-  `ModuleUnavailableException` with D-55's kind, while an OAuth2 4xx error such as `invalid_client` or an empty answer
+  `ModuleUnavailableException` with D-43's kind, while an OAuth2 4xx error such as `invalid_client` or an empty answer
   stays unspecified (D-97). A
   provider response whose OAuth2 error is `invalid_token` (a 401 naming no other error counts), or a token request
   ending in `invalid_grant`, removes the token; the failed call is not retried, and the next call obtains a new one
@@ -496,3 +503,207 @@ Implements INV-2, INV-4, INV-6, INV-7 and D-92 through D-97.
 - AC-EXT-57 (M6.4): An internal call's provider sees the caller's `SecurityContext` unchanged; an internal or `none`
   module gets no auth interceptor, and a host without Spring Security on the classpath starts and its loopback and
   external calls send no `Authorization`.
+
+### R-EXT-14 — Per-group retry
+
+Each external or loopback module's HTTP service group can retry transient provider transport failures of its idempotent
+contract calls, configured under `topolith.modules.<id>.remote.retry` and wired by `topolith-spring-cloud`'s resilience
+auto-configuration (which is not gated on `EnvironmentChangeEvent` or `spring-cloud-context`) over Spring Framework 7's
+`org.springframework.core.retry` (D-100, D-101, D-103 through D-105). Retry is off by default (`max-attempts=1`).
+
+| Key | Type and default | Meaning |
+|---|---|---|
+| `max-attempts` | int in `[1, 10]`, `1` | Total attempts for an idempotent call (`1` means no retry) |
+| `initial-backoff` | duration `>= 0`, `100ms` | Wait before the first retry |
+| `max-backoff` | duration `>= initial-backoff`, `max(1s, initial-backoff)` | Upper bound on the wait between attempts |
+| `multiplier` | double `>= 1.0` (finite), `2.0` | Exponential backoff factor applied between attempts |
+| `safe-methods-idempotent` | boolean, `false` | Also treats `GET`, `HEAD`, `OPTIONS` and `TRACE` exchanges as idempotent for retry |
+
+- **Idempotency gate.** Retry applies per HTTP exchange (abstract contract method) invocation; a `default` method on a
+  contract interface runs locally on the client proxy and is not itself an exchange (each abstract contract method it
+  invokes is checked on its own exchange). An exchange is eligible for retry only when `max-attempts > 1` and either:
+  (a) the module's descriptor lists `<contract>#<method>` in `idempotent` (R-DESC-05, D-100); or
+  (b) `remote.retry.safe-methods-idempotent=true` and the method's resolved HTTP method on the caller's exchange
+  interface — the contract interface itself, or the separate interface mapped by
+  `topolith.modules.<id>.remote.http-interface.<contract FQN>` (D-49), with a non-empty method-level `@HttpExchange`
+  method winning over a type-level one — is `GET`, `HEAD`, `OPTIONS` or `TRACE` (RFC 9110 §9.2.1 safe methods,
+  case-insensitive). `PUT`, `DELETE`, `POST`, `PATCH` and any other HTTP method are never retried unless the contract
+  method is in `idempotent`. The wait before retry $k \ge 1$ is
+  $\min(\text{max-backoff}, \text{initial-backoff} \times \text{multiplier}^{k-1})$. A non-idempotent call makes at
+  most one attempt, whatever `max-attempts` is set to.
+- **Retryable outcomes (allowlist).** Only four transient provider transport and availability outcomes of the HTTP
+  exchange are retried: (1) a connection failure (`ResourceAccessException` other than a timeout, including R-EXT-10's
+  `connection-failure` fault); (2) a connect or read timeout (`ResourceAccessException` timeout, including R-EXT-10's
+  `timeout` fault or latency at or above the read timeout); (3) a circuit-breaker time-limiter
+  `java.util.concurrent.TimeoutException` (under Spring Cloud's global http-services breaker; Topolith's per-group
+  breaker has no time limiter, R-EXT-15); and (4) an HTTP 502, 503 or 504 response without a Topolith
+  `urn:topolith:problem:contract-exception` body (including R-EXT-10's `unavailable` fault). After a read or
+  time-limiter timeout the provider may have run, which is why only idempotent calls are retried.
+- **Non-retryable outcomes.** Every other outcome is not retried: any Topolith
+  `urn:topolith:problem:contract-exception` response (a declared contract exception, a provider's own
+  `ModuleUnavailableException` problem from a downstream call, or a problem class the caller cannot rebuild); any 4xx
+  response (including 401 with `client-credentials`, which still evicts the token without retrying per R-EXT-13, D-96,
+  and 429); a 5xx response without a Topolith problem other than 502, 503 or 504 (such as 500); zero LoadBalancer
+  instances (`no instance`); a call the circuit breaker rejects because the circuit is open (`CallNotPermittedException`
+  with Resilience4j, kind `circuit open`); a failed client-credentials token request (`OAuth2AuthorizationException`,
+  D-97); a call-time `TopolithException` (`TL0036`, `TL0038`); or any other exception (such as a host interceptor's or
+  conversion exception). When retries are exhausted, or on a non-retryable failure, `ContractCallTranslator` translates
+  the final failure as in R-EXT-04.
+- **Classification through a circuit breaker.** Retry, the circuit breaker's record/ignore decision (R-EXT-15) and
+  `ContractCallTranslator` share one classification (D-105). When an attempt throws Spring Cloud CircuitBreaker's
+  `NoFallbackAvailableException` (found by class name), retry classifies its direct cause, as D-51 translation does: a
+  retryable cause is retried, a `java.util.concurrent.TimeoutException` cause is a timeout, and a
+  `CallNotPermittedException` thrown or as that cause stops retry at once with kind `circuit open`. No other wrapper,
+  including a host's own, is unwrapped, and it is not retried.
+- **Parity and call context.** An `internal` module has no transport and never retries. A `loopback` module's group
+  client retries in the same way as an `external` module's; each retry attempt draws the next entry from the module's
+  R-EXT-10 fault sequence. One contract call still records a single `topolith.module.call` observation on the caller's
+  side (R-EXT-11) spanning all attempts, with `exception` set from the call's final outcome (`none` if a retry
+  succeeds) and each HTTP attempt's `http.client.requests` observation as its child. Listed MDC headers,
+  `Topolith-Tenant` (R-EXT-12) and the relayed bearer token (R-EXT-13) captured on the calling thread are sent on every
+  attempt (D-103).
+- **Validation, activation and refresh.** A `remote.retry.*` key on an `internal`, `none` or unknown module, an unknown
+  `remote.retry.*` key, an invalid value (`max-attempts` outside `[1, 10]`, a negative or unparsable duration, an
+  explicit `max-backoff` below `initial-backoff`, `multiplier` below `1.0` or non-finite, `safe-methods-idempotent` not
+  a boolean), or setting `remote.retry.max-attempts > 1` while Spring Cloud's global
+  `spring.cloud.circuitbreaker.http-services.enabled=true` is also set fails startup with TL0003 naming the key. Tuning
+  keys (`initial-backoff`, `max-backoff`, `multiplier`, `safe-methods-idempotent`) are allowed when `max-attempts` is
+  unset or `1`: their values are validated at startup and refresh, and they are inactive while `max-attempts=1`.
+  Setting `remote.retry.max-attempts > 1` without `topolith-spring-cloud`'s resilience configuration on the classpath
+  fails startup with TL0041 naming the module and `topolith-spring-cloud`. A `none` or `internal` module registers no
+  retry bean, configurer or decorator (INV-2). On refresh (`EnvironmentChangeEvent`), an `external` module validates
+  and swaps only its active retry policy atomically (leaving its running circuit breaker and breaker state untouched)
+  and logs TL0011 on invalid settings while keeping the running policy (R-EXT-08, D-104); a `loopback` module's
+  `remote.retry.*` keys are restart-only (TL0010, D-77).
+
+Implements INV-2, INV-4, INV-6, INV-7 and D-100 through D-105.
+
+- AC-EXT-62 (M7.3): By default (`remote.retry.safe-methods-idempotent` unset or `false`), a contract method that is not
+  declared `@Idempotent` (including a `@GetExchange`, `@PutExchange`, `@DeleteExchange` or `@PostExchange` method
+  without `@Idempotent`) is never retried: with `remote.retry.max-attempts` above `1`, a connection failure, timeout or
+  503 makes only one attempt and raises `ModuleUnavailableException`, in both loopback and external mode.
+- AC-EXT-69 (M7.3): With `remote.retry.safe-methods-idempotent=true` and `remote.retry.max-attempts` above `1`, an
+  unannotated contract method whose resolved HTTP method on the caller's exchange interface (the contract itself, or a
+  separate `remote.http-interface`) is `GET`, `HEAD`, `OPTIONS` or `TRACE` is retried on retryable outcomes as an
+  `@Idempotent` method is, whereas an unannotated `POST`, `PUT`, `DELETE` or `PATCH` method is still never retried; the
+  descriptor's `idempotent` set is unchanged.
+- AC-EXT-63 (M7.3): An `@Idempotent` contract method with `remote.retry.max-attempts` above `1` is retried up to
+  `max-attempts` total attempts with exponential backoff (`initial-backoff`, `max-backoff` defaulting to
+  `max(1s, initial-backoff)`, `multiplier`) on a connection failure, a timeout (including an R-EXT-10 `timeout` or
+  latency fault, where the provider ran on the timed-out attempt and runs again on the retry), and a 502, 503 or 504
+  without a Topolith problem (including R-EXT-10 `connection-failure` and `unavailable` faults), returning the result
+  when a retry succeeds and raising `ModuleUnavailableException` when all attempts fail; with `max-attempts` unset or
+  `1` (even when valid backoff keys are present) it makes one attempt.
+- AC-EXT-64 (M7.3): An idempotent contract call is never retried on a Topolith contract-exception problem response (a
+  declared exception, a provider's own `ModuleUnavailableException` problem, or an unrebuildable class), a 4xx response
+  (including 401 with `client-credentials`, which evicts the token once without retrying, and 429), a 5xx response
+  without a Topolith problem other than 502, 503 or 504 (such as 500), zero LoadBalancer instances (`no instance`), a
+  failed client-credentials token request (`OAuth2AuthorizationException`), a `TopolithException` (`TL0036`, `TL0038`),
+  or an open circuit (`circuit open`).
+
+### R-EXT-15 — Per-group circuit breaker
+
+Each external or loopback module's HTTP service group can wrap its exchange attempts in a Spring Cloud CircuitBreaker
+named `<id>`, configured under `topolith.modules.<id>.remote.circuit-breaker` and wired by `topolith-spring-cloud`
+(D-51, D-102 through D-105). The circuit breaker is off by default (`enabled=false`). Each key has the meaning given
+here whatever the implementation; settings the keys do not expose (half-open permits, slow-call thresholds, window
+type) are fixed at the supported implementation's documented defaults and are not taken from a host default
+configuration (Topolith builds `<id>`'s configuration from a fresh builder so a host `configureDefault` never leaks in).
+In 0.1 the only supported `CircuitBreakerFactory` implementation is Resilience4j (`Resilience4JCircuitBreakerFactory`),
+wired through a package-private adapter in `topolith-spring-cloud` with no public SPI; another implementation is added
+later as an internal adapter with no key, diagnostic code or rule change (D-105).
+
+| Key | Type and default | Meaning |
+|---|---|---|
+| `enabled` | boolean, `false` | Wraps module `<id>`'s group exchanges in a Spring Cloud `CircuitBreaker` named `<id>` |
+| `failure-rate-threshold` | float in `(0, 100]`, `50` | Failure percentage at or above which the circuit opens |
+| `sliding-window-size` | int `>= 1`, `100` | Number of calls in the count-based sliding window |
+| `minimum-number-of-calls` | int in `[1, sliding-window-size]`, `10` | Minimum calls recorded before the failure rate can open the circuit |
+| `wait-duration-in-open-state` | duration `> 0`, `60s` | How long the circuit stays open before entering half-open |
+
+- **What trips the breaker and D-51 translation.** Topolith classifies each attempt's outcome itself, identically in
+  every breaker implementation. A breaker failure is recorded only for a transport or availability failure of the
+  provider hop: a connection failure, a connect, read or time-limiter timeout, a 5xx response without a Topolith
+  `urn:topolith:problem:contract-exception` body (502, 503, 504 and any other 5xx such as 500 without a Topolith
+  problem), or zero LoadBalancer instances. A successful response records a success. Every other outcome is ignored,
+  counting neither as a failure nor as a success: any Topolith problem response (a declared exception, a provider's own
+  `ModuleUnavailableException`, or a class the caller cannot rebuild), any 4xx response (including 401 `invalid_token`
+  eviction and 429), a failed client-credentials token request (D-97), a `TopolithException` (TL0036, TL0038) and any
+  other exception. The implementation's default classification never applies. Each attempt runs on the calling thread
+  with no time limiter and no bulkhead; per-attempt time is governed by the group's R-EXT-03 connect and read timeouts
+  only. A declared exception survives the breaker's no-fallback wrapper through `ContractCallTranslator` as its
+  declared type (R-EXT-04, D-51). When the circuit is open (or half-open permits are exhausted), the breaker rejects
+  the attempt (`CallNotPermittedException` with Resilience4j), which `ContractCallTranslator` translates to
+  `ModuleUnavailableException` with kind `circuit open`.
+- **No fallback.** Topolith installs no circuit-breaker fallback (INV-4). A host `@HttpServiceFallback` bean targeting
+  a Topolith module group fails startup with TL0003 so a failure is never hidden by a fallback value.
+- **Order with retry.** Retry (R-EXT-14) runs outside the circuit breaker: each attempt of an idempotent call enters
+  the circuit breaker, so every failed attempt counts toward `minimum-number-of-calls` and `sliding-window-size`, and as
+  soon as the circuit opens, the breaker's rejection stops retry immediately without sleeping through remaining
+  attempts and the caller receives `ModuleUnavailableException` with kind `circuit open`.
+- **Validation, ownership, activation and refresh.** A `remote.circuit-breaker.*` key on an `internal`, `none` or
+  unknown module, an unknown key, or an invalid value (`enabled` not a boolean, `failure-rate-threshold` outside
+  `(0, 100]` or non-finite, `sliding-window-size` or `minimum-number-of-calls` below `1`, `minimum-number-of-calls`
+  above the effective `sliding-window-size`, `wait-duration-in-open-state` not positive) fails startup with TL0003
+  naming the key. Threshold keys are allowed when `enabled` is unset or `false`: their values are validated at startup
+  and refresh, and they are inactive while `enabled=false`. When `remote.circuit-breaker.enabled=true`, Topolith alone
+  owns breaker `<id>`: another source configuring `<id>` (a Spring Cloud `Customizer` or `configure` callback for
+  `<id>`, `resilience4j.circuitbreaker` or `resilience4j.timelimiter` `instances.<id>` or `configs.<id>`, or
+  `spring.cloud.circuitbreaker.resilience4j.disable-time-limiter-map.<id>`), a breaker named `<id>` already in the
+  `CircuitBreakerRegistry`, an active Resilience4j bulkhead provider on the factory (fix:
+  `spring.cloud.circuitbreaker.bulkhead.resilience4j.enabled=false`), or
+  `spring.cloud.circuitbreaker.http-services.enabled=true` fails startup with TL0003 naming the module and the
+  conflicting source. Setting `remote.circuit-breaker.enabled=true` requires `topolith-spring-cloud`'s resilience
+  configuration and exactly one `CircuitBreakerFactory` bean of a supported implementation (0.1:
+  `Resilience4JCircuitBreakerFactory`); zero, two or more, or an unsupported `CircuitBreakerFactory` bean fails startup
+  with TL0041 naming the module and the beans found (never `@Primary` or `getIfUnique`, INV-4). A `none` or `internal`
+  module registers no circuit-breaker bean, configurer or decorator (INV-2). On refresh (`EnvironmentChangeEvent`), an
+  `external` module rebuilds its circuit breaker only when `remote.circuit-breaker.*` changes — resetting the rebuilt
+  breaker to closed with an empty window under the new thresholds, or removing it when `enabled` becomes `false`, while
+  changing only `remote.retry.*`, URL, service id or timeouts leaves the running breaker and its open/closed state
+  untouched — and logs TL0011 on invalid settings or a missing/unsupported `CircuitBreakerFactory` while keeping the
+  running breaker (R-EXT-08, D-104); a `loopback` module's `remote.circuit-breaker.*` keys are restart-only (TL0010,
+  D-77).
+
+Implements INV-2, INV-4, INV-6, INV-7, D-51 and D-102 through D-105.
+
+- AC-EXT-65 (M7.3): With `remote.circuit-breaker.enabled=true`, calls to that module's group run on the calling thread
+  through a Spring Cloud CircuitBreaker configured with the group's `failure-rate-threshold`, `sliding-window-size`,
+  `minimum-number-of-calls` and `wait-duration-in-open-state`: provider-hop failures (connection failure, timeout, 5xx
+  without a Topolith problem, zero instances) trip the circuit and an open circuit rejects calls with
+  `ModuleUnavailableException` of kind `circuit open` without calling the provider, while a declared contract
+  exception, a provider's Topolith problem naming `ModuleUnavailableException` (which still raises
+  `ModuleUnavailableException` with the downstream `moduleId()` and kind `unavailable downstream`), a 404 without a
+  Topolith problem, a 401 and a `TL0038` call, each repeated past `minimum-number-of-calls`, are ignored and leave the
+  circuit closed so another method of the provider still succeeds, and a declared exception survives the breaker as its
+  declared type (D-51); with `remote.retry.max-attempts=3` and the breaker enabled, an `@Idempotent` call whose first
+  attempt hits a connection failure and whose second attempt succeeds returns the result with one failure and one
+  success recorded in the breaker's window, and when a later attempt trips the circuit open, retry stops immediately
+  with kind `circuit open`.
+- AC-EXT-66 (M7.3): Under retry and the circuit breaker, one contract call records exactly one `topolith.module.call`
+  observation (R-EXT-11) whose `exception` tag is `none` when a retry succeeds and the final exception's value when the
+  call fails, with each HTTP attempt's `http.client.requests` observation as its child, and every retry attempt carries
+  the caller's listed MDC headers, `Topolith-Tenant` (R-EXT-12) and relayed bearer token (R-EXT-13); an `internal`
+  module never retries and installs no breaker, and a `none` module registers no retry or circuit-breaker bean,
+  configurer or decorator (INV-2).
+- AC-EXT-67 (M7.3): Valid retry tuning keys with `max-attempts` unset or `1` and valid breaker threshold keys with
+  `circuit-breaker.enabled` unset or `false` start without error and leave retry and the breaker off; a
+  `remote.retry.*` or `remote.circuit-breaker.*` key for an `internal`, `none` or unknown module, an unknown key, an
+  invalid value (`max-attempts` outside `[1, 10]`, a negative backoff, an explicit `max-backoff` below
+  `initial-backoff`, `multiplier` below `1.0`, `safe-methods-idempotent` or `circuit-breaker.enabled` not a boolean,
+  `failure-rate-threshold` outside `(0, 100]`, `sliding-window-size` or `minimum-number-of-calls` below `1`,
+  `minimum-number-of-calls` above the effective `sliding-window-size`, `wait-duration-in-open-state` not positive),
+  `max-attempts` above `1` or `circuit-breaker.enabled=true` together with
+  `spring.cloud.circuitbreaker.http-services.enabled=true`, another source configuring breaker `<id>`, a breaker named
+  `<id>` already in `CircuitBreakerRegistry`, an active Resilience4j bulkhead provider on the factory, or a host
+  `@HttpServiceFallback` targeting a module group fails startup with TL0003; `remote.retry.max-attempts` above `1`
+  without `topolith-spring-cloud`'s resilience configuration, or `remote.circuit-breaker.enabled=true` without it or
+  with zero, two or more, or an unsupported `CircuitBreakerFactory` bean, fails startup with TL0041.
+- AC-EXT-68 (M7.4): On an `EnvironmentChangeEvent` for an `external` module, changing `remote.retry.*` swaps only the
+  module's retry policy (turning retry on or off while keeping tuning keys, and leaving an open circuit breaker open),
+  and changing `remote.circuit-breaker.*` rebuilds only the module's circuit breaker (resetting it to closed under the
+  new thresholds, or turning it off while keeping threshold keys) while calls in flight finish on the previous policy
+  and breaker; invalid refreshed retry or circuit-breaker settings (any TL0003 or TL0041 condition) or a rebuild
+  failure leave the running policy and breaker unchanged, log TL0011 and surface the failure on the `topolith` actuator
+  endpoint; on a `loopback` module, changing `remote.retry.*` or `remote.circuit-breaker.*` leaves the client
+  unchanged, logs TL0010 and marks restart pending until the keys match their running values.

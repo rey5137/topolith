@@ -92,6 +92,9 @@ final class TopolithModuleImportSelector
                 && ClassUtils.isPresent("io.micrometer.observation.ObservationRegistry", classLoader)) {
             imports.add("io.github.rey5137.topolith.spring.boot.ModuleCallObservationConfiguration");
         }
+        if (!topology.internal().isEmpty() || externals || loopbacks) {
+            imports.add("io.github.rey5137.topolith.spring.boot.ContextPropagationConfiguration");
+        }
         if ((externals || loopbacks) && ClassUtils.isPresent(
                 "org.springframework.web.service.registry.AbstractHttpServiceRegistrar", classLoader)) {
             imports.add("io.github.rey5137.topolith.spring.boot.ExternalHttpServicesRegistrar");

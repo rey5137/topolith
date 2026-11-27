@@ -9,20 +9,25 @@ import java.util.UUID;
 
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.Topology;
+import io.github.rey5137.topolith.samples.payment.api.CallContext;
 import io.github.rey5137.topolith.samples.payment.api.ChargeRequest;
 import io.github.rey5137.topolith.samples.payment.api.ChargeResult;
 import io.github.rey5137.topolith.samples.payment.api.PaymentApi;
 import io.github.rey5137.topolith.samples.payment.api.PaymentDeclinedException;
 import io.github.rey5137.topolith.samples.payment.api.PaymentNotFoundException;
+import io.github.rey5137.topolith.samples.payment.api.Tenants;
 import io.micrometer.observation.tck.TestObservationRegistry;
 import io.micrometer.observation.tck.TestObservationRegistryAssert;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.TestPropertySource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -30,6 +35,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 // snippet:start shared-payment-test
 /** The payment contract every sample host must satisfy (AC-TEST-05); shipped as this module's test-jar. */
+@Import(PaymentTenants.class)
+@TestPropertySource(properties = "topolith.context.mdc-keys=requestId")
 public abstract class AbstractPaymentTest {
     @Autowired
     protected PaymentApi paymentApi;
@@ -79,6 +86,22 @@ public abstract class AbstractPaymentTest {
         observations.clear();
         assertThrows(PaymentNotFoundException.class, () -> paymentApi.find("missing-" + UUID.randomUUID()));
         assertCall("find", "PaymentNotFoundException");
+    }
+
+    /** The provider sees the caller's listed MDC value and tenant in every mode, and none when the caller has none. */
+    @Test
+    void ac_test_23_the_provider_sees_the_callers_mdc_value_and_tenant() {
+        String request = "req-é-" + UUID.randomUUID();
+        String tenant = "tenant " + UUID.randomUUID();
+        MDC.put("requestId", request);
+        Tenants.set(tenant);
+        try {
+            assertEquals(new CallContext(request, tenant), paymentApi.context());
+        } finally {
+            MDC.remove("requestId");
+            Tenants.set(null);
+        }
+        assertEquals(new CallContext(null, null), paymentApi.context());
     }
 
     private void assertCall(String method, String exception) {

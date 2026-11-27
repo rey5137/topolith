@@ -16,3 +16,6 @@ topolith:
       expose:
         enabled: true
 # snippet:end payment-service-modes
+  # R-EXT-12: the MDC key a caller's calls carry to this service
+  context:
+    mdc-keys: requestId

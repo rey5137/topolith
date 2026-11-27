@@ -2,6 +2,8 @@ package io.github.rey5137.topolith.spring.boot.errorfixture.account;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountException;
@@ -9,11 +11,15 @@ import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountNo
 import io.github.rey5137.topolith.spring.boot.errorfixture.payment.api.PaymentContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.payment.api.PaymentDeclinedException;
 import io.github.rey5137.topolith.contract.ModuleUnavailableException;
+import io.github.rey5137.topolith.spring.boot.errorfixture.host.ThreadTenant;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -31,6 +37,14 @@ public class AccountController implements AccountContract {
         if (failure.equals("ok")) {
             return "found";
         }
+        if (failure.equals("ctx") || failure.equals("ctxfail")) {
+            // what the provider sees of the caller's context (R-EXT-12)
+            ThreadTenant.HANDLED.incrementAndGet();
+            if (failure.equals("ctxfail")) {
+                throw new IllegalStateException("secret detail");
+            }
+            return MDC.get("user.id") + "|" + MDC.get("trace") + "|" + MDC.get("other") + "|" + ThreadTenant.tenant();
+        }
         if (failure.equals("pay")) {
             // a call from a module's class, when the payment module is internal
             return "paid " + payments.getObject().pay();
@@ -44,6 +58,20 @@ public class AccountController implements AccountContract {
             case "wrapped" -> new IllegalStateException("wrapped secret", new AccountException("inner"));
             default -> new UnsupportedOperationException(failure);
         };
+    }
+
+    /** An async module route: the values are read in the handler, the answer completes on another thread. */
+    @GetMapping("/async")
+    CompletableFuture<String> async() {
+        String seen = find("ctx");
+        return CompletableFuture.supplyAsync(() -> seen, CompletableFuture.delayedExecutor(100,
+                TimeUnit.MILLISECONDS));
+    }
+
+    /** A forward from one module route to another. */
+    @GetMapping("/forward")
+    ModelAndView forward() {
+        return new ModelAndView("forward:/account/find?case=ctx");
     }
 
     @Override

@@ -25,13 +25,20 @@ class ExternalErrorsConfiguration {
 
     @Bean
     RestClientHttpServiceGroupConfigurer topolithContractErrors(Topology topology, ExternalClientBuilders clients,
-            ObjectProvider<CallObserver> observers) {
+            ObjectProvider<CallObserver> observers, ObjectProvider<ContextPropagation> propagation) {
         String[] externals = topology.idsOf(Mode.EXTERNAL).toArray(String[]::new);
         String[] callers = ExternalHttpServicesRegistrar.clientModules(topology).toArray(String[]::new);
+        ContextPropagation found = propagation.getIfAvailable();
+        ContextPropagation context = found == null || !found.active() ? null : found;
         return groups -> {
             groups.filterByName(externals).forEachClient((group, builder) -> clients.put(group.name(), builder));
-            groups.filterByName(callers).forEachProxyFactory((group, factory) -> factory
-                    .proxyFactoryCustomizer((proxy, service) -> {
+            groups.filterByName(callers).forEachProxyFactory((group, factory) -> {
+                if (context != null) {
+                    // read on the calling thread, which a circuit breaker's exchange may not be on (R-EXT-12)
+                    factory.httpRequestValuesProcessor((method, parameters, arguments, values) -> context.headers()
+                            .forEach(values::addHeader));
+                }
+                factory.proxyFactoryCustomizer((proxy, service) -> {
                         proxy.addAdvice(0, new ContractCallTranslator(group.name(), topology.apiPackages(),
                                 service.getClassLoader()));
                         // in front of the translation, so the observation ends after it (R-EXT-11, D-86)
@@ -43,7 +50,8 @@ class ExternalErrorsConfiguration {
                                     : observer.observe(group.name(), mode, service, invocation.getMethod().getName(),
                                             invocation::proceed));
                         }
-                    }));
+                    });
+            });
         };
     }
 }

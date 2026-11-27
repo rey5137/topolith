@@ -41,6 +41,7 @@ import io.github.rey5137.topolith.spring.boot.fixture.inventory.InventoryItem;
 import io.github.rey5137.topolith.spring.boot.fixture.inventory.InventoryRepository;
 import io.github.rey5137.topolith.spring.boot.fixture.ledger.LedgerEntry;
 import io.github.rey5137.topolith.spring.boot.fixture.ledger.LedgerRepository;
+import io.github.rey5137.topolith.spring.boot.fixture.ledger.LedgerRunnerConfiguration;
 import io.github.rey5137.topolith.spring.boot.fixture.rogue.RogueConfiguration;
 import io.github.rey5137.topolith.spring.boot.fixture.service.ServiceHost;
 import io.github.rey5137.topolith.spring.boot.fixture.shop.ShopApplication;
@@ -635,14 +636,165 @@ class ModulePersistenceTest {
     }
 
     @Test
-    void ac_mode_27_a_module_with_its_own_data_source_and_scripts_but_no_flyway_fails_with_tl0020()
+    void ac_mode_56_flyway_scripts_of_a_module_with_its_own_data_source_and_no_runner_run_once_on_it()
             throws Exception {
-        Fixtures.resource(inventoryRoot, "db/modules/inventory/V1__init.sql", "select 1;");
-        run(Host.class, List.of(inventoryRoot, hostRoot), List.of("topolith.modules.inventory.mode=internal"),
-                context -> {
-                    assertEquals(List.of(TopolithCode.TL0020), codes(context));
-                    assertTrue(failure(context).getMessage().contains("its own DataSource"));
-                });
+        Fixtures.resource(inventoryRoot, "db/modules/inventory/V1__marker.sql",
+                "create table inventory_marker (id bigint);");
+        try {
+            for (int start = 1; start <= 2; start++) {
+                String which = "start " + start;
+                run(Host.class, List.of(inventoryRoot, hostRoot), List.of("topolith.modules.inventory.mode=internal"),
+                        context -> {
+                            assertNull(context.getStartupFailure(), which + ": " + context.getStartupFailure());
+                            assertTrue(context.containsBean("topolith.flyway.inventory"), which);
+                            JdbcTemplate own = new JdbcTemplate(context.getBean("inventoryDataSource",
+                                    DataSource.class));
+                            assertEquals(1, tables(own, "inventory_marker"), which);
+                            // its own tracking table, and the one script recorded once: the second start finds
+                            // nothing pending
+                            assertEquals(List.of("V1__marker.sql"),
+                                    scripts(own, ModuleMigrations.table("inventory")), which);
+                            assertEquals(0, tables(jdbc(context), "inventory%"), "nothing on the host's database");
+                            assertEquals(0, tables(jdbc(context), ModuleMigrations.table("inventory")), which);
+                        });
+            }
+        } finally {
+            dropInventory();
+        }
+    }
+
+    @Test
+    void ac_mode_56_a_changelog_of_a_module_with_its_own_data_source_and_no_runner_runs_once_on_it()
+            throws Exception {
+        Fixtures.resource(inventoryRoot, "db/modules/inventory/db.changelog-master.yaml", """
+                databaseChangeLog:
+                  - changeSet:
+                      id: inventory-1
+                      author: inventory
+                      changes:
+                        - createTable:
+                            tableName: inventory_marker
+                            columns:
+                              - column: {name: id, type: bigint}
+                """);
+        try {
+            for (int start = 1; start <= 2; start++) {
+                String which = "start " + start;
+                run(Host.class, List.of(inventoryRoot, hostRoot), List.of("topolith.modules.inventory.mode=internal"),
+                        context -> {
+                            assertNull(context.getStartupFailure(), which + ": " + context.getStartupFailure());
+                            assertTrue(context.containsBean("topolith.liquibase.inventory"), which);
+                            JdbcTemplate own = new JdbcTemplate(context.getBean("inventoryDataSource",
+                                    DataSource.class));
+                            assertEquals(1, tables(own, "inventory_marker"), which);
+                            assertEquals(List.of("inventory-1"),
+                                    changesets(own, ModuleMigrations.changelogTable("inventory")), which);
+                            assertEquals(0, tables(own, "databasechangelog"), "no default tracking table");
+                            assertEquals(0, tables(jdbc(context), "inventory%"), "nothing on the host's database");
+                            assertEquals(0, tables(jdbc(context), ModuleMigrations.changelogTable("inventory")),
+                                    which);
+                        });
+            }
+        } finally {
+            dropInventory();
+        }
+    }
+
+    @Test
+    void ac_mode_57_a_module_with_its_own_runner_gets_none_and_two_own_data_sources_fail_with_tl0020()
+            throws Exception {
+        Fixtures.resource(inventoryRoot, "db/modules/inventory/V1__marker.sql",
+                "create table inventory_marker (id bigint);");
+        try {
+            run(Host.class, List.of(inventoryRoot, hostRoot), List.of("topolith.modules.inventory.mode=internal",
+                    "inventory.flyway=initializer"), context -> {
+                assertNull(context.getStartupFailure());
+                assertFalse(context.containsBean("topolith.flyway.inventory"), "the module's runner owns them");
+                JdbcTemplate own = new JdbcTemplate(context.getBean("inventoryDataSource", DataSource.class));
+                assertEquals(1, tables(own, "inventory_marker"));
+                assertEquals(0, tables(own, ModuleMigrations.table("inventory")), "no Topolith history table");
+            });
+            dropInventory();
+            run(Host.class, List.of(inventoryRoot, hostRoot), List.of("topolith.modules.inventory.mode=internal",
+                    "inventory.archive=true"), context -> {
+                assertEquals(List.of(TopolithCode.TL0020), codes(context));
+                assertTrue(failure(context).getMessage().contains("2 DataSources of its own "
+                        + "[inventoryArchiveDataSource, inventoryDataSource], but no runner of its own"),
+                        failure(context).getMessage());
+            });
+        } finally {
+            dropInventory();
+        }
+    }
+
+    @Test
+    void ac_mode_57_a_flyway_runner_of_its_own_on_the_hosts_data_source_gets_no_topolith_runner() throws Exception {
+        // the host's own Flyway is off: a host runner and the module's own on one schema would race (P-2)
+        run(Host.class, List.of(ledgerRoot), List.of("topolith.modules.ledger.mode=internal",
+                "ledger.runner=flyway", "spring.flyway.enabled=false"), context -> {
+            assertNull(context.getStartupFailure());
+            assertFalse(context.containsBean("topolith.flyway.ledger"), "the module's runner owns them");
+            assertEquals(List.of("V1__init.sql"), scripts(jdbc(context), LedgerRunnerConfiguration.HISTORY));
+            assertEquals(0, tables(jdbc(context), ModuleMigrations.table("ledger")), "no second run");
+        });
+    }
+
+    @Test
+    void ac_mode_57_a_liquibase_runner_of_its_own_on_the_hosts_data_source_gets_no_topolith_runner()
+            throws Exception {
+        Path changelogRoot = Fixtures.dir(temp, "ledger-changelog");
+        Fixtures.module(changelogRoot, "ledger", LEDGER, List.of(LEDGER + ".api"));
+        Fixtures.resource(changelogRoot, "db/modules/ledger/db.changelog-master.yaml", """
+                databaseChangeLog:
+                  - changeSet:
+                      id: ledger-1
+                      author: ledger
+                      changes:
+                        - createTable:
+                            tableName: ledger_marker
+                            columns:
+                              - column: {name: id, type: bigint}
+                """);
+        run(Host.class, List.of(changelogRoot), List.of("topolith.modules.ledger.mode=internal",
+                "ledger.runner=liquibase", "spring.flyway.enabled=false"), context -> {
+            assertNull(context.getStartupFailure());
+            assertFalse(context.containsBean("topolith.liquibase.ledger"), "the module's runner owns them");
+            assertEquals(List.of("ledger-1"), changesets(jdbc(context), LedgerRunnerConfiguration.CHANGELOG));
+            assertEquals(0, tables(jdbc(context), ModuleMigrations.changelogTable("ledger")), "no second run");
+        });
+    }
+
+    @Test
+    void ac_mode_57_a_runner_of_its_own_for_the_other_tool_on_the_hosts_data_source_fails_with_tl0020()
+            throws Exception {
+        run(Host.class, List.of(ledgerRoot, hostRoot), List.of("topolith.modules.ledger.mode=internal",
+                "ledger.runner=liquibase"), context -> {
+            assertEquals(List.of(TopolithCode.TL0020), codes(context));
+            assertTrue(failure(context).getMessage().contains("a runner of its own, but contributes no Flyway"),
+                    failure(context).getMessage());
+        });
+    }
+
+    @Test
+    void ac_mode_57_a_none_module_scripts_run_on_no_data_source() throws Exception {
+        Fixtures.resource(inventoryRoot, "db/modules/inventory/V1__marker.sql",
+                "create table inventory_marker (id bigint);");
+        try {
+            run(Host.class, List.of(inventoryRoot, hostRoot), List.of("topolith.modules.inventory.mode=none"),
+                    context -> {
+                        assertNull(context.getStartupFailure());
+                        assertFalse(context.containsBean("topolith.flyway.inventory"));
+                        assertFalse(context.containsBean("inventoryDataSource"));
+                        assertEquals(0, tables(jdbc(context), "inventory%"));
+                        assertEquals(0, tables(jdbc(context), ModuleMigrations.table("inventory")));
+                    });
+            try (var connection = java.sql.DriverManager.getConnection(InventoryConfiguration.URL, "sa", "")) {
+                assertEquals(0, tables(new JdbcTemplate(new org.springframework.jdbc.datasource
+                        .SingleConnectionDataSource(connection, true)), "inventory%"));
+            }
+        } finally {
+            dropInventory();
+        }
     }
 
     @Test
@@ -1031,14 +1183,16 @@ class ModulePersistenceTest {
     }
 
     @Test
-    void ac_mode_27_a_pattern_a_module_with_a_changelog_and_no_liquibase_fails_with_tl0020() throws Exception {
+    void ac_mode_27_a_pattern_a_module_whose_own_runner_is_flyway_and_ships_a_changelog_fails_with_tl0020()
+            throws Exception {
+        // its own runner owns its migrations (D-112), so Topolith adds no Liquibase on its DataSource
         Fixtures.resource(inventoryRoot, "db/modules/inventory/db.changelog-master.yaml", "databaseChangeLog: []\n");
-        run(Host.class, List.of(inventoryRoot, hostRoot), List.of("topolith.modules.inventory.mode=internal"),
-                context -> {
-                    assertEquals(List.of(TopolithCode.TL0020), codes(context));
-                    assertTrue(failure(context).getMessage().contains("contributes no SpringLiquibase"),
-                            failure(context).getMessage());
-                });
+        run(Host.class, List.of(inventoryRoot, hostRoot), List.of("topolith.modules.inventory.mode=internal",
+                "inventory.flyway=initializer"), context -> {
+            assertEquals(List.of(TopolithCode.TL0020), codes(context));
+            assertTrue(failure(context).getMessage().contains("contributes no SpringLiquibase"),
+                    failure(context).getMessage());
+        });
     }
 
     @Test

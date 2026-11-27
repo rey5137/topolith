@@ -6,7 +6,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Registers the {@link ContractTransactionBoundary}, the advice of an internal module's provider beans (D-47, D-86).
+ * Registers the {@link ContractTransactionBoundary}, the advice of an internal module's provider beans (D-47, D-86),
+ * and the {@link ListedContractsCheck} of the contracts a module declaration lists (D-110).
  * Imported by the topology selector only when a module is internal or loopback (INV-2).
  */
 @Configuration(proxyBeanMethods = false)
@@ -14,5 +15,10 @@ class ContractBoundaryConfiguration {
     @Bean
     static BeanPostProcessor topolithContractBoundary(BeanFactory beanFactory) {
         return new ContractTransactionBoundary(beanFactory);
+    }
+
+    @Bean
+    static ListedContractsCheck topolithListedContractsCheck() {
+        return new ListedContractsCheck();
     }
 }

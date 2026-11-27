@@ -26,6 +26,7 @@ import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.PriorityOrdered;
@@ -45,7 +46,9 @@ import org.springframework.util.ClassUtils;
  * interceptor, for every caller, the module's own code included. The boundary does nothing without a
  * {@link PlatformTransactionManager}, the observation nothing without an observer, and an external or {@code none}
  * module's beans never get either (INV-2). A final handler provider fails with TL0029 whichever advice would apply
- * (D-89); a loopback module's provider takes the boundary only, its call being observed on the client.
+ * (D-89); a loopback module's provider takes the boundary only, its call being observed on the client. A bean of a
+ * contract the module declaration lists (D-110) is the module's by its definition, so it is advised whatever its
+ * class: a JDK proxy, or a factory result from outside the module's package.
  */
 final class ContractTransactionBoundary implements BeanPostProcessor, PriorityOrdered {
     /** The counter of calls that found a caller transaction (tagged {@code module} and {@code contract}). */
@@ -94,10 +97,18 @@ final class ContractTransactionBoundary implements BeanPostProcessor, PriorityOr
         TopologyResolver.Resolution resolution = beanFactory.getBean(TopologyResolver.RESOLUTION_BEAN,
                 TopologyResolver.Resolution.class);
         String module = ModuleHandlers.internalOwner(resolution.topology(), type);
+        Set<String> names = module == null ? Set.of() : resolution.contracts().getOrDefault(module, Set.of());
         if (module == null) {
-            return bean;
+            if (resolution.listed().values().stream().allMatch(Set::isEmpty)) {
+                return bean;
+            }
+            module = definitionOwner(beanName, resolution);
+            names = module == null ? Set.of() : resolution.listed().getOrDefault(module, Set.of());
+            if (names.isEmpty()) {
+                return bean;
+            }
         }
-        List<Class<?>> contracts = contracts(resolution.contracts().getOrDefault(module, Set.of()), type);
+        List<Class<?>> contracts = contracts(names, type);
         boolean observed = resolution.topology().mode(module) == Mode.INTERNAL;
         boolean transactional = hasTransactionManager();
         if (contracts.isEmpty() || !(observed || transactional)) {
@@ -154,6 +165,16 @@ final class ContractTransactionBoundary implements BeanPostProcessor, PriorityOr
     private static boolean handler(Class<?> type) {
         return AnnotatedElementUtils.hasAnnotation(type, Controller.class)
                 || AnnotatedElementUtils.isAnnotated(type, "org.springframework.web.bind.annotation.RequestMapping");
+    }
+
+    /** The internal module that contributed the bean's definition (D-61), or null; only a listed contract needs it. */
+    private String definitionOwner(String beanName, TopologyResolver.Resolution resolution) {
+        if (!(beanFactory instanceof ConfigurableListableBeanFactory factory)
+                || !factory.containsBeanDefinition(beanName)) {
+            return null;
+        }
+        String owner = ModuleBeans.owner(factory.getBeanDefinition(beanName), resolution).orElse(null);
+        return owner != null && resolution.topology().internal().contains(owner) ? owner : null;
     }
 
     /** The contracts of {@code names} that {@code type} implements; a name that does not load is skipped. */

@@ -28,6 +28,15 @@ public @interface TopolithModule {
      */
     String[] api() default {};
 
+    /**
+     * On a module declaration, the contracts provided only by a {@code @Bean} method, a lambda or factory result that
+     * no class under the package implements (D-110): fully qualified, binary names for member interfaces. Each must be
+     * in the API's inferred {@code provides} and have no implementing class under the package; the listed and
+     * inferred contracts together are the module's {@code provides}. An internal module needs exactly one bean of each
+     * at startup. A compile error on an API declaration.
+     */
+    String[] provides() default {};
+
     /** Ids of the modules this module cannot start without; empty for an API declaration. */
     String[] requires() default {};
 

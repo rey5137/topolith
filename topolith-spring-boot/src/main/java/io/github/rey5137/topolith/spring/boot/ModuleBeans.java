@@ -207,6 +207,27 @@ final class ModuleBeans {
         return ids;
     }
 
+    /** Each module's own DataSource beans, sorted by name, by module id; a module without one is absent. */
+    static Map<String, List<String>> dataSourcesByModule(BeanFactory beanFactory, ClassLoader loader,
+            Resolution resolution) {
+        Map<String, List<String>> found = new TreeMap<>();
+        ownedBy(beanFactory, loader, resolution, DATA_SOURCE)
+                .forEach((name, id) -> found.computeIfAbsent(id, key -> new ArrayList<>()).add(name));
+        return found;
+    }
+
+    /**
+     * The modules that declare a migration runner of their own, which then owns their migrations (D-112): a
+     * {@code Flyway}, a {@code FlywayMigrationInitializer} or a {@code SpringLiquibase}.
+     */
+    static Set<String> ownRunners(BeanFactory beanFactory, ClassLoader loader, Resolution resolution) {
+        Set<String> ids = new TreeSet<>();
+        for (String type : List.of(FLYWAY, FLYWAY_INITIALIZER, LIQUIBASE)) {
+            ids.addAll(contributors(beanFactory, loader, resolution, type));
+        }
+        return ids;
+    }
+
     /** The names of the default-candidate bean definitions of the type, whoever contributed them, sorted. */
     static List<String> defaultCandidates(BeanFactory beanFactory, ClassLoader loader, String typeName) {
         List<String> names = new ArrayList<>();

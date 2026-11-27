@@ -59,8 +59,9 @@ import org.springframework.util.StringUtils;
  * {@code databasechangeloglock_<id>}. It runs after every host runner (Flyway or Liquibase) and after the runners of
  * the modules it requires, whichever their tool, even when the host switched its own Liquibase off. It is a
  * {@link ModuleRunner} wrapping the {@code SpringLiquibase}, so that Boot's initializer ordering, which puts every
- * Liquibase before every Flyway, does not apply to it. A host changelog that reaches a module's files is
- * TL0020. Only this file touches Liquibase.
+ * Liquibase before every Flyway, does not apply to it. A module with exactly one DataSource of its own and no runner
+ * of its own gets the same runner on that DataSource instead (D-112). A host changelog that reaches a module's files
+ * is TL0020. Only this file touches Liquibase.
  */
 @AutoConfiguration(afterName = {
         "org.springframework.boot.liquibase.autoconfigure.LiquibaseAutoConfiguration",
@@ -115,9 +116,9 @@ class LiquibaseModulesAutoConfiguration {
             ClassLoader loader = factory.getBeanClassLoader();
             Resolution resolution = TopologyResolver.resolve(beanFactory, environment, loader);
             Topology topology = resolution.topology();
-            Set<String> ownDataSources = new TreeSet<>(ModuleBeans.contributors(factory, loader, resolution,
-                    ModuleBeans.DATA_SOURCE));
-            Map<String, Tool> runners = ModuleMigrations.runners(topology, loader, ownDataSources);
+            Map<String, List<String>> ownDataSources = ModuleBeans.dataSourcesByModule(factory, loader, resolution);
+            Map<String, Tool> runners = ModuleMigrations.runners(topology, loader, ownDataSources,
+                    ModuleBeans.ownRunners(factory, loader, resolution));
             if (!runners.containsValue(Tool.LIQUIBASE)) {
                 return;
             }
@@ -130,9 +131,10 @@ class LiquibaseModulesAutoConfiguration {
                 }
                 String changeLog = ModuleMigrations.location(id) + "/"
                         + ModuleMigrations.migrations(loader, id).master();
+                String own = ModuleMigrations.dataSource(id, ownDataSources);
                 RootBeanDefinition definition = new RootBeanDefinition(ModuleLiquibase.class,
-                        () -> new ModuleLiquibase(moduleLiquibase(factory, environment, id, changeLog,
-                                hostLiquibase)));
+                        () -> new ModuleLiquibase(own == null ? moduleLiquibase(factory, environment, id, changeLog,
+                                hostLiquibase) : ownLiquibase(factory.getBean(own, DataSource.class), id, changeLog)));
                 definition.setDefaultCandidate(false);
                 definition.setDependsOn(ModuleMigrations.dependsOn(topology, id, runners, host));
                 registry.registerBeanDefinition(Tool.LIQUIBASE.runnerName(id), definition);
@@ -179,6 +181,19 @@ class LiquibaseModulesAutoConfiguration {
                         .ifBound(name -> module.setUiService(UIServiceEnum.valueOf(name.toUpperCase())));
             }
             module.setDataSource(dataSource != null ? dataSource : factory.getBean(DataSource.class));
+            module.setChangeLog(changeLog);
+            module.setDatabaseChangeLogTable(ModuleMigrations.changelogTable(id));
+            module.setDatabaseChangeLogLockTable(ModuleMigrations.lockTable(id));
+            return module;
+        }
+
+        /**
+         * The Liquibase of a module on its own DataSource (D-112): none of the host's settings, which describe another
+         * database, only the module's master file and tracking tables.
+         */
+        private static SpringLiquibase ownLiquibase(DataSource dataSource, String id, String changeLog) {
+            SpringLiquibase module = new SpringLiquibase();
+            module.setDataSource(dataSource);
             module.setChangeLog(changeLog);
             module.setDatabaseChangeLogTable(ModuleMigrations.changelogTable(id));
             module.setDatabaseChangeLogLockTable(ModuleMigrations.lockTable(id));

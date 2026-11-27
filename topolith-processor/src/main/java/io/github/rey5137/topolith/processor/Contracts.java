@@ -20,6 +20,9 @@ import javax.lang.model.util.Types;
 
 /** Finds the contract interfaces of API packages and the ones a class implements (D-29). */
 final class Contracts {
+    /** The SPI marker (D-110), by name so the check needs no class from the classpath. */
+    static final String CONSUMER_IMPLEMENTED = "io.github.rey5137.topolith.contract.ConsumerImplemented";
+
     private final Elements elements;
     private final Types types;
 
@@ -53,10 +56,14 @@ final class Contracts {
         return elements.getPackageOf(type).getQualifiedName().toString();
     }
 
-    /** A public, non-sealed, non-annotation interface in exactly one of the api packages. */
+    /**
+     * A public, non-sealed, non-annotation interface in exactly one of the api packages, not marked
+     * {@code @ConsumerImplemented} (D-110). The marked ones are dropped here, before {@link #mostDerived}, so an
+     * unmarked superinterface of a marked one stays a contract on both sides.
+     */
     boolean isContract(TypeElement type, Set<String> apiPackages) {
         if (type.getKind() != ElementKind.INTERFACE || type.getModifiers().contains(Modifier.SEALED)
-                || !apiPackages.contains(packageOf(type))) {
+                || !apiPackages.contains(packageOf(type)) || consumerImplemented(type)) {
             return false;
         }
         for (Element current = type; current instanceof TypeElement owner; current = current.getEnclosingElement()) {
@@ -67,6 +74,11 @@ final class Contracts {
             }
         }
         return true;
+    }
+
+    private static boolean consumerImplemented(TypeElement type) {
+        return type.getAnnotationMirrors().stream().anyMatch(mirror -> ((TypeElement) mirror.getAnnotationType()
+                .asElement()).getQualifiedName().contentEquals(CONSUMER_IMPLEMENTED));
     }
 
     /** The contracts the api packages declare in this compilation. */
@@ -110,6 +122,10 @@ final class Contracts {
                 && types.asElement(types.erasure(supertype)) instanceof TypeElement element) {
             pending.add(element);
         }
+    }
+
+    String binaryName(TypeElement type) {
+        return elements.getBinaryName(type).toString();
     }
 
     /** The contracts whose binary name is one of the names, such as the {@link #mostDerived} ones. */

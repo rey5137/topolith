@@ -41,7 +41,7 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
     private static final String DIRECTORY = "META-INF/topolith/";
 
     private record Declaration(String packageName, String id, List<String> api, List<String> requires,
-            List<String> optional) {
+            List<String> optional, List<String> provides) {
     }
 
     private final List<Declaration> declarations = new ArrayList<>();
@@ -86,7 +86,7 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
                 TopolithModule declaration = pkg.getAnnotation(TopolithModule.class);
                 declarations.add(new Declaration(pkg.getQualifiedName().toString(), declaration.id(),
                         Arrays.asList(declaration.api()), Arrays.asList(declaration.requires()),
-                        Arrays.asList(declaration.optional())));
+                        Arrays.asList(declaration.optional()), Arrays.asList(declaration.provides())));
             }
         }
         return false;
@@ -156,6 +156,11 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
             problems.add(new Diagnostic(TopolithCode.TL0013, "The API declaration of '" + declaration.id()
                     + "' sets requires or optional.", "Move them to the module declaration."));
         }
+        if (!declaration.provides().isEmpty()) {
+            problems.add(new Diagnostic(TopolithCode.TL0013, "The API declaration of '" + declaration.id()
+                    + "' sets provides.", "Remove it: an API's provides are inferred from its api packages, and only a "
+                            + "module declaration lists the contracts a @Bean method provides (D-110)."));
+        }
         for (String name : apiPackages) {
             Origin origin = origin(name);
             if (origin == Origin.SPLIT) {
@@ -208,7 +213,13 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
         }
         boolean sameCompilation = anyLocal && onClasspath.isEmpty() && problems.isEmpty();
         boolean classpath = !anyLocal;
+        Set<TypeElement> declaredTypes = sameCompilation ? contracts.declared(compiled, apiPackages)
+                : classpath ? contracts.declared(contracts.allTypes(apiMembers(apiPackages)), apiPackages) : Set.of();
+        Set<String> declared = contracts.mostDerived(declaredTypes);
         Set<TypeElement> implemented = implemented(declaration, contracts, compiled, apiPackages);
+        if (sameCompilation || classpath) {
+            implemented.addAll(listed(declaration, contracts, declared, declaredTypes, implemented, problems));
+        }
         Set<String> provides = contracts.mostDerived(implemented);
         Set<String> idempotent = idempotency().methods(contracts.named(implemented, provides), problems);
         ModuleDescriptor module = ModuleDescriptor.builder(declaration.id()).packageName(declaration.packageName())
@@ -216,8 +227,6 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
                 .requires(sorted(declaration.requires())).optional(sorted(declaration.optional()))
                 .apiVersion(version).build();
         if (sameCompilation) {
-            Set<TypeElement> declaredTypes = contracts.declared(compiled, apiPackages);
-            Set<String> declared = contracts.mostDerived(declaredTypes);
             compare(declaration, "this compilation", declared, provides, problems);
             compareIdempotent("this compilation", contracts, declaredTypes, declared, idempotent, problems);
             if (problems.isEmpty()) {
@@ -225,7 +234,7 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
                 write("apis/" + api.id(), problems, out -> Descriptors.write(api, out));
             }
         } else if (classpath) {
-            verifyClasspath(declaration, module, contracts, problems);
+            verifyClasspath(declaration, module, contracts, declaredTypes, declared, problems);
         }
         if (problems.isEmpty()) {
             write("modules/" + module.id(), problems, out -> Descriptors.write(module, out));
@@ -234,6 +243,11 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
 
     /** A module without contracts (D-115): a module descriptor with no api keys and no API descriptor. */
     private void declareWithoutContracts(Declaration declaration, String version, List<Diagnostic> problems) {
+        if (!declaration.provides().isEmpty()) {
+            problems.add(new Diagnostic(TopolithCode.TL0013, "Module '" + declaration.id() + "' lists "
+                    + new TreeSet<>(declaration.provides()) + " in provides but has no api packages.",
+                    "Declare the api packages that hold the contracts, or remove provides."));
+        }
         ModuleDescriptor module = ModuleDescriptor.builder(declaration.id()).packageName(declaration.packageName())
                 .requires(sorted(declaration.requires())).optional(sorted(declaration.optional()))
                 .apiVersion(version).build();
@@ -325,13 +339,38 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
         return implemented;
     }
 
+    /**
+     * The contracts the module declaration lists in {@code provides} (D-110), for a {@code @Bean} method's lambda or
+     * factory result: each must be in the API's inferred {@code provides} and have no implementing class under the
+     * module's package, whose closure {@code implemented} already holds.
+     */
+    private Set<TypeElement> listed(Declaration declaration, Contracts contracts, Set<String> declared,
+            Set<TypeElement> declaredTypes, Set<TypeElement> implemented, List<Diagnostic> problems) {
+        Set<TypeElement> listed = new LinkedHashSet<>();
+        for (String entry : new TreeSet<>(declaration.provides())) {
+            if (!declared.contains(entry)) {
+                problems.add(new Diagnostic(TopolithCode.TL0013, "Module '" + declaration.id() + "' lists " + entry
+                        + " in provides, but the API's provides do not include it.", "List only a contract of the "
+                                + "API, by its fully qualified name (the binary name for a member interface)."));
+            } else if (implemented.stream().anyMatch(type -> contracts.binaryName(type).equals(entry))) {
+                problems.add(new Diagnostic(TopolithCode.TL0013, "Module '" + declaration.id() + "' lists " + entry
+                        + " in provides, but a class in " + declaration.packageName() + " implements it.",
+                        "Remove the entry: a contract with an implementing class is inferred."));
+            } else {
+                listed.addAll(contracts.named(declaredTypes, Set.of(entry)));
+            }
+        }
+        return listed;
+    }
+
     private void compare(Declaration declaration, String where, Set<String> declared, Set<String> implemented,
             List<Diagnostic> problems) {
         for (String contract : declared) {
             if (!implemented.contains(contract)) {
                 problems.add(new Diagnostic(TopolithCode.TL0013, "The API in " + where + " provides " + contract
                         + " but no class in " + declaration.packageName() + " implements it.",
-                        "Implement it or move it out of the api packages."));
+                        "Implement it, list it in the module declaration's provides if only a @Bean method "
+                                + "provides it, or move it out of the api packages."));
             }
         }
         for (String contract : implemented) {
@@ -349,7 +388,7 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
      * and the api's {@code provides} are recomputed from the classpath types with the rule the API build used.
      */
     private void verifyClasspath(Declaration declaration, ModuleDescriptor module, Contracts contracts,
-            List<Diagnostic> problems) {
+            Set<TypeElement> declaredTypes, Set<String> declared, List<Diagnostic> problems) {
         boolean found = false;
         for (String name : module.apiPackages()) {
             PackageElement pkg = processingEnv.getElementUtils().getPackageElement(name);
@@ -358,10 +397,10 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
                 continue;
             }
             found = true;
-            Set<String> declared = new TreeSet<>(Arrays.asList(api.api()));
-            if (!api.id().equals(module.id()) || !declared.equals(new TreeSet<>(module.apiPackages()))) {
+            Set<String> packages = new TreeSet<>(Arrays.asList(api.api()));
+            if (!api.id().equals(module.id()) || !packages.equals(new TreeSet<>(module.apiPackages()))) {
                 problems.add(new Diagnostic(TopolithCode.TL0013, "The @TopolithModule on " + name + " has id '"
-                        + api.id() + "' and api " + declared + " but the module declares id '" + module.id()
+                        + api.id() + "' and api " + packages + " but the module declares id '" + module.id()
                         + "' and api " + new TreeSet<>(module.apiPackages()) + ".",
                         "Make the id and api lists equal."));
             }
@@ -373,14 +412,17 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
                             + "the Topolith processor."));
             return;
         }
-        List<String> names = new ArrayList<>();
-        for (String name : module.apiPackages()) {
-            members(name).forEach(type -> names.add(type.getQualifiedName().toString()));
-        }
-        Set<TypeElement> declaredTypes = contracts.declared(contracts.allTypes(names), module.apiPackages());
-        Set<String> declared = contracts.mostDerived(declaredTypes);
         compare(declaration, "the classpath API", declared, module.provides(), problems);
         compareIdempotent("the classpath API", contracts, declaredTypes, declared, module.idempotent(), problems);
+    }
+
+    /** The names of the api packages' top-level types that javac sees, for an API built elsewhere. */
+    private List<String> apiMembers(Set<String> apiPackages) {
+        List<String> names = new ArrayList<>();
+        for (String name : apiPackages) {
+            members(name).forEach(type -> names.add(type.getQualifiedName().toString()));
+        }
+        return names;
     }
 
     /**

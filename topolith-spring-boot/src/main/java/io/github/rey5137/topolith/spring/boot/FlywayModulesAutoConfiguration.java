@@ -48,8 +48,9 @@ import org.springframework.core.type.AnnotationMetadata;
  * that uses the host's database and ships Flyway scripts under {@code classpath:db/modules/<id>} gets its own
  * {@link ModuleRunner} with the host's connection settings, that location and the history table
  * {@code flyway_schema_history_<id>}. It runs after every host runner (Flyway or Liquibase) and after the runners of
- * the modules it requires, whichever their tool, even when the host switched its own Flyway off. A host location
- * that reaches a module's scripts is TL0020. Only this file touches Flyway.
+ * the modules it requires, whichever their tool, even when the host switched its own Flyway off. A module with exactly
+ * one DataSource of its own and no runner of its own gets the same runner on that DataSource instead (D-112). A host
+ * location that reaches a module's scripts is TL0020. Only this file touches Flyway.
  */
 @AutoConfiguration(afterName = {
         "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration",
@@ -97,9 +98,9 @@ class FlywayModulesAutoConfiguration {
             ClassLoader loader = factory.getBeanClassLoader();
             Resolution resolution = TopologyResolver.resolve(beanFactory, environment, loader);
             Topology topology = resolution.topology();
-            Set<String> ownDataSources = new TreeSet<>(ModuleBeans.contributors(factory, loader, resolution,
-                    ModuleBeans.DATA_SOURCE));
-            Map<String, Tool> runners = ModuleMigrations.runners(topology, loader, ownDataSources);
+            Map<String, List<String>> ownDataSources = ModuleBeans.dataSourcesByModule(factory, loader, resolution);
+            Map<String, Tool> runners = ModuleMigrations.runners(topology, loader, ownDataSources,
+                    ModuleBeans.ownRunners(factory, loader, resolution));
             if (!runners.containsValue(Tool.FLYWAY)) {
                 return;
             }
@@ -110,8 +111,10 @@ class FlywayModulesAutoConfiguration {
                 if (tool != Tool.FLYWAY) {
                     return;
                 }
-                RootBeanDefinition definition = new RootBeanDefinition(ModuleFlyway.class,
-                        () -> new ModuleFlyway(moduleFlyway(factory, environment, loader, id, hostFlyway)));
+                String own = ModuleMigrations.dataSource(id, ownDataSources);
+                RootBeanDefinition definition = new RootBeanDefinition(ModuleFlyway.class, () -> new ModuleFlyway(
+                        own == null ? moduleFlyway(factory, environment, loader, id, hostFlyway)
+                                : ownFlyway(factory.getBean(own, DataSource.class), loader, id)));
                 definition.setDefaultCandidate(false);
                 definition.setDependsOn(ModuleMigrations.dependsOn(topology, id, runners, host));
                 registry.registerBeanDefinition(Tool.FLYWAY.runnerName(id), definition);
@@ -162,6 +165,15 @@ class FlywayModulesAutoConfiguration {
                     .group(host.isGroup()).jdbcProperties(host.getJdbcProperties())
                     .locations(ModuleMigrations.location(id)).table(ModuleMigrations.table(id))
                     .baselineOnMigrate(true).baselineVersion("0").load();
+        }
+
+        /**
+         * The Flyway of a module on its own DataSource (D-112): none of the host's settings, which describe another
+         * database, only the module's location and history table, baselined at version 0 as on the host's.
+         */
+        private static Flyway ownFlyway(DataSource dataSource, ClassLoader loader, String id) {
+            return new FluentConfiguration(loader).dataSource(dataSource).locations(ModuleMigrations.location(id))
+                    .table(ModuleMigrations.table(id)).baselineOnMigrate(true).baselineVersion("0").load();
         }
 
         @Override

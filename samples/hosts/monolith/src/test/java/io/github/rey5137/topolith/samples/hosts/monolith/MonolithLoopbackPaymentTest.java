@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.samples.payment.api.PaymentNotFoundException;
 import io.github.rey5137.topolith.samples.paymenttests.AbstractPaymentTest;
+import io.github.rey5137.topolith.samples.paymenttests.PaymentObservations;
 import io.github.rey5137.topolith.spring.test.TopolithModuleMode;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.Test;
@@ -21,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /** The loopback column of the payment mode matrix: payment runs in this host, every call over HTTP (R-TEST-05). */
-@Import(MonolithLoopbackPaymentTest.PaymentRequestCounter.class)
+@Import({MonolithLoopbackPaymentTest.PaymentRequestCounter.class, PaymentObservations.class})
 // snippet:start monolith-loopback-payment-test
 @SpringBootTest(classes = MonolithApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

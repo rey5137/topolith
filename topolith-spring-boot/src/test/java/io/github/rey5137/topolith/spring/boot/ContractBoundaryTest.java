@@ -196,11 +196,14 @@ class ContractBoundaryTest {
                         assertTrue(diagnostics.get(0).description().contains("final handler"));
                     });
         }
-        // no transaction manager, no advice, so a final provider is fine
-        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
-            new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(FinalProviderConfiguration.class)
-                    .withPropertyValues("topolith.modules.boundary.mode=internal")
-                    .run(context -> assertNull(context.getStartupFailure()));
+        // with spring-tx reported absent (so no boundary), the final handler still fails: the observation needs the
+        // same proxy (D-89, AC-EXT-46)
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(
+                new FilteredClassLoader("org.springframework.transaction"), root)) {
+            new ApplicationContextRunner().withClassLoader(loader)
+                    .withUserConfiguration(ErrorHost.class, FinalProviderConfiguration.class)
+                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.modules.boundary.mode=internal")
+                    .run(context -> assertTrue(String.valueOf(context.getStartupFailure()).contains("TL0029")));
         }
     }
 

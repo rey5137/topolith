@@ -6,8 +6,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Registers the {@link ContractTransactionBoundary} (D-47). Imported by the topology selector only when a module is
- * internal and spring-tx is present (INV-2).
+ * Registers the {@link ContractTransactionBoundary}, the advice of an internal module's provider beans (D-47, D-86).
+ * Imported by the topology selector only when a module is internal or loopback (INV-2).
  */
 @Configuration(proxyBeanMethods = false)
 class ContractBoundaryConfiguration {

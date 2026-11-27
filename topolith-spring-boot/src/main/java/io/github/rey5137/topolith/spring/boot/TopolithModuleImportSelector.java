@@ -80,8 +80,7 @@ final class TopolithModuleImportSelector
                 imports.add("io.github.rey5137.topolith.spring.boot.ExposedApiVersionConfiguration");
             }
         }
-        if (!topology.internal().isEmpty()
-                && ClassUtils.isPresent("org.springframework.transaction.PlatformTransactionManager", classLoader)) {
+        if (!topology.internal().isEmpty()) {
             imports.add("io.github.rey5137.topolith.spring.boot.ContractBoundaryConfiguration");
         }
         if (!resolution.exposed().isEmpty()) {
@@ -89,6 +88,10 @@ final class TopolithModuleImportSelector
         }
         boolean externals = !topology.idsOf(Mode.EXTERNAL).isEmpty();
         boolean loopbacks = !topology.idsOf(Mode.LOOPBACK).isEmpty();
+        if ((!topology.internal().isEmpty() || externals)
+                && ClassUtils.isPresent("io.micrometer.observation.ObservationRegistry", classLoader)) {
+            imports.add("io.github.rey5137.topolith.spring.boot.ModuleCallObservationConfiguration");
+        }
         if ((externals || loopbacks) && ClassUtils.isPresent(
                 "org.springframework.web.service.registry.AbstractHttpServiceRegistrar", classLoader)) {
             imports.add("io.github.rey5137.topolith.spring.boot.ExternalHttpServicesRegistrar");

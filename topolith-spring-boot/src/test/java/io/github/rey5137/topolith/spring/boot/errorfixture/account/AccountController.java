@@ -6,9 +6,11 @@ import java.io.UncheckedIOException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountNotFoundException;
+import io.github.rey5137.topolith.spring.boot.errorfixture.payment.api.PaymentContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.payment.api.PaymentDeclinedException;
 import io.github.rey5137.topolith.contract.ModuleUnavailableException;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -18,10 +20,20 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 @RestController
 public class AccountController implements AccountContract {
+    private final ObjectProvider<PaymentContract> payments;
+
+    AccountController(ObjectProvider<PaymentContract> payments) {
+        this.payments = payments;
+    }
+
     @Override
     public String find(String failure) {
         if (failure.equals("ok")) {
             return "found";
+        }
+        if (failure.equals("pay")) {
+            // a call from a module's class, when the payment module is internal
+            return "paid " + payments.getObject().pay();
         }
         throw switch (failure) {
             case "missing" -> new AccountNotFoundException();

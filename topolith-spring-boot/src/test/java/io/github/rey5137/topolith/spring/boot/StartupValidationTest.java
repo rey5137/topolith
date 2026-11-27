@@ -277,7 +277,8 @@ class StartupValidationTest {
             case TL0018 -> {
                 Fixtures.module(root, "ledger", Fixtures.LEDGER, List.of(Fixtures.LEDGER + ".api"));
                 host = ModulePersistenceTest.OverlappingHost.class;
-                properties.add("topolith.modules.ledger.mode=none");
+                properties.addAll(List.of("topolith.modules.ledger.mode=none",
+                        "spring.data.jdbc.repositories.enabled=false", "spring.data.jpa.repositories.enabled=false"));
             }
             case TL0019 -> {
                 Fixtures.module(root, "rogue", Fixtures.ROGUE, List.of(Fixtures.ROGUE + ".api"));

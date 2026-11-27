@@ -92,6 +92,16 @@ class TopolithExclusionCheckTest {
     }
 
     @Test
+    void ac_mode_55_each_store_registration_exclusion_fails_with_tl0042() throws IOException {
+        for (String store : List.of("R2dbc", "Mongo", "MyBatis")) {
+            String name = "io.github.rey5137.topolith.spring.boot." + store
+                    + "RepositoriesModulesAutoConfiguration";
+            run(Host.class, List.of("topolith.modules.job.mode=internal", "topolith.modules.user.mode=none",
+                    "spring.autoconfigure.exclude=" + name), context -> assertTl0042(context, name));
+        }
+    }
+
+    @Test
     void ac_mode_55_excluding_by_annotation_fails_with_tl0042() throws IOException {
         run(ExcludingHost.class, List.of("topolith.modules.job.mode=internal", "topolith.modules.user.mode=none"),
                 context -> assertTl0042(context, TOPOLITH));

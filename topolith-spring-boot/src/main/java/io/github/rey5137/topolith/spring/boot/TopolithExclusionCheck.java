@@ -21,7 +21,8 @@ import org.springframework.core.env.Environment;
  * Fails startup with TL0042 when an auto-configuration that activates modules is excluded while a module is
  * {@code internal} or {@code loopback} (R-MODE-02, D-111): without it the module's beans would silently not load. It
  * reads the exclusions of each auto-configuration import (the property, {@code exclude} and {@code excludeName}), so a
- * test slice that never includes Topolith's auto-configuration is not checked. Registered in {@code META-INF/spring.factories}.
+ * test slice that never includes Topolith's auto-configuration is not checked. Registered in
+ * {@code META-INF/spring.factories}.
  */
 @Incubating
 public class TopolithExclusionCheck
@@ -36,9 +37,12 @@ public class TopolithExclusionCheck
             "io.github.rey5137.topolith.spring.boot.TopolithAutoConfiguration",
             // registers each module's entities and entity manager
             "io.github.rey5137.topolith.spring.boot.JpaModulesAutoConfiguration",
-            // register each module's Spring Data repositories
+            // register each module's repositories and mappers
             "io.github.rey5137.topolith.spring.boot.JpaRepositoriesModulesAutoConfiguration",
             "io.github.rey5137.topolith.spring.boot.JdbcRepositoriesModulesAutoConfiguration",
+            "io.github.rey5137.topolith.spring.boot.R2dbcRepositoriesModulesAutoConfiguration",
+            "io.github.rey5137.topolith.spring.boot.MongoRepositoriesModulesAutoConfiguration",
+            "io.github.rey5137.topolith.spring.boot.MyBatisRepositoriesModulesAutoConfiguration",
             // run each module's own migrations
             "io.github.rey5137.topolith.spring.boot.FlywayModulesAutoConfiguration",
             "io.github.rey5137.topolith.spring.boot.LiquibaseModulesAutoConfiguration");

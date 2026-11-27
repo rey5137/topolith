@@ -204,6 +204,39 @@ class RefreshTest {
     }
 
     @Test
+    void ac_ext_19_a_dashless_timeout_key_rebuilds_a_dashed_modules_client() throws Exception {
+        // the contract lives in the 'separate' fixture's package, which a dashed id cannot name: that module's
+        // descriptors give way to order-service's
+        for (String kind : List.of("apis", "modules")) {
+            java.nio.file.Files.delete(root.resolve("META-INF/topolith/" + kind + "/separate.properties"));
+        }
+        ContractExceptionsTest.contracts(root, "order-service",
+                PlainContract.class.getPackageName().replace(".separate.api", ".orderservice"),
+                PlainContract.class.getPackageName(), PlainContract.class);
+        HttpServer slow = stub("found slow", 700, path -> { });
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(ErrorHost.class, NoExtra.class)
+                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.modules.order-service.mode=external",
+                            "topolith.modules.payment.mode=none",
+                            "management.endpoints.web.exposure.include=topolith",
+                            "topolith.modules.order-service.remote.http-interface." + PlainContract.class.getName()
+                                    + "=" + PlainHttp.class.getName(),
+                            "topolith.modules.order-service.remote.url=" + url(slow),
+                            "topolith.modules.order-service.remote.read-timeout=3s")
+                    .run(context -> {
+                        assertNull(context.getStartupFailure());
+                        PlainContract client = context.getBean(PlainContract.class);
+                        assertEquals("found slow", client.find("x"));
+                        // an environment variable has no dash, so this is the written form of the module's key
+                        refresh(context, "topolith.modules.orderservice.remote.read-timeout", "150ms");
+                        assertThrows(RuntimeException.class, () -> client.find("x"));
+                    });
+        } finally {
+            slow.stop(0);
+        }
+    }
+
+    @Test
     void ac_ext_21_a_call_in_flight_finishes_on_the_old_client() throws Exception {
         CountDownLatch arrived = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -443,6 +476,35 @@ class RefreshTest {
             refresh(context, "topolith.modules.separate.auth.type", null);
             assertEquals(false, context.getBean(TopolithEndpoint.class).modules().get("restartPending"));
         }, NoExtra.class, URL + "=http://127.0.0.1:1");
+    }
+
+    @Test
+    void ac_ext_56_a_refreshed_dashless_environment_auth_key_logs_tl0010_and_keeps_restart_pending(
+            CapturedOutput output) {
+        var module = io.github.rey5137.topolith.core.ModuleDescriptor.builder("order-service")
+                .packageName("fixture.orderservice").apiPackages(List.of("fixture.orderservice.api"))
+                .apiVersion("1.0.0").build();
+        var api = io.github.rey5137.topolith.core.ApiDescriptor.builder("order-service")
+                .apiPackages(List.of("fixture.orderservice.api")).apiVersion("1.0.0").build();
+        var topology = io.github.rey5137.topolith.core.Topology.resolve(List.of(module), List.of(api),
+                Map.of("order-service", "loopback"), null);
+        var environment = new org.springframework.core.env.StandardEnvironment();
+        Map<String, Object> values = new HashMap<>(Map.of("topolith.modules.order-service.mode", "loopback"));
+        environment.getPropertySources().addFirst(new MapPropertySource("test", values));
+        var status = new TopolithRefreshStatus();
+        var refresh = new TopolithRefresh(environment, topology, status,
+                new org.springframework.beans.factory.support.DefaultListableBeanFactory()
+                        .getBeanProvider(ExternalClientEndpoints.class));
+        // the env-var form of order-service has no dash
+        values.put("topolith.modules.orderservice.auth.type", "none");
+        refresh.apply(Set.of("topolith.modules.orderservice.auth.type"));
+        String log = output.getAll();
+        assertTrue(log.contains("TL0010"), log);
+        assertTrue(log.contains("module 'order-service' keeps its outgoing-auth hook"), log);
+        assertTrue(status.restartPending());
+        values.remove("topolith.modules.orderservice.auth.type");
+        refresh.apply(Set.of("topolith.modules.orderservice.auth.type"));
+        assertFalse(status.restartPending());
     }
 
     @Test

@@ -81,13 +81,18 @@ final class ContractCallTranslator implements MethodInterceptor {
         if (e instanceof IllegalStateException && e.getMessage() != null && e.getMessage().startsWith(NO_INSTANCES)) {
             return unavailable(module, "no instance", e);
         }
-        // an I/O failure wrapped by another layer, such as a client-credentials token request (D-96); found by type
-        // in the cause chain, so no OAuth2 class is named (INV-7). A circuit breaker's wrapper is handled by invoke
-        if (!noFallback(e)) {
+        // a client-credentials token request that fails is wrapped by Spring Security (D-97); only that wrapper is
+        // unwrapped, found by class name so no OAuth2 class is named (INV-7). A host's own wrapper propagates as
+        // thrown (D-51), and a circuit breaker's wrapper is handled by invoke
+        if (oauth2Wrapper(e)) {
             int depth = 0;
             for (Throwable cause = e.getCause(); cause != null && depth < 8; cause = cause.getCause(), depth++) {
                 if (cause instanceof ResourceAccessException access) {
                     return unavailable(module, timeout(access) ? "timeout" : "connection failure", e);
+                }
+                if (cause instanceof RestClientResponseException response
+                        && (response.getStatusCode().is5xxServerError() || response.getStatusCode().value() == 429)) {
+                    return unavailable(module, "connection failure", e);
                 }
             }
         }
@@ -97,6 +102,16 @@ final class ContractCallTranslator implements MethodInterceptor {
     /** Spring Cloud CircuitBreaker's wrapper for a failed call without a fallback, found by class name. */
     private static boolean noFallback(Throwable e) {
         return e.getClass().getSimpleName().equals("NoFallbackAvailableException");
+    }
+
+    /** Spring Security's token-request failure, found by class name up the superclass chain (D-97). */
+    private static boolean oauth2Wrapper(Throwable e) {
+        for (Class<?> type = e.getClass(); type != null; type = type.getSuperclass()) {
+            if (type.getName().equals("org.springframework.security.oauth2.core.OAuth2AuthorizationException")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** A circuit breaker's open-circuit rejection, found by class name so no breaker library is a dependency. */

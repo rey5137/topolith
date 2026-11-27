@@ -74,10 +74,27 @@ final class ModuleCallObserver implements CallObserver {
         }
     }
 
+    @Override
+    public Object current() {
+        ObservationRegistry registry = lookup().registry();
+        return registry == null ? null : registry.getCurrentObservation();
+    }
+
+    @Override
+    public Reopened reopen(Object captured) {
+        ObservationRegistry registry = lookup().registry();
+        if (registry == null || !(captured instanceof Observation observation)
+                || registry.getCurrentObservation() == observation) {
+            return null;
+        }
+        Observation.Scope scope = observation.openScope();
+        return scope::close;
+    }
+
     /** The declared class the caller receives, by simple name, or {@code undeclared}. */
     private String exception(Throwable failure) {
         Class<?> declared = ContractExceptions.declared(failure.getClass(), topology.apiPackages());
-        return declared == null ? "undeclared" : declared.getSimpleName();
+        return declared == null ? ModuleCallContext.UNDECLARED : declared.getSimpleName();
     }
 
     private Lookup lookup() {

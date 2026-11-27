@@ -8,6 +8,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
@@ -16,6 +17,7 @@ import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.core.Topology;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.boot.context.properties.bind.BindException;
 import org.springframework.boot.context.properties.bind.Bindable;
@@ -47,9 +49,10 @@ final class OutgoingAuth {
      * client currently uses, and nothing else of its settings (D-96). An external module's refresh replaces it with
      * the call's own (R-EXT-08); a loopback module's stays as it started (D-77).
      */
-    static final class TokenRequests {
+    static final class TokenRequests implements DisposableBean {
         private final Function<String, ClientHttpRequestFactory> initial;
         private final Map<String, AtomicReference<ClientHttpRequestFactory>> current = new ConcurrentHashMap<>();
+        private final List<ClientHttpRequestFactory> retired = new CopyOnWriteArrayList<>();
 
         TokenRequests(Function<String, ClientHttpRequestFactory> initial) {
             this.initial = initial;
@@ -67,10 +70,34 @@ final class OutgoingAuth {
             return current.containsKey(id);
         }
 
+        /**
+         * Makes {@code factory} module {@code id}'s. The one it replaces may still serve a request created just before,
+         * so it is kept and closed with the others at {@link #destroy}.
+         */
         void replace(String id, ClientHttpRequestFactory factory) {
             AtomicReference<ClientHttpRequestFactory> reference = current.get(id);
             if (reference != null) {
-                reference.set(factory);
+                retired.add(reference.getAndSet(factory));
+            }
+        }
+
+        /** Closes every factory, replaced or current, when the application context closes. */
+        @Override
+        public void destroy() {
+            retired.forEach(TokenRequests::close);
+            retired.clear();
+            current.values().forEach(reference -> close(reference.get()));
+        }
+
+        private static void close(ClientHttpRequestFactory replaced) {
+            try {
+                if (replaced instanceof AutoCloseable closeable) {
+                    closeable.close();
+                } else if (replaced instanceof DisposableBean disposable) {
+                    disposable.destroy();
+                }
+            } catch (Exception e) {
+                // a factory that fails to close is dropped all the same
             }
         }
     }
@@ -126,7 +153,7 @@ final class OutgoingAuth {
         Set<String> relaying = new TreeSet<>();
         boolean tokens = ClassUtils.isPresent(TOKEN_CLASS, classLoader);
         for (String id : ExternalHttpServicesRegistrar.clientModules(topology)) {
-            Settings settings = read(binder, id);
+            Settings settings = read(binder, id, topology.known());
             List<ModuleAuthConfigurer> own = hosts.getOrDefault(id, List.of());
             String key = TopologyResolver.MODES + "." + id + ".auth." + TYPE;
             if (own.size() > 1) {
@@ -171,15 +198,14 @@ final class OutgoingAuth {
             return null;
         }
         return ClientCredentialsHook.create(id, settings.registrationId(), beans,
-                tokenRequests == null ? null : tokenRequests.forModule(id), problems);
+                tokenRequests == null ? null : () -> tokenRequests.forModule(id), problems);
     }
 
     /** Module {@code id}'s {@code auth.*} settings; the values are those {@link #check} accepted. */
-    static Settings read(Binder binder, String id) {
+    static Settings read(Binder binder, String id, Set<String> known) {
         String type = null;
         String registration = null;
-        // an environment variable cannot carry a dash: ORDERSERVICE binds as "orderservice" (D-50 known limit)
-        for (String name : List.of(id, id.replace("-", ""))) {
+        for (String name : AuthSpellings.of(id, known)) {
             String prefix = TopologyResolver.MODES + "." + name + ".auth.";
             if (type == null) {
                 type = binder.bind(prefix + TYPE, String.class).map(OutgoingAuth::normalized).orElse(null);

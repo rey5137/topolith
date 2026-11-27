@@ -57,11 +57,17 @@ class ContractExceptionsTest {
 
     /** The API descriptor and the module descriptor of {@code id} under {@link Fixtures#ERRORS}. */
     static void contracts(Path root, String id, Class<?>... contracts) throws IOException {
-        String apiPackage = ERRORS + "." + id + ".api";
+        String module = ERRORS + "." + id.replace("-", "");
+        contracts(root, id, module, module + ".api", contracts);
+    }
+
+    /** Descriptors for module {@code id} whose contracts live in {@code apiPackage}, whatever the id is. */
+    static void contracts(Path root, String id, String module, String apiPackage, Class<?>... contracts)
+            throws IOException {
         List<String> names = Arrays.stream(contracts).map(Class::getName).toList();
         write(root, "apis", id, out -> Descriptors.write(ApiDescriptor.builder(id).apiPackages(List.of(apiPackage))
                 .apiVersion("1.0.0").provides(names).build(), out));
-        write(root, "modules", id, out -> Descriptors.write(ModuleDescriptor.builder(id).packageName(ERRORS + "." + id)
+        write(root, "modules", id, out -> Descriptors.write(ModuleDescriptor.builder(id).packageName(module)
                 .apiPackages(List.of(apiPackage)).apiVersion("1.0.0").provides(names).build(), out));
     }
 

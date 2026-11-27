@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
 import com.sun.net.httpserver.HttpServer;
@@ -21,8 +22,13 @@ import io.github.rey5137.topolith.core.ModuleDescriptor;
 import io.github.rey5137.topolith.spring.cloud.fixture.host.Host;
 import io.github.rey5137.topolith.spring.cloud.fixture.user.api.UserContract;
 import io.github.rey5137.topolith.spring.cloud.fixture.user.api.UserNotFoundException;
+import io.github.rey5137.topolith.spring.boot.observation.ModuleCallContext;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.ObservationRegistry;
+import io.micrometer.observation.ObservationView;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,8 +42,10 @@ import org.springframework.context.annotation.Configuration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** D-51: with Spring Cloud CircuitBreaker on an external group, translation sees through one wrapping level. */
 class CircuitBreakerTranslationTest {
@@ -67,6 +75,31 @@ class CircuitBreakerTranslationTest {
             return factory -> factory.configureDefault(id -> new Resilience4JConfigBuilder(id)
                     .timeLimiterConfig(TimeLimiterConfig.custom().timeoutDuration(Duration.ofMillis(200)).build())
                     .build());
+        }
+    }
+
+    /** Records each observation that stops, with the thread it stopped on. */
+    @Configuration(proxyBeanMethods = false)
+    static class Observed {
+        static final List<Observation.Context> STOPPED = new CopyOnWriteArrayList<>();
+        static final List<String> THREADS = new CopyOnWriteArrayList<>();
+
+        @Bean
+        ObservationRegistry registry() {
+            ObservationRegistry registry = ObservationRegistry.create();
+            registry.observationConfig().observationHandler(new ObservationHandler<Observation.Context>() {
+                @Override
+                public boolean supportsContext(Observation.Context context) {
+                    return true;
+                }
+
+                @Override
+                public void onStop(Observation.Context context) {
+                    STOPPED.add(context);
+                    THREADS.add(context.getName() + "@" + Thread.currentThread().getName());
+                }
+            });
+            return registry;
         }
     }
 
@@ -131,6 +164,38 @@ class CircuitBreakerTranslationTest {
     private static int freePort() throws IOException {
         try (ServerSocket socket = new ServerSocket(0)) {
             return socket.getLocalPort();
+        }
+    }
+
+    @Test
+    void ac_ext_45_the_client_observation_is_a_child_when_the_circuit_breaker_runs_the_exchange_on_another_thread()
+            throws Exception {
+        HttpServer server = stub(200, "text/plain", "pong");
+        Observed.STOPPED.clear();
+        Observed.THREADS.clear();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()},
+                CircuitBreakerTranslationTest.class.getClassLoader())) {
+            new ApplicationContextRunner().withClassLoader(loader)
+                    .withUserConfiguration(Host.class, Breaker.class, Observed.class)
+                    .withPropertyValues("topolith.modules.user.mode=external", "topolith.modules.payment.mode=none",
+                            "topolith.modules.user.remote.url=http://127.0.0.1:" + server.getAddress().getPort(),
+                            "spring.cloud.circuitbreaker.http-services.enabled=true")
+                    .run((AssertableApplicationContext context) -> {
+                        assertNull(context.getStartupFailure());
+                        assertEquals("pong", context.getBean(UserContract.class).ping());
+                        List<Observation.Context> http = Observed.STOPPED.stream()
+                                .filter(c -> "http.client.requests".equals(c.getName())).toList();
+                        assertEquals(1, http.size(), String.valueOf(Observed.THREADS));
+                        ObservationView parent = http.get(0).getParentObservation();
+                        assertTrue(parent != null && parent.getContextView() instanceof ModuleCallContext,
+                                String.valueOf(parent));
+                        // the exchange did not run on the calling thread
+                        String client = Observed.THREADS.stream().filter(t -> t.startsWith("http.client.requests@"))
+                                .findFirst().orElseThrow();
+                        assertNotEquals("http.client.requests@" + Thread.currentThread().getName(), client);
+                    });
+        } finally {
+            server.stop(0);
         }
     }
 

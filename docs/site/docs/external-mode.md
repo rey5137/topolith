@@ -143,26 +143,30 @@ class SampleTenants implements TenantContext {
         return Tenants.current();
     }
 
-    /** A real service checks {@code tenant} against {@code principal} here and throws to reject it. */
+    /** A real service checks the request's tenant against its principal here and throws to reject it. */
     @Override
-    public Scope open(String tenant, Principal principal) {
+    public Scope open(Request request) {
         String previous = Tenants.current();
-        Tenants.set(tenant);
+        Tenants.set(request.tenant());
         return () -> Tenants.set(previous);
     }
 }
 ```
 
 The caller sends `Topolith-Tenant` from `current()`. On the provider, a module's route puts each sent MDC value, removes
-every listed key the request does not carry (even one a server filter put), calls `open` with the sent tenant (null
-when none was sent) and the request's principal, and restores the previous state when the request completes, normally
-or not. Any client that reaches a module's route can send these headers, and a loopback module's routes are on your
+every listed key the request does not carry (even one a server filter put), calls `open` with a
+`TenantContext.Request` (the sent tenant, null when none was sent, the request's principal and the id of the module
+called), and restores the previous state when the request completes, normally or not. Any client that reaches a module's route can send these headers, and a loopback module's routes are on your
 server's own port, so `open` is where you decide whether the request's principal may act for the tenant: throw to
 reject it, and the route answers 403 without calling the provider.
 
-An MDC value over 1024 characters once encoded is not sent and logs `TL0035` naming the key; a tenant over that limit
-fails the call with a `TopolithException` carrying `TL0038`. A header that does not decode, or is over the limit,
-answers 400. An invalid key list, or two `TenantContext` beans, fails startup with `TL0034`. Routes outside every module
+An MDC value over 1024 characters once encoded, or with a control character, is not sent and logs `TL0035` naming the
+key; a tenant over that limit or with a control character fails the call with a `TopolithException` carrying `TL0038`.
+A header that does not decode, is over the limit, or decodes to a value with a control character answers 400, which
+keeps a client from forging log lines. A request carrying `Topolith-Tenant` to a host with no `TenantContext` bean
+answers 500 with `TL0039` logged, so a provider never runs with a tenant it cannot honour; the caller gets the
+unspecified exception. The values are current on the request's dispatch threads only, and your own interceptors registered through `WebMvcConfigurer` see
+them too (a `MappedInterceptor` bean runs before them). A host that exposes no module checks nothing. An invalid key list, or two `TenantContext` beans, fails startup with `TL0034`. Routes outside every module
 ignore these headers. Trace and baggage propagation stay Micrometer Tracing's.
 
 ## Authenticating calls

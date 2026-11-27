@@ -14,6 +14,8 @@ public final class ModuleCallContext extends Observation.Context {
     public static final String HOST = "_host";
     /** The {@link #exception()} of a call that returned. */
     public static final String NO_EXCEPTION = "none";
+    /** The {@link #exception()} of a call that failed with an exception its contract does not declare. */
+    public static final String UNDECLARED = "undeclared";
 
     private final String moduleId;
     private final Mode mode;
@@ -22,7 +24,7 @@ public final class ModuleCallContext extends Observation.Context {
     private volatile String callerModule = HOST;
     private volatile String exception = NO_EXCEPTION;
 
-    /** For Topolith's own call instrumentation. */
+    /** For Topolith only: not for conventions or host code; may change without notice. */
     public ModuleCallContext(String moduleId, Mode mode, Class<?> contract, String method) {
         this.moduleId = moduleId;
         this.mode = mode;
@@ -57,18 +59,18 @@ public final class ModuleCallContext extends Observation.Context {
 
     /**
      * {@value #NO_EXCEPTION} when the call returned, else the simple name of the declared exception class the caller
-     * received, or {@code undeclared}.
+     * received, or {@value #UNDECLARED}.
      */
     public String exception() {
         return exception;
     }
 
-    /** Set by Topolith before the observation starts. */
+    /** For Topolith only: not for conventions or host code; may change without notice. */
     public void setCallerModule(String callerModule) {
         this.callerModule = callerModule;
     }
 
-    /** Set by Topolith when the call fails. */
+    /** For Topolith only: not for conventions or host code; may change without notice. */
     public void setException(String exception) {
         this.exception = exception;
     }

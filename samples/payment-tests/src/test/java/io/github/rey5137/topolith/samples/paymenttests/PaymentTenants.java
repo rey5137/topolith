@@ -1,7 +1,5 @@
 package io.github.rey5137.topolith.samples.paymenttests;
 
-import java.security.Principal;
-
 import io.github.rey5137.topolith.samples.payment.api.Tenants;
 import io.github.rey5137.topolith.spring.boot.TenantContext;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -19,9 +17,9 @@ public class PaymentTenants {
             }
 
             @Override
-            public Scope open(String tenant, Principal principal) {
+            public Scope open(Request request) {
                 String previous = Tenants.current();
-                Tenants.set(tenant);
+                Tenants.set(request.tenant());
                 return () -> Tenants.set(previous);
             }
         };

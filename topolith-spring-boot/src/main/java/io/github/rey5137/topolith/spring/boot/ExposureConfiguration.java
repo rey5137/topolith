@@ -18,6 +18,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.AsyncHandlerInterceptor;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.PathMatchConfigurer;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -43,7 +44,7 @@ class ExposureConfiguration implements WebMvcConfigurer {
         this.topology = resolution.topology();
         this.exposed = resolution.exposed();
         ContextPropagation propagation = context.getIfAvailable();
-        this.context = propagation == null || !propagation.active() ? null : new ContextRoute(propagation);
+        this.context = propagation == null || exposed.isEmpty() ? null : new ContextRoute(propagation);
     }
 
     @Override
@@ -59,7 +60,7 @@ class ExposureConfiguration implements WebMvcConfigurer {
      */
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new AsyncHandlerInterceptor() {
+        InterceptorRegistration registration = registry.addInterceptor(new AsyncHandlerInterceptor() {
             @Override
             public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
                     throws IOException {
@@ -67,7 +68,7 @@ class ExposureConfiguration implements WebMvcConfigurer {
                     String owner = ModuleHandlers.internalOwner(topology, method.getBeanType());
                     if (owner != null && exposed.contains(owner)) {
                         RouteMark.mark(request, method);
-                        return context == null || context.open(request, response);
+                        return context == null || context.open(request, response, owner);
                     }
                 }
                 return true;
@@ -90,6 +91,8 @@ class ExposureConfiguration implements WebMvcConfigurer {
                 }
             }
         });
+        // Before a host's own interceptors, so they see the sent MDC and tenant (R-EXT-12).
+        registration.order(Ordered.HIGHEST_PRECEDENCE);
     }
 
     @Bean

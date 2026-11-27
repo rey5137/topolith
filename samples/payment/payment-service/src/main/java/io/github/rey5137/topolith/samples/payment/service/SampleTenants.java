@@ -1,7 +1,5 @@
 package io.github.rey5137.topolith.samples.payment.service;
 
-import java.security.Principal;
-
 import io.github.rey5137.topolith.samples.payment.api.Tenants;
 import io.github.rey5137.topolith.spring.boot.TenantContext;
 import org.springframework.stereotype.Component;
@@ -15,11 +13,11 @@ class SampleTenants implements TenantContext {
         return Tenants.current();
     }
 
-    /** A real service checks {@code tenant} against {@code principal} here and throws to reject it. */
+    /** A real service checks the request's tenant against its principal here and throws to reject it. */
     @Override
-    public Scope open(String tenant, Principal principal) {
+    public Scope open(Request request) {
         String previous = Tenants.current();
-        Tenants.set(tenant);
+        Tenants.set(request.tenant());
         return () -> Tenants.set(previous);
     }
 }

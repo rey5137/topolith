@@ -141,6 +141,7 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
         names.addAll(localMembers(declaration.packageName()));
         apiPackages.forEach(name -> names.addAll(localMembers(name)));
         List<TypeElement> compiled = contracts.allTypes(names);
+        idempotency().misplaced(compiled, apiPackages, problems);
         if (apiPackages.contains(declaration.packageName())) {
             declareApi(declaration, version, contracts, compiled, problems);
         } else {
@@ -165,9 +166,11 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
                                 + "it."));
             }
         }
+        Set<TypeElement> declared = contracts.declared(compiled, apiPackages);
+        Set<String> provides = contracts.mostDerived(declared);
+        Set<String> idempotent = idempotency().methods(contracts.named(declared, provides), problems);
         ApiDescriptor api = ApiDescriptor.builder(declaration.id()).apiPackages(sorted(declaration.api()))
-                .provides(contracts.mostDerived(contracts.declared(compiled, apiPackages))).apiVersion(version)
-                .build();
+                .provides(provides).idempotent(idempotent).apiVersion(version).build();
         if (problems.isEmpty()) {
             write("apis/" + api.id(), problems, out -> Descriptors.write(api, out));
         }
@@ -203,13 +206,16 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
         boolean classpath = !anyLocal;
         Set<TypeElement> implemented = implemented(declaration, contracts, compiled, apiPackages);
         Set<String> provides = contracts.mostDerived(implemented);
+        Set<String> idempotent = idempotency().methods(contracts.named(implemented, provides), problems);
         ModuleDescriptor module = ModuleDescriptor.builder(declaration.id()).packageName(declaration.packageName())
-                .apiPackages(sorted(declaration.api()))
-                .provides(provides).requires(sorted(declaration.requires())).optional(sorted(declaration.optional()))
+                .apiPackages(sorted(declaration.api())).provides(provides).idempotent(idempotent)
+                .requires(sorted(declaration.requires())).optional(sorted(declaration.optional()))
                 .apiVersion(version).build();
         if (sameCompilation) {
-            Set<String> declared = contracts.mostDerived(contracts.declared(compiled, apiPackages));
+            Set<TypeElement> declaredTypes = contracts.declared(compiled, apiPackages);
+            Set<String> declared = contracts.mostDerived(declaredTypes);
             compare(declaration, "this compilation", declared, provides, problems);
+            compareIdempotent("this compilation", contracts, declaredTypes, declared, idempotent, problems);
             if (problems.isEmpty()) {
                 ApiDescriptor api = module.api();
                 write("apis/" + api.id(), problems, out -> Descriptors.write(api, out));
@@ -357,9 +363,37 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
         for (String name : module.apiPackages()) {
             members(name).forEach(type -> names.add(type.getQualifiedName().toString()));
         }
-        Set<String> declared = contracts.mostDerived(contracts.declared(contracts.allTypes(names),
-                module.apiPackages()));
+        Set<TypeElement> declaredTypes = contracts.declared(contracts.allTypes(names), module.apiPackages());
+        Set<String> declared = contracts.mostDerived(declaredTypes);
         compare(declaration, "the classpath API", declared, module.provides(), problems);
+        compareIdempotent("the classpath API", contracts, declaredTypes, declared, module.idempotent(), problems);
+    }
+
+    /**
+     * Recomputes the API's idempotent methods from its contract types with the API declaration's rule (D-100) and
+     * reports each entry the module's set lacks or adds; overload problems were already reported for the module.
+     */
+    private void compareIdempotent(String where, Contracts contracts, Set<TypeElement> declaredTypes,
+            Set<String> declared, Set<String> module, List<Diagnostic> problems) {
+        Set<String> api = idempotency().methods(contracts.named(declaredTypes, declared), new ArrayList<>());
+        for (String entry : api) {
+            if (!module.contains(entry)) {
+                problems.add(new Diagnostic(TopolithCode.TL0013, "The API in " + where + " declares " + entry
+                        + " idempotent but the module does not.", "Rebuild the API artifact so its descriptor "
+                                + "matches, and keep @Idempotent on the contract in the api packages."));
+            }
+        }
+        for (String entry : module) {
+            if (!api.contains(entry)) {
+                problems.add(new Diagnostic(TopolithCode.TL0013, "The module declares " + entry
+                        + " idempotent but the API in " + where + " does not.", "Rebuild the API artifact so its "
+                                + "descriptor matches, and keep @Idempotent on the contract in the api packages."));
+            }
+        }
+    }
+
+    private Idempotency idempotency() {
+        return new Idempotency(processingEnv.getElementUtils(), processingEnv.getTypeUtils());
     }
 
     private void write(String name, List<Diagnostic> problems, Writing writing) {

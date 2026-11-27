@@ -16,10 +16,10 @@ import java.util.TreeSet;
 /** Reads one descriptor file into {@link DescriptorData}, reporting every key-level TL0013 (D-27). */
 final class DescriptorReader {
     private static final Set<String> API_KEYS =
-            Set.of("format-version", "id", "api-packages", "api-version", "provides");
+            Set.of("format-version", "id", "api-packages", "api-version", "provides", "idempotent");
     private static final Set<String> MODULE_KEYS =
-            Set.of("format-version", "id", "package", "api-packages", "api-version", "provides", "requires",
-                    "optional");
+            Set.of("format-version", "id", "package", "api-packages", "api-version", "provides", "idempotent",
+                    "requires", "optional");
 
     /** A byte-order mark is valid UTF-8 and is skipped, not read as part of the first key. */
     private static final int BYTE_ORDER_MARK = 0xFEFF;
@@ -89,6 +89,7 @@ final class DescriptorReader {
         data.apiVersion = properties.getProperty("api-version");
         data.apiPackages.addAll(list(properties.getProperty("api-packages")));
         data.provides.addAll(list(properties.getProperty("provides")));
+        data.idempotent.addAll(list(properties.getProperty("idempotent")));
         if (module) {
             data.packageName = properties.getProperty("package");
             data.requires.addAll(list(properties.getProperty("requires")));

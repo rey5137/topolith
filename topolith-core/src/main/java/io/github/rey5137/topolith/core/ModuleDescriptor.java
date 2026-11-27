@@ -51,6 +51,11 @@ public final class ModuleDescriptor {
         return api.provides();
     }
 
+    /** The contract methods declared {@code @Idempotent}; see {@link ApiDescriptor#idempotent()}. */
+    public Set<String> idempotent() {
+        return api.idempotent();
+    }
+
     public String apiVersion() {
         return api.apiVersion();
     }
@@ -108,6 +113,12 @@ public final class ModuleDescriptor {
 
         public Builder provides(Collection<String> contracts) {
             data.provides.addAll(contracts);
+            return this;
+        }
+
+        /** Entries {@code <contract>#<method>}; each contract must be in {@link #provides}. */
+        public Builder idempotent(Collection<String> methods) {
+            data.idempotent.addAll(methods);
             return this;
         }
 

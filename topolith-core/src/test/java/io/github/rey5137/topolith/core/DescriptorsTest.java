@@ -380,4 +380,67 @@ class DescriptorsTest {
                         .build());
         assertEquals(TopolithCode.TL0013, failure.code());
     }
+
+    @Test
+    void ac_desc_11_module_and_api_descriptors_round_trip_their_sorted_idempotent_set() throws IOException {
+        List<String> declared = List.of("com.acme.orders.OrderApi#list", "com.acme.orders.OrderApi$Lines#get",
+                "com.acme.orders.OrderApi#find");
+        ModuleDescriptor module = withPackage("orders").apiPackages(List.of("com.acme.orders"))
+                .provides(List.of("com.acme.orders.OrderApi", "com.acme.orders.OrderApi$Lines"))
+                .idempotent(declared).apiVersion("1.0.0").build();
+        List<String> sorted = List.of("com.acme.orders.OrderApi#find", "com.acme.orders.OrderApi#list",
+                "com.acme.orders.OrderApi$Lines#get");
+        assertEquals(sorted, List.copyOf(module.idempotent()));
+        assertEquals(module.idempotent(), module.api().idempotent());
+        assertThrows(UnsupportedOperationException.class, () -> module.idempotent().add("x#y"));
+        StringWriter out = new StringWriter();
+        Descriptors.write(module, out);
+        String text = out.toString();
+        assertTrue(text.contains("provides=com.acme.orders.OrderApi,com.acme.orders.OrderApi$Lines\nidempotent="
+                + String.join(",", sorted).replace("#", "\\#") + "\n"), text);
+        ModuleDescriptor parsed = Descriptors.parseModule("x/orders.properties", stream(text));
+        assertEquals(module, parsed);
+        assertEquals(1, parsed.api().formatVersion());
+
+        ApiDescriptor api = module.api();
+        StringWriter apiOut = new StringWriter();
+        Descriptors.write(api, apiOut);
+        assertEquals(api, Descriptors.parseApi("orders.properties", stream(apiOut.toString())));
+        ApiDescriptor without = ApiDescriptor.builder("orders").apiPackages(List.of("com.acme.orders"))
+                .provides(List.of("com.acme.orders.OrderApi")).apiVersion("1.0.0").build();
+        assertTrue(!api.equals(without) && api.hashCode() != without.hashCode());
+    }
+
+    @Test
+    void ac_desc_11_a_missing_or_empty_idempotent_key_is_an_empty_set() {
+        assertEquals(Set.of(), parse(VALID).idempotent());
+        assertEquals(Set.of(), parse(VALID + "idempotent=\n").idempotent());
+        assertEquals(Set.of(), Descriptors.parseApi("orders.properties", stream("""
+                format-version=1
+                id=orders
+                api-packages=com.acme.orders
+                api-version=1
+                provides=com.acme.orders.OrderApi
+                idempotent= ,
+                """)).idempotent());
+        assertEquals(Set.of("com.acme.orders.OrderApi#find"),
+                parse(VALID + "idempotent=com.acme.orders.OrderApi\\#find\n").idempotent());
+    }
+
+    @Test
+    void ac_desc_11_rejects_a_duplicate_malformed_or_unprovided_idempotent_entry() {
+        assertFails(VALID + "idempotent=com.acme.orders.OrderApi\\#find,com.acme.orders.OrderApi\\#find\n",
+                "'idempotent'", "listed twice");
+        for (String bad : List.of("com.acme.orders.OrderApi", "#find", "OrderApi\\#find",
+                "com.acme.orders.OrderApi\\#", "com.acme.orders.OrderApi\\#1find",
+                "com.acme.orders.OrderApi\\#fi-nd", "com.acme.orders.OrderApi\\#a\\#b")) {
+            assertFails(VALID + "idempotent=" + bad + "\n", "'idempotent'", "<contract>#<method>");
+        }
+        assertFails(VALID + "idempotent=com.acme.orders.OtherApi\\#find\n", "'idempotent'",
+                "com.acme.orders.OtherApi#find", "not in provides");
+        TopolithException failure = assertThrows(TopolithException.class, () -> ApiDescriptor.builder("orders")
+                .apiPackages(List.of("com.acme.orders")).apiVersion("1").idempotent(List.of("com.acme.orders.A#b"))
+                .build());
+        assertEquals(TopolithCode.TL0013, failure.code());
+    }
 }

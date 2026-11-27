@@ -22,6 +22,7 @@ final class DescriptorData {
     String packageName;
     final List<String> apiPackages = new ArrayList<>();
     final List<String> provides = new ArrayList<>();
+    final List<String> idempotent = new ArrayList<>();
     final List<String> requires = new ArrayList<>();
     final List<String> optional = new ArrayList<>();
 
@@ -94,6 +95,14 @@ final class DescriptorData {
                         "Move it to one of the api-packages (exact packages, no subpackages) or list its package."));
             }
         }
+        checkList(found, where, "idempotent", idempotent, DescriptorData::validMethodEntry,
+                "of the form <contract>#<method>");
+        for (String entry : idempotent) {
+            if (validMethodEntry(entry) && !provides.contains(entry.substring(0, entry.indexOf('#')))) {
+                found.add(bad(where, "idempotent", "'" + entry + "' names a contract that is not in provides",
+                        "List only methods of the provided contracts; rebuild with the processor."));
+            }
+        }
         if (module) {
             checkPackage(found, where);
             checkList(found, where, "requires", requires, DescriptorData::validId, "a module id");
@@ -126,6 +135,12 @@ final class DescriptorData {
 
     private static boolean validFqcn(String value) {
         return value != null && value.indexOf('.') > 0 && validPackage(value);
+    }
+
+    /** {@code <contract binary name>#<method name>}, as the processor writes an {@code idempotent} entry (D-100). */
+    private static boolean validMethodEntry(String value) {
+        int hash = value == null ? -1 : value.indexOf('#');
+        return hash > 0 && validFqcn(value.substring(0, hash)) && identifier(value.substring(hash + 1));
     }
 
     private static void checkList(List<Diagnostic> found, String where, String key, List<String> entries,

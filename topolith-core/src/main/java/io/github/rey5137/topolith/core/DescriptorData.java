@@ -78,7 +78,7 @@ final class DescriptorData {
                         "Name the file '" + id + ".properties' or fix the id."));
             }
         }
-        if (apiPackages.isEmpty()) {
+        if (apiPackages.isEmpty() && !module) {
             found.add(bad(where, "api-packages", "is missing or empty", "List at least one API package."));
         }
         checkList(found, where, "api-packages", apiPackages, DescriptorData::validPackage, "a Java package name");

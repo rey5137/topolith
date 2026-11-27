@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -52,6 +53,7 @@ public final class Topology {
         graph.modules().forEach(module -> known.add(module.id()));
         apis.forEach(api -> known.add(api.id()));
         Map<String, Mode> modes = resolveModes(graph, known, new TreeMap<>(declared), standalone);
+        checkContracts(graph, modes);
         Set<String> packages = new TreeSet<>();
         graph.modules().forEach(module -> packages.addAll(module.apiPackages()));
         apis.forEach(api -> packages.addAll(api.apiPackages()));
@@ -59,6 +61,22 @@ public final class Topology {
         topology.checkRequirements();
         checkProviders(modules, apis, modes);
         return topology;
+    }
+
+    /** A module without api packages has nothing to call remotely: external or loopback fails (D-115, TL0003). */
+    private static void checkContracts(ModuleGraph graph, Map<String, Mode> modes) {
+        List<Diagnostic> found = new ArrayList<>();
+        graph.modules().forEach(module -> {
+            Mode mode = modes.get(module.id());
+            if (module.apiPackages().isEmpty() && (mode == Mode.EXTERNAL || mode == Mode.LOOPBACK)) {
+                found.add(new Diagnostic(TopolithCode.TL0003, "module '" + module.id() + "' has no api packages, so "
+                        + "it cannot be " + mode.name().toLowerCase(Locale.ROOT) + ".",
+                        "Set topolith.modules." + module.id() + ".mode to internal or none."));
+            }
+        });
+        if (!found.isEmpty()) {
+            throw new TopolithException(found);
+        }
     }
 
     private static void checkProviders(Collection<ModuleDescriptor> modules, Collection<ApiDescriptor> apis,

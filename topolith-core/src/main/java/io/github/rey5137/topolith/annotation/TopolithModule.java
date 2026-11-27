@@ -22,8 +22,11 @@ public @interface TopolithModule {
     /** The module id, for example {@code order-history}. */
     String id();
 
-    /** The exact API packages, without their subpackages. */
-    String[] api();
+    /**
+     * The exact API packages, without their subpackages. Empty (the default) declares a module without contracts,
+     * such as a listener-only or job module: it has no API descriptor and runs only {@code internal} or {@code none}.
+     */
+    String[] api() default {};
 
     /** Ids of the modules this module cannot start without; empty for an API declaration. */
     String[] requires() default {};

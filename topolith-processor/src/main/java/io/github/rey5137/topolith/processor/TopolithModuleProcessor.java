@@ -178,6 +178,10 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
 
     private void declareModule(Declaration declaration, String version, Contracts contracts,
             List<TypeElement> compiled, List<Diagnostic> problems) {
+        if (declaration.api().isEmpty()) {
+            declareWithoutContracts(declaration, version, problems);
+            return;
+        }
         Set<String> apiPackages = new LinkedHashSet<>(declaration.api());
         Set<String> onClasspath = new LinkedHashSet<>();
         boolean anyLocal = false;
@@ -223,6 +227,16 @@ public final class TopolithModuleProcessor extends AbstractProcessor {
         } else if (classpath) {
             verifyClasspath(declaration, module, contracts, problems);
         }
+        if (problems.isEmpty()) {
+            write("modules/" + module.id(), problems, out -> Descriptors.write(module, out));
+        }
+    }
+
+    /** A module without contracts (D-115): a module descriptor with no api keys and no API descriptor. */
+    private void declareWithoutContracts(Declaration declaration, String version, List<Diagnostic> problems) {
+        ModuleDescriptor module = ModuleDescriptor.builder(declaration.id()).packageName(declaration.packageName())
+                .requires(sorted(declaration.requires())).optional(sorted(declaration.optional()))
+                .apiVersion(version).build();
         if (problems.isEmpty()) {
             write("modules/" + module.id(), problems, out -> Descriptors.write(module, out));
         }

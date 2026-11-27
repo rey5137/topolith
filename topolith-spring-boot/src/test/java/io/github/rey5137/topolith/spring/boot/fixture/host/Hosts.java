@@ -2,10 +2,14 @@ package io.github.rey5137.topolith.spring.boot.fixture.host;
 
 import javax.sql.DataSource;
 
+import io.github.rey5137.topolith.spring.boot.TopolithAutoConfiguration;
+
 import org.flywaydb.core.Flyway;
 
 import org.springframework.boot.autoconfigure.AutoConfigurationExcludeFilter;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.autoconfigure.context.PropertyPlaceholderAutoConfiguration;
 import org.springframework.boot.context.TypeExcludeFilter;
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.context.annotation.Bean;
@@ -35,6 +39,18 @@ public final class Hosts {
     @EnableAutoConfiguration
     @EnableScheduling
     public static class Host {
+    }
+
+    /** Excludes Topolith's own auto-configuration by annotation (AC-MODE-55). */
+    @Configuration(proxyBeanMethods = false)
+    @EnableAutoConfiguration(exclude = TopolithAutoConfiguration.class)
+    public static class ExcludingHost {
+    }
+
+    /** A test-slice style host: it imports one unrelated auto-configuration and never Topolith's. */
+    @Configuration(proxyBeanMethods = false)
+    @ImportAutoConfiguration(PropertyPlaceholderAutoConfiguration.class)
+    public static class SliceHost {
     }
 
     @Configuration(proxyBeanMethods = false)

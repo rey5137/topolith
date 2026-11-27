@@ -126,6 +126,19 @@ class DescriptorsTest {
     }
 
     @Test
+    void ac_desc_17_a_module_without_api_packages_round_trips_without_api_keys() throws IOException {
+        ModuleDescriptor job = ModuleDescriptor.builder("job").packageName("com.acme.job").apiVersion("1.0")
+                .requires(List.of("user")).build();
+        StringWriter out = new StringWriter();
+        Descriptors.write(job, out);
+        assertTrue(!out.toString().contains("api-packages") && !out.toString().contains("provides")
+                && !out.toString().contains("idempotent"), out.toString());
+        assertEquals(job, Descriptors.parseModule("job.properties", stream(out.toString())));
+        assertThrows(TopolithException.class, () -> Descriptors.parseApi("job.properties",
+                stream("format-version=1\nid=job\napi-version=1.0\n")));
+    }
+
+    @Test
     void round_trip_of_an_api_descriptor_and_a_bare_module() throws IOException {
         ApiDescriptor api = ApiDescriptor.builder("orders").apiPackages(List.of("com.acme.orders"))
                 .provides(List.of("com.acme.orders.OrderApi")).apiVersion("1.0").build();
@@ -188,13 +201,17 @@ class DescriptorsTest {
     void rejects_each_missing_required_key() {
         assertFails(VALID.replace("format-version=1\n", ""), "'format-version'", "missing");
         assertFails(VALID.replace("id=orders\n", ""), "'id'", "missing");
-        assertFails(VALID.replace("api-packages=com.acme.orders\n", ""), "'api-packages'", "missing or empty");
+        assertFails(VALID.replace("api-packages=com.acme.orders\n", ""), "'provides'", "not in a listed API package");
         assertFails(VALID.replace("api-version=1.2.0\n", ""), "'api-version'", "missing");
     }
 
     @Test
     void rejects_an_empty_api_packages_list() {
-        assertFails(VALID.replace("api-packages=com.acme.orders", "api-packages= , "), "'api-packages'");
+        assertFails(VALID.replace("api-packages=com.acme.orders", "api-packages= , "), "'provides'");
+        String api = "format-version=1\nid=orders\napi-packages= ,\napi-version=1.0\n";
+        TopolithException failure = assertThrows(TopolithException.class, () -> Descriptors.parseApi(SOURCE,
+                stream(api)));
+        assertTrue(failure.getMessage().contains("'api-packages'"), failure.getMessage());
     }
 
     @Test

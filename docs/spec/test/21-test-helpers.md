@@ -98,13 +98,26 @@ and the proxy never wraps a mock (a `@MockitoBean` or `@MockitoSpyBean` contract
 - **Scope.** The proxy wraps only internal modules: an enabled module in `loopback` or `external` mode already crosses
   HTTP, and a `none` module has no calls, so none of them gets a proxy. An id that no descriptor names fails context
   load with `IllegalStateException` naming it. Without `@TopolithByValue` or `byValue()` there is no proxy and no
-  recorded state, and the proxy does not change R-EXT-07's transaction boundary.
+  recorded state (until M8.7; see Default below), and the proxy does not change R-EXT-07's transaction boundary.
+- **Default and release valve (D-119).** With `topolith-spring-test` on the classpath, every Spring TestContext
+  context (`@SpringBootTest`, test slices that include Topolith) wraps every internal module's contracts by default;
+  `@TopolithByValue` with ids narrows the proxy to those modules. `topolith.test.parity`, read from the test context's
+  `Environment` (`@TestPropertySource`, `@SpringBootTest(properties)`, a test `application.properties`), is `fail`
+  (the default) or `warn`; any other value fails context load with `IllegalStateException`, and there is no `off`
+  (P-2). With `warn` every violation is logged once as warning TL0045 (new, M8.7) naming the module, the method, the
+  argument index or result and the first differing JSON path, never a value; the call returns the provider's own
+  result or exception in place of the failing copy, and the listener fails nothing. An `ApplicationContextRunner`
+  context has no test context, so `byValue()` stays opt-in there. Under the default, a context with no JSON HTTP
+  message converter fails context load as above, with a fix naming Jackson, only when an internal module has at least
+  one provided contract bean the proxy would wrap; a context whose internal modules provide no contract (D-115) or
+  only mocked ones loads without a converter and has no proxy.
 
-Implements INV-6, D-55, D-74 and D-79.
+Implements INV-6, P-2, D-55, D-74, D-79 and D-119.
 
 - AC-TEST-08 (M5.2): With the proxy on, a call to an internal module's contract hands the provider copies of its
   arguments and the caller a copy of the result, equal as JSON and read by generic type (a `List` of contract records
-  included); without it, the provider receives the caller's own instances.
+  included); without it, the provider receives the caller's own instances (until M8.7, D-119: then only in an
+  `ApplicationContextRunner` context without `byValue()`).
 - AC-TEST-09 (M5.2): A provider that changes its argument during the call fails the call with an `AssertionError`
   naming the module, the method, the argument index and the changed path; a caller that changes its own original
   argument after the call does not fail.
@@ -117,8 +130,18 @@ Implements INV-6, D-55, D-74 and D-79.
   `ModuleUnavailableException` and an undeclared exception pass as thrown.
 - AC-TEST-13 (M5.2): An unknown module id, or a context with no JSON HTTP message converter, fails context load with
   `IllegalStateException`; an external or `none` module and a mocked contract bean get no proxy, and a test without the
-  annotation or `byValue()` has none.
+  annotation or `byValue()` has none (until M8.7, D-119: then AC-TEST-26 replaces this clause).
 - AC-TEST-17 (M5.3): A `loopback` module named by `@TopolithByValue` gets no proxy; its calls are copied by HTTP alone.
+- AC-TEST-26 (M8.7): A `@SpringBootTest` without `@TopolithByValue` wraps every internal module's contracts and fails a
+  provider that changes its argument; `@TopolithByValue("payment")` wraps only payment; an external, loopback or `none`
+  module, a mocked contract bean and an `ApplicationContextRunner` context without `byValue()` get no proxy. Without a
+  JSON HTTP message converter, a context whose internal module provides a contract fails context load with
+  `IllegalStateException`, while one whose only internal module has no contracts loads.
+- AC-TEST-27 (M8.7): With `topolith.test.parity=warn`, a provider that changes its argument, keeps and changes a copy,
+  or returns a value that does not survive the round trip logs TL0045 (new, M8.7) once per violation, naming the
+  module, method and path and no value, the caller gets the provider's own result, and the test method passes.
+- AC-TEST-28 (M8.7): `topolith.test.parity=off` or any value other than `fail` and `warn` fails context load with
+  `IllegalStateException` naming the key and its two values.
 
 ### R-TEST-05 — Mode matrix
 
@@ -135,7 +158,8 @@ alone (package = module, by design), so a test class in the module's package or 
 TL0032, because it would get the provider and never cross HTTP (D-85). The matrix also compares the call context
 across modes: the `topolith.module.call` observation (R-EXT-11), the listed MDC keys and tenant the provider sees
 (R-EXT-12), the provider's `Authentication` by principal name and authorities with token relay (R-EXT-13, D-94), and
-`@Idempotent` retry and circuit-breaker exception survival (R-EXT-14, R-EXT-15, D-101 through D-103).
+`@Idempotent` retry and circuit-breaker exception survival (R-EXT-14, R-EXT-15, D-101 through D-103). Event parity
+in loopback follows D-120 when events land.
 Implements INV-6, P-2, D-74, D-80, D-85, D-87, D-91, D-94 and D-101 through D-103.
 
 - AC-TEST-14 (M5.5): The shared payment test cases pass with payment internal under the by-value proxy, loopback, and
@@ -166,3 +190,16 @@ Implements INV-6, P-2, D-74, D-80, D-85, D-87, D-91, D-94 and D-101 through D-10
   attempt and fails with `ModuleUnavailableException`; and in the `loopback` and `external` runs with
   `remote.circuit-breaker.enabled=true`, a declared payment exception survives the breaker as the declared exception
   type without opening the circuit.
+
+### R-TEST-06 — Waiting for the remote version check
+
+`TopolithTestSupport` (public, `@Incubating`, `io.github.rey5137.topolith.spring.test`) offers
+`static boolean awaitVersionChecks(ApplicationContext context, Duration timeout)`: it waits until the remote API-version
+checks R-VAL-04 started at readiness, and any a refresh started, have finished and logged, and returns `false` when the
+timeout passes first. It reaches the check through the D-109 internal seam, returns `true` at once for a context with
+no external module or before readiness, and fails with `IllegalArgumentException` for a negative timeout. A test that
+asserts on TL0015 or TL0023 calls it before asserting (D-118). Implements INV-4 and D-118.
+
+- AC-TEST-25 (M8.7): After `awaitVersionChecks(context, timeout)` returns `true`, the TL0015 for an unreachable external
+  provider and the TL0023 for a major mismatch are in the captured log; it returns `false` when the provider answers
+  after the timeout, and `true` at once for a context with no external module.

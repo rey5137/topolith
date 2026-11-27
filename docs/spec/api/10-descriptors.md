@@ -8,7 +8,8 @@ It routes work on `@TopolithModule`, `@Idempotent`, contract inference and API d
 ### R-DESC-01 — Module declaration
 
 An optional `@TopolithModule` (`io.github.rey5137.topolith.annotation`, in `topolith-core`, CLASS retention,
-String-only members `id`, `api` (required, exact packages), `requires` and `optional`) on `package-info.java` declares
+String-only members `id`, `api` (exact packages, empty by default), `requires`, `optional` and `provides`) on
+`package-info.java` declares
 the module id, API packages, required and optional dependencies; the module's root is the declaring package, recorded
 as the descriptor's required `package` key (D-27, D-30). Adopters add `topolith-core` with `provided` scope.
 Business code needs no Topolith base class or other Topolith type, and the annotation appears only in
@@ -16,6 +17,17 @@ Business code needs no Topolith base class or other Topolith type, and the annot
 
 On a package outside its own `api` list the annotation is a module declaration. Each `api` package must exist, on the
 classpath or in the compilation.
+
+A module declaration with no `api` packages (D-115) is a module without contracts, such as a listener-only or job
+module: it writes a module descriptor without `api-packages`, `provides` or `idempotent`, emits no API descriptor and
+needs no API artifact; `api-version` is still required. Its mode is `internal` or `none`; `external` or `loopback`
+fails startup with TL0003 (R-MODE-01). `provides` on such a declaration is a compile error.
+
+- AC-DESC-17 (M8.2): A module declaration with `api = {}` (or no `api`) compiles to a module descriptor without
+  `api-packages`, `provides` or `idempotent`, emits no API descriptor, and the descriptor parses and round-trips; an
+  API declaration still needs at least one package.
+- AC-DESC-18 (M8.2): A host runs a module without contracts `internal` (its beans and listeners active) and `none`
+  (no trace of it, INV-2) with no API artifact on the classpath.
 
 - AC-DESC-01 (M1.2): Processing an annotated package emits `META-INF/topolith/modules/<id>.properties`.
 - AC-DESC-02 (M1.2): The emitted descriptor records the id, the declaring `package` (M1.3), API packages, `requires`
@@ -47,6 +59,39 @@ cleared by a clean build.
 When every api package is in the compilation it emits both descriptors after the same comparison. Implements INV-4,
 INV-5, P-6, D-9 and D-29.
 
+An interface annotated `@ConsumerImplemented` (`io.github.rey5137.topolith.contract`, `@Incubating`, RUNTIME, TYPE) is a
+consumer-implemented SPI (D-110): it is not a contract candidate on either side, so neither the API's nor the module's
+`provides` lists it, and a class implementing it is not its provider. Both sides first drop the marked interfaces from
+the candidates and then keep the most-derived of the rest, so an unmarked supertype of a marked interface stays a
+contract that the SPI's implementers provide, unless it is marked too. A contract provided only by a `@Bean` method (a
+lambda or factory result) is listed in the module declaration's `provides` (fully qualified, binary names for member
+interfaces): each entry must be in the API's inferred `provides` and must have no implementing class under the
+package, or the build fails; the listed and inferred contracts together are the module's `provides`. `provides` on an
+API declaration is a compile error. At startup an internal module needs exactly one bean of each listed contract among
+the definitions it contributes (owned by its bean definition, as D-61 assigns ownership, not by its class): several fail
+with TL0005, none with TL0044 (new, M8.3). R-EXT-07's boundary and R-EXT-11's observation apply to that bean whatever
+its class, a JDK proxy or a factory result from outside the module's package included. A `@Bean` is not a handler, so a
+listed contract has no route, and until M8.6 a module whose declaration lists contracts fails startup with TL0044 when
+it is `loopback` or exposed (`topolith.modules.<id>.expose.enabled=true`). The message names each listed contract and
+the fix: provide the contract from a module `@RestController` instead of the `@Bean` (D-53), through a D-49 separate
+HTTP interface if the contract carries no `@HttpExchange`; the contract is then inferred, not listed. From M8.6 Topolith
+registers the routes of a listed contract's bean instead (R-EXT-05, D-125), and TL0044 no longer applies to it.
+
+- AC-DESC-14 (M8.3): An api-package interface marked `@ConsumerImplemented` is left out of the API's and the module's
+  `provides`, also when a class under the module's package implements it, and a module whose only implementation of a
+  marked interface is such a class builds. For a marked `B extends A` with `A` unmarked, both the API and the module
+  list `A` (the same set on both sides, no TL0022), and marking `A` too leaves both out.
+- AC-DESC-15 (M8.3): A contract listed in the module declaration's `provides` and provided by a `@Bean` lambda is in
+  the module descriptor, and an internal call to it works with R-EXT-07's boundary; an entry outside the API's
+  `provides`, an entry with an implementing class, or `provides` on an API declaration fails the build. A listed
+  contract provided by a `@Bean` method that returns an instance of a class outside the module's package is observed
+  and runs under R-EXT-07's boundary. Moved to a module `@RestController` that implements it, the same contract is
+  inferred, not listed, and works in loopback and external mode.
+- AC-DESC-16 (M8.3): An internal module with no bean for a contract its declaration lists fails startup with TL0044
+  (new, M8.3) naming the module and contract, and two beans fail with TL0005; the same module `loopback`, or `internal`
+  with `expose.enabled=true`, fails startup with TL0044 naming the listed contracts and the module `@RestController`
+  fix (until M8.6, when AC-EXT-80 replaces this clause); a `none` module is not checked.
+
 - AC-DESC-04 (M1.2): An implemented API interface is included in `provides`; an interface that is not a contract
   candidate (sealed or annotation) is not; a candidate no class implements fails the build.
 - AC-DESC-05 (M1.2): The generated `api-version` equals the Maven project's version.
@@ -56,8 +101,8 @@ INV-5, P-6, D-9 and D-29.
 An `@TopolithModule` on a package that is in its own `api` list is an API declaration (D-29): it sets neither
 `requires` nor `optional`, each `api` package holds a type in the compilation, and it emits
 `META-INF/topolith/apis/<id>.properties` with id, API packages, `provides`, `idempotent` (R-DESC-05) and `api-version`.
-Its `provides` are the public, non-sealed, non-annotation interfaces in the api packages, keeping only the most-derived.
-Implements INV-5, P-6 and D-29.
+Its `provides` are the public, non-sealed, non-annotation interfaces in the api packages that are not
+`@ConsumerImplemented` (D-110), keeping only the most-derived. Implements INV-5, P-6, D-29 and D-110.
 
 - AC-DESC-06 (M1.2): An API declaration emits a descriptor with all four fields for its module, and a module build
   fails when the classpath API declaration is missing or differs.
@@ -67,7 +112,8 @@ Implements INV-5, P-6 and D-29.
 The core model parses descriptors and resolves required and optional edges. Duplicate module ids fail with TL0006;
 cycles in `requires` fail with TL0008. An absent optional dependency is not an unmet requirement. Module packages never nest, and no
 other module's api package lies in or under a module's package; either fails with TL0017 in the identity stage (D-30).
-Descriptors follow D-27 and failures are `TopolithException`s (D-28). A required edge to a module with no descriptor is allowed: unmet
+Descriptors follow D-27, except that a module descriptor may omit `api-packages` (D-115), and failures are
+`TopolithException`s (D-28). A required edge to a module with no descriptor is allowed: unmet
 requirements are a query, and M1.3 raises TL0004 with mode context. Cycles are checked over every descriptor present,
 whatever the modes. Discovery of descriptors on the classpath is not core's (M1.3). Implements INV-4.
 

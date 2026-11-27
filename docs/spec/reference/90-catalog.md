@@ -38,7 +38,7 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0024 | A Spring Data repository or MyBatis mapper interface in an internal module's or the host's package has no registration. Fix: register it (use Spring Data JPA or JDBC, or `@Enable<Store>Repositories` or `@MapperScan` on the package), or mark an interface left unregistered on purpose `@NoRepositoryBean`. With multiple Spring Data stores, annotate the aggregate for its store (for JDBC, `@Table`) or extend a store-specific repository interface so strict mode can assign it | failure | M1 gate (AC-MODE-30) |
 | TL0025 | `topolith.standalone` is set while another module with a descriptor is `internal` | failure | M1 gate (AC-MODE-31) |
 | TL0026 | An external or loopback module has no usable client: spring-web or Boot's HTTP service-client auto-configuration (`spring-boot-starter-restclient`) is missing, a provided contract cannot be loaded, or it carries no `@HttpExchange`; or a loopback module has no plain-HTTP servlet web server listening on a port to call (a non-web application, a context that is not a `WebServerApplicationContext` such as a `@SpringBootTest` `MOCK` environment, `server.port=-1`, or a server that uses SSL by Boot's resolved setting) | failure | M2.1 (AC-EXT-26..28) |
-| TL0027 | A contract's exceptions cannot cross HTTP: a contract method of an internal, loopback or external module declares a checked exception, or a concrete unchecked exception class in its api packages is not public, has neither a public `(String)` nor a public no-arg constructor, or carries a `@ResponseStatus` (direct, composed or inherited) that is not 4xx or 5xx. Raised in every topology, a monolith too | failure | M2.3 (AC-EXT-30) |
+| TL0027 | A contract's exceptions cannot cross HTTP: a contract method of an internal, loopback or external module declares a checked exception (from M8.5, one that its `throws` clause names whose class is outside its api packages, D-116), or a concrete unchecked exception class in its api packages is not public, has neither a public `(String)` nor a public no-arg constructor, or carries a `@ResponseStatus` (direct, composed or inherited) that is not 4xx or 5xx. Raised in every topology, a monolith too | failure | M2.3 (AC-EXT-30) |
 | TL0028 | A module is exposed (`topolith.modules.<id>.expose.enabled=true`) or `loopback` in a reactive (WebFlux) application, which has no exposure support (D-43, D-44, D-76) | failure | M2.4 (AC-EXT-11) |
 | TL0029 | A provider bean of an internal module that implements a provided contract is a `final` handler class (a `@Controller`, `@RestController` or `@RequestMapping` type), so the class proxy that carries the contract transaction boundary (D-47) and the call observation (D-89) cannot be made; it fails whether or not a transaction manager or an `ObservationRegistry` bean exists, and turning observation off does not avoid it; the fix is a non-final class; a `final` provider that is not a handler takes an interface proxy | failure | M2.4 (AC-EXT-16) |
 | TL0030 | A packaged boundary baseline is malformed; regenerate it with `TopolithBaseline.generate`; a copy outside the module descriptor's root also fails (D-58, D-63) | failure | M3.3 (AC-ARCH-16) |
@@ -66,13 +66,21 @@ TL0003 for `loopback.*` keys (AC-EXT-39). M6.2 raises TL0029 with no transaction
 `ObservationRegistry` bean too (AC-EXT-46), and M6.4 raises TL0003 for `auth.*` keys and TL0010 for their refresh
 (AC-EXT-56). M7.2 raises TL0013 for malformed `idempotent` entries and misplaced `@Idempotent` declarations (AC-DESC-11,
 AC-DESC-12), M7.3 raises TL0003 for `remote.retry.*` and `remote.circuit-breaker.*` keys (AC-EXT-67), and M7.4 raises
-TL0010 and TL0011 for their refresh (AC-EXT-68).
+TL0010 and TL0011 for their refresh (AC-EXT-68). M8 adds uses without new meanings: M8.2 raises TL0003 for
+`external` or `loopback` on a module without api packages (AC-MODE-62, D-115), M8.3 raises TL0005 for two beans of a
+contract a module declaration lists and TL0020 for a module with several DataSources of its own and no runner
+(AC-DESC-16, AC-MODE-57, D-110, D-112), M8.4 raises TL0024 for a mapper with several host `SqlSessionFactory` beans
+(AC-MODE-58, D-113), M8.6 raises TL0026 and TL0005 for the routes Topolith registers for listed contracts
+(AC-EXT-81, D-125), and M8.8 raises TL0034 and TL0035 for `ContextCarrier` names and values (AC-EXT-78, D-122).
+The new codes D-110, D-111, D-114, D-119 and D-121 (two) need are added to the table, with their `TopolithCode`
+constants, by the slices that raise them (INV-10); their acceptance criteria name them.
 
 Diagnostic criteria are AC-MODE-02, AC-MODE-05, AC-MODE-08, AC-MODE-21 through AC-MODE-24, AC-MODE-11, AC-MODE-25 through AC-MODE-28, AC-MODE-30, AC-MODE-31, AC-DESC-08,
 AC-DESC-10 through AC-DESC-13, AC-VAL-01 through AC-VAL-05, AC-VAL-14, AC-ARCH-09, AC-ARCH-11, AC-EXT-06, AC-MODE-13, AC-MODE-18, AC-EXT-22 through
 AC-EXT-24, AC-EXT-30, AC-VAL-10 through AC-VAL-12, AC-MODE-39, AC-MODE-42, AC-MODE-44, AC-MODE-45,
-AC-MODE-47, AC-MODE-51, AC-EXT-39, AC-EXT-46, AC-EXT-47, AC-EXT-51, AC-EXT-52, AC-EXT-55, AC-EXT-56, AC-EXT-67 and
-AC-EXT-68.
+AC-MODE-47, AC-MODE-51, AC-EXT-39, AC-EXT-46, AC-EXT-47, AC-EXT-51, AC-EXT-52, AC-EXT-55, AC-EXT-56, AC-EXT-67,
+AC-EXT-68, AC-MODE-55, AC-MODE-57, AC-MODE-58, AC-MODE-61, AC-MODE-62, AC-DESC-16, AC-EXT-71, AC-EXT-76, AC-EXT-78,
+AC-EXT-81, AC-EXT-82 and AC-TEST-27.
 
 ### R-CAT-02 — Exception catalog
 
@@ -108,4 +116,4 @@ Use these terms in descriptors, configuration and diagnostics. Implements P-1 an
 | Idempotent call | A call to an abstract contract method explicitly declared `@Idempotent` (recorded in `idempotent`) or, when `remote.retry.safe-methods-idempotent=true`, using a safe HTTP method (`GET`, `HEAD`, `OPTIONS`, `TRACE`). |
 
 - AC-CAT-01 (M4.3): The configuration reference uses these mode and restart-pending meanings.
-- AC-CAT-02 (M8.4): The configuration reference uses the loopback meaning.
+- AC-CAT-02 (M8.11): The configuration reference uses the loopback meaning.

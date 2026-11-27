@@ -1,6 +1,7 @@
 package io.github.rey5137.topolith.spring.boot;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 import io.github.rey5137.topolith.core.Diagnostic;
 import io.github.rey5137.topolith.core.TopolithCode;
@@ -43,7 +44,7 @@ final class ClientCredentialsHook {
      * with a TL0037 problem, when it cannot be built.
      */
     static ClientHttpRequestInterceptor create(String id, String registrationId, ListableBeanFactory beans,
-            ClientHttpRequestFactory tokenRequests, List<Diagnostic> problems) {
+            Supplier<ClientHttpRequestFactory> tokenRequests, List<Diagnostic> problems) {
         ClientRegistrationRepository registrations = single(id, ClientRegistrationRepository.class, beans, problems);
         OAuth2AuthorizedClientService clients = single(id, OAuth2AuthorizedClientService.class, beans, problems);
         if (registrations == null || clients == null) {
@@ -78,7 +79,7 @@ final class ClientCredentialsHook {
             // Spring Security's own token client and converters, with the module's timeouts: its default has none
             RestClientClientCredentialsTokenResponseClient tokens =
                     new RestClientClientCredentialsTokenResponseClient();
-            tokens.setRestClient(RestClient.builder().requestFactory(tokenRequests)
+            tokens.setRestClient(RestClient.builder().requestFactory(tokenRequests.get())
                     .configureMessageConverters(converters -> converters
                             .addCustomConverter(new FormHttpMessageConverter())
                             .addCustomConverter(new OAuth2AccessTokenResponseHttpMessageConverter()))

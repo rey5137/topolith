@@ -45,6 +45,7 @@ import org.springframework.boot.web.server.servlet.context.AnnotationConfigServl
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -65,6 +66,7 @@ import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizedCli
 import org.springframework.security.oauth2.client.web.AuthenticatedPrincipalOAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
+import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AccessTokenResponse;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -378,6 +380,98 @@ class OutgoingAuthTest {
         }
     }
 
+    /** A token endpoint answering every request with {@code status} and {@code body}. */
+    private static HttpServer failingTokens(int status, String body) throws IOException {
+        HttpServer tokens = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        tokens.createContext("/token", exchange -> {
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
+            if (bytes.length > 0) {
+                exchange.getResponseBody().write(bytes);
+            }
+            exchange.close();
+        });
+        tokens.start();
+        Registrations.tokenUri = "http://127.0.0.1:" + tokens.getAddress().getPort() + "/token";
+        return tokens;
+    }
+
+    private void tokenEndpointAnswers(int status, String body, Consumer<Throwable> check) throws Exception {
+        HttpServer tokens = failingTokens(status, body);
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            server(loader, "topolith.modules.account.mode=loopback", AUTH + "type=client-credentials",
+                    AUTH + "registration-id=svc").withUserConfiguration(Registrations.class).run(context -> {
+                        assertNull(context.getStartupFailure());
+                        AccountContract account = context.getBean(ContextPropagationTest.Holder.class).account();
+                        check.accept(assertThrows(RuntimeException.class, () -> account.find("auth")));
+                        assertEquals(0, SeenAuth.HANDLED.get());
+                    });
+        } finally {
+            stop(tokens);
+        }
+    }
+
+    @Test
+    void ac_ext_61_a_token_endpoint_answering_503_or_429_fails_the_call_as_module_unavailable() throws Exception {
+        for (int status : new int[] {503, 429}) {
+            tokenEndpointAnswers(status, "", thrown -> {
+                assertInstanceOf(ModuleUnavailableException.class, thrown);
+                assertTrue(thrown.getMessage().endsWith("(connection failure)"), thrown.getMessage());
+            });
+        }
+    }
+
+    @Test
+    void ac_ext_61_a_token_endpoint_answering_invalid_client_keeps_the_oauth2_exception() throws Exception {
+        tokenEndpointAnswers(400, "{\"error\":\"invalid_client\"}", thrown ->
+                assertInstanceOf(OAuth2AuthorizationException.class, thrown));
+    }
+
+    @Test
+    void ac_ext_61_a_replaced_token_request_factory_is_closed_with_the_context() throws Exception {
+        AtomicInteger closed = new AtomicInteger();
+        class Closing implements ClientHttpRequestFactory, AutoCloseable {
+            public org.springframework.http.client.ClientHttpRequest createRequest(java.net.URI uri,
+                    org.springframework.http.HttpMethod method) {
+                throw new UnsupportedOperationException();
+            }
+
+            public void close() {
+                closed.incrementAndGet();
+            }
+        }
+        class Disposing implements ClientHttpRequestFactory, org.springframework.beans.factory.DisposableBean {
+            public org.springframework.http.client.ClientHttpRequest createRequest(java.net.URI uri,
+                    org.springframework.http.HttpMethod method) {
+                throw new UnsupportedOperationException();
+            }
+
+            public void destroy() {
+                closed.incrementAndGet();
+            }
+        }
+        OutgoingAuth.TokenRequests requests = new OutgoingAuth.TokenRequests(id -> new Closing());
+        requests.forModule("account");
+        requests.replace("account", new Disposing());
+        requests.replace("account", new Closing());
+        // a request created just before a swap may still run on the old factory, so nothing closes yet
+        assertEquals(0, closed.get());
+        // a module whose factory was never requested has nothing to replace
+        requests.replace("other", new Closing());
+        requests.destroy();
+        // the initial, the replaced and the current factory
+        assertEquals(3, closed.get());
+    }
+
+    @Test
+    void ac_ext_56_the_dashless_spelling_is_dropped_when_another_module_has_that_id() {
+        assertEquals(List.of("a-b"), AuthSpellings.of("a-b", Set.of("ab", "a-b")));
+        assertEquals(List.of("ab"), AuthSpellings.of("ab", Set.of("ab", "a-b")));
+        // without a module 'ab' the dashless spelling still names a-b
+        assertEquals(List.of("a-b", "ab"), AuthSpellings.of("a-b", Set.of("a-b")));
+    }
+
     /** A host's own client-credentials token client, which needs no token endpoint. */
     @Configuration(proxyBeanMethods = false)
     static class HostTokenClient {
@@ -429,11 +523,16 @@ class OutgoingAuthTest {
     /** Two calls of an external client-credentials module to a provider rejecting the first one. */
     private void rejected(int status, String challenge, List<String> sent, int issuedTokens, boolean kept)
             throws Exception {
+        rejected(status, challenge, sent, issuedTokens, kept, Fixtures.class.getClassLoader());
+    }
+
+    private void rejected(int status, String challenge, List<String> sent, int issuedTokens, boolean kept,
+            ClassLoader parent) throws Exception {
         AtomicInteger issued = new AtomicInteger();
         HttpServer tokens = tokens(issued, 0);
         List<String> seen = new CopyOnWriteArrayList<>();
         HttpServer provider = rejecting(status, challenge, seen);
-        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(parent, root)) {
             client(loader, "topolith.modules.account.mode=external", "topolith.modules.account.remote.url=http://"
                     + "127.0.0.1:" + provider.getAddress().getPort(), "topolith.modules.account.remote.read-timeout=5s",
                     AUTH + "type=client-credentials", AUTH + "registration-id=svc")
@@ -460,6 +559,12 @@ class OutgoingAuthTest {
         rejected(401, "Bearer error=\"invalid_token\"", List.of("Bearer cc-1", "Bearer cc-2"), 2, false);
         // a 401 naming no error counts as invalid_token
         rejected(401, "Bearer", List.of("Bearer cc-1", "Bearer cc-2"), 2, false);
+    }
+
+    @Test
+    void ac_ext_59_a_servlet_free_host_still_evicts_a_token_the_provider_rejects() throws Exception {
+        rejected(401, "Bearer error=\"invalid_token\"", List.of("Bearer cc-1", "Bearer cc-2"), 2, false,
+                new FilteredClassLoader("jakarta.servlet"));
     }
 
     @Test
@@ -542,6 +647,56 @@ class OutgoingAuthTest {
         }
     }
 
+    /** A customizer whose interceptor sets {@code Authorization} per call: only the call-time check sees it. */
+    @Configuration(proxyBeanMethods = false)
+    static class BasicInterceptor {
+        @Bean
+        RestClientHttpServiceGroupConfigurer basicInterceptor() {
+            return ModuleClients.configure("account", builder -> builder.requestInterceptor(
+                    (request, body, execution) -> {
+                        request.getHeaders().set(HttpHeaders.AUTHORIZATION, "Basic dXNlcjpwdw==");
+                        return execution.execute(request, body);
+                    }));
+        }
+    }
+
+    /** The default-header customizer of {@link Basic}, registered after every auto-configuration bean. */
+    @Configuration(proxyBeanMethods = false)
+    static class LateBasic {
+        @Bean
+        static BeanDefinitionRegistryPostProcessor lateBasic() {
+            return new BeanDefinitionRegistryPostProcessor() {
+                @Override
+                public void postProcessBeanDefinitionRegistry(BeanDefinitionRegistry registry) {
+                    registry.registerBeanDefinition("lateBasicCustomizer", new RootBeanDefinition(
+                            RestClientHttpServiceGroupConfigurer.class, () -> ModuleClients.configure("account",
+                                    builder -> builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Basic dXNlcjpwdw=="))));
+                }
+
+                @Override
+                public void postProcessBeanFactory(ConfigurableListableBeanFactory factory) {
+                }
+            };
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class OtherHeader {
+        @Bean
+        RestClientHttpServiceGroupConfigurer otherHeader() {
+            return ModuleClients.configure("account", builder -> builder.defaultHeader("X-Custom", "yes"));
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class ApiKeyHook {
+        @Bean
+        RestClientHttpServiceGroupConfigurer apiKeyHook() {
+            return ModuleClients.authenticate("account", (request, body, execution) -> execution.execute(request,
+                    body));
+        }
+    }
+
     @Configuration(proxyBeanMethods = false)
     static class Changing {
         @Bean
@@ -561,7 +716,7 @@ class OutgoingAuthTest {
 
     @Test
     void ac_ext_55_a_hook_changing_the_customizers_authorization_fails_the_call_unsent() throws Exception {
-        loopback(OutgoingAuthTest::assertUnsent, Basic.class, Changing.class);
+        loopback(OutgoingAuthTest::assertUnsent, BasicInterceptor.class, Changing.class);
         // the relay keeps the customizer's header when there is no token, and changes it when there is one
         loopback(account -> {
             account.find("auth");
@@ -569,7 +724,69 @@ class OutgoingAuthTest {
             SeenAuth.clear();
             as(jwt("alice"));
             assertUnsent(account);
-        }, Basic.class);
+        }, BasicInterceptor.class);
+    }
+
+    private static void startsOrFailsWithTl0036(org.springframework.boot.test.context.assertj
+            .AssertableApplicationContext context, boolean fails, String what) {
+        startsOrFailsWithTl0036(context.getStartupFailure(), fails, what);
+    }
+
+    private static void startsOrFailsWithTl0036(Throwable startupFailure, boolean fails, String what) {
+        if (!fails) {
+            assertNull(startupFailure, what);
+            return;
+        }
+        Throwable cause = startupFailure;
+        while (cause != null && !(cause instanceof TopolithException)) {
+            cause = cause.getCause();
+        }
+        assertNotNull(cause, String.valueOf(startupFailure));
+        assertEquals(TopolithCode.TL0036, ((TopolithException) cause).diagnostics().get(0).code(), what);
+        assertTrue(cause.getMessage().contains("'account'"), what);
+    }
+
+    @Test
+    void ac_ext_55_a_default_authorization_on_a_module_with_a_hook_fails_startup_with_tl0036() throws Exception {
+        // external module: relay by default, explicit relay, client-credentials, a host hook
+        startup(context -> startsOrFailsWithTl0036(context, true, "relay default"), new Class<?>[] {Basic.class});
+        startup(context -> startsOrFailsWithTl0036(context, true, "explicit relay"), new Class<?>[] {Basic.class},
+                AUTH + "type=relay");
+        startup(context -> startsOrFailsWithTl0036(context, true, "client-credentials"),
+                new Class<?>[] {Basic.class, Registrations.class}, AUTH + "type=client-credentials",
+                AUTH + "registration-id=svc");
+        startup(context -> startsOrFailsWithTl0036(context, true, "host hook"),
+                new Class<?>[] {Basic.class, ApiKeyHook.class});
+        // a customizer registered after the auto-configuration is still seen (D-92)
+        startup(context -> startsOrFailsWithTl0036(context, true, "late customizer"),
+                new Class<?>[] {LateBasic.class});
+        // loopback module
+        for (String[] auth : List.of(new String[0], new String[] {AUTH + "type=relay"})) {
+            try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(Fixtures.class.getClassLoader(),
+                    root)) {
+                server(loader, "topolith.modules.account.mode=loopback").withUserConfiguration(Basic.class)
+                        .withPropertyValues(auth)
+                        .run(context -> startsOrFailsWithTl0036(context.getStartupFailure(), true, "loopback " + List.of(auth)));
+            }
+        }
+    }
+
+    @Test
+    void ac_ext_55_no_hook_or_another_default_header_leaves_a_default_authorization_alone() throws Exception {
+        startup(context -> startsOrFailsWithTl0036(context, false, "none"), new Class<?>[] {Basic.class},
+                AUTH + "type=none");
+        startup(context -> startsOrFailsWithTl0036(context, false, "other header"),
+                new Class<?>[] {OtherHeader.class});
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(Fixtures.class.getClassLoader(), root)) {
+            server(loader, "topolith.modules.account.mode=loopback", AUTH + "type=none")
+                    .withUserConfiguration(Basic.class)
+                    .run(context -> startsOrFailsWithTl0036(context.getStartupFailure(), false, "loopback none"));
+        }
+    }
+
+    @Test
+    void ac_ext_55_a_customizer_runs_before_the_hooks_configurer() {
+        assertTrue(ModuleClientConfigurer.ORDER < org.springframework.core.Ordered.LOWEST_PRECEDENCE);
     }
 
     /** An external account module's client host, which needs no provider to start. */

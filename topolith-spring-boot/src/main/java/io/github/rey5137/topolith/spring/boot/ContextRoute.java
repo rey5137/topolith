@@ -7,7 +7,10 @@ import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+import io.github.rey5137.topolith.core.Diagnostic;
+import io.github.rey5137.topolith.core.TopolithCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -26,6 +29,8 @@ final class ContextRoute {
     private static final String TENANT_HEADER = ContextPropagation.TENANT_HEADER.toLowerCase(Locale.ROOT);
 
     private final ContextPropagation context;
+    // a client can send Topolith-Tenant on every request: only the first is an error in the log
+    private final AtomicBoolean tenantMissingLogged = new AtomicBoolean();
 
     /** The restored values of one dispatch: the listed keys' previous MDC values (null when absent) and the scope. */
     private record State(Map<String, String> previous, TenantContext.Scope scope) {
@@ -37,9 +42,9 @@ final class ContextRoute {
 
     /**
      * Before a module route's handler: puts the sent values and removes the listed keys the request does not carry.
-     * False when it answered 400 or 403 and the handler must not run.
+     * False when it answered 400, 403 or 500 (TL0039) and the handler must not run.
      */
-    boolean open(HttpServletRequest request, HttpServletResponse response) throws IOException {
+    boolean open(HttpServletRequest request, HttpServletResponse response, String moduleId) throws IOException {
         Map<String, String> sent = new LinkedHashMap<>();
         String tenant = null;
         try {
@@ -58,21 +63,28 @@ final class ContextRoute {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return false;
         }
+        TenantContext tenants = context.tenantContext();
+        if (tenant != null && tenants == null) {
+            Diagnostic problem = new Diagnostic(TopolithCode.TL0039, "a module route request carries "
+                    + ContextPropagation.TENANT_HEADER + " but the host has no TenantContext bean, so the provider "
+                    + "would run without its caller's tenant.", "Add a TenantContext bean to this host.");
+            if (tenantMissingLogged.compareAndSet(false, true)) {
+                LOG.error(problem.toString());
+            } else {
+                LOG.debug(problem.toString());
+            }
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            return false;
+        }
         Map<String, String> previous = new LinkedHashMap<>();
         for (String key : context.keys()) {
             previous.put(key, MDC.get(key));
-            String value = sent.get(key);
-            if (value == null) {
-                MDC.remove(key);
-            } else {
-                MDC.put(key, value);
-            }
+            put(key, sent.get(key));
         }
         TenantContext.Scope scope = null;
-        TenantContext tenants = context.tenantContext();
         if (tenants != null) {
             try {
-                scope = tenants.open(tenant, request.getUserPrincipal());
+                scope = tenants.open(TenantContext.Request.of(tenant, request.getUserPrincipal(), moduleId));
             } catch (RuntimeException rejected) {
                 restore(previous);
                 LOG.debug("The tenant context rejected the tenant of a module route request", rejected);
@@ -117,12 +129,15 @@ final class ContextRoute {
     }
 
     private static void restore(Map<String, String> previous) {
-        previous.forEach((key, value) -> {
-            if (value == null) {
-                MDC.remove(key);
-            } else {
-                MDC.put(key, value);
-            }
-        });
+        previous.forEach(ContextRoute::put);
+    }
+
+    /** Sets the MDC {@code key} to {@code value}, or removes it when null. */
+    private static void put(String key, String value) {
+        if (value == null) {
+            MDC.remove(key);
+        } else {
+            MDC.put(key, value);
+        }
     }
 }

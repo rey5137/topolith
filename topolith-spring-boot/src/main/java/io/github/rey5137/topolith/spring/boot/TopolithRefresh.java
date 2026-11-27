@@ -73,7 +73,7 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
         for (String key : changedKeys) {
             int dot = key.startsWith(PREFIX) ? key.indexOf('.', PREFIX.length()) : -1;
             if (dot > 0) {
-                changed.computeIfAbsent(key.substring(PREFIX.length(), dot), id -> new HashSet<>())
+                changed.computeIfAbsent(canonical(key.substring(PREFIX.length(), dot)), id -> new HashSet<>())
                         .add(key.substring(dot + 1).replace("-", "").toLowerCase(Locale.ROOT));
             }
         }
@@ -105,20 +105,20 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
         status.update(modes, pending);
         Map<String, Map<String, String>> current = new HashMap<>();
         for (String key : new TreeSet<>(changedKeys)) {
-            String id = moduleOf(key);
-            if (id != null && wiring.contains(id) && runningLoopback.containsKey(id) && loopbackKey(key, id)
+            String id = canonical(moduleOf(key));
+            if (id != null && wiring.contains(id) && runningLoopback.containsKey(id) && loopbackKey(key)
                     && differs(key, id, current.computeIfAbsent(id, this::loopbackSettings))) {
                 LOG.warn(new Diagnostic(TopolithCode.TL0010, "loopback module '" + id + "' keeps its client "
                         + "settings: the refreshed " + key + " applies only after a restart.",
                         "Restart the application to apply it, or restore the running value"
-                        + (urlKey(key, id) ? "; remote.url and remote.service-id are not allowed on a loopback "
+                        + (urlKey(key) ? "; remote.url and remote.service-id are not allowed on a loopback "
                         + "module (the next start fails with TL0003)." : ".")).toString());
             }
         }
         for (String key : new TreeSet<>(changedKeys)) {
-            String id = moduleOf(key);
-            if (id != null && auth.contains(id) && relaxed(key.substring(PREFIX.length() + id.length() + 1))
-                    .startsWith("auth.") && differs(key, id, authSettings(id), runningAuth.get(id))) {
+            String id = canonical(moduleOf(key));
+            if (id != null && auth.contains(id) && relaxed(restOf(key)).startsWith("auth.")
+                    && differs(key, authSettings(id), runningAuth.get(id))) {
                 LOG.warn(new Diagnostic(TopolithCode.TL0010, "module '" + id + "' keeps its outgoing-auth hook: "
                         + "the refreshed " + key + " applies only after a restart.",
                         "Restart the application to apply it, or restore the running value.").toString());
@@ -154,19 +154,36 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
         return dot > 0 ? key.substring(PREFIX.length(), dot) : null;
     }
 
-    /** Whether {@code key} is loopback module {@code id}'s {@code remote.url} or {@code remote.service-id}. */
-    private static boolean urlKey(String key, String id) {
-        String rest = relaxed(key.substring(PREFIX.length() + id.length() + 1));
+    /** The topology id a written module id names, dashes or not (an environment variable has none), else null. */
+    private String canonical(String written) {
+        if (written == null) {
+            return null;
+        }
+        for (String known : topology.known()) {
+            if (AuthSpellings.of(known, topology.known()).contains(written)) {
+                return known;
+            }
+        }
+        return written;
+    }
+
+    private static String restOf(String key) {
+        return key.substring(key.indexOf('.', PREFIX.length()) + 1);
+    }
+
+    /** Whether {@code key} is a loopback module's {@code remote.url} or {@code remote.service-id}. */
+    private static boolean urlKey(String key) {
+        String rest = relaxed(restOf(key));
         return rest.equals("remote.url") || rest.equals("remote.serviceid");
     }
 
     /** Whether the refreshed {@code key} of loopback module {@code id} differs from its running value (D-77). */
     private boolean differs(String key, String id, Map<String, String> current) {
-        return differs(key, id, current, runningLoopback.get(id));
+        return differs(key, current, runningLoopback.get(id));
     }
 
-    private static boolean differs(String key, String id, Map<String, String> current, Map<String, String> running) {
-        String wanted = relaxed(key.substring(PREFIX.length() + id.length() + 1));
+    private static boolean differs(String key, Map<String, String> current, Map<String, String> running) {
+        String wanted = relaxed(restOf(key));
         return !Objects.equals(valueOf(current, wanted), valueOf(running, wanted));
     }
 
@@ -174,11 +191,15 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
     private Map<String, String> authSettings(String id) {
         Map<String, String> settings = new TreeMap<>();
         if (environment instanceof ConfigurableEnvironment configurable) {
-            try {
-                Binder.get(configurable).bind(PREFIX + id + ".auth", Bindable.mapOf(String.class, String.class))
-                        .ifBound(values -> values.forEach((key, value) -> settings.put("auth." + key, value)));
-            } catch (BindException e) {
-                settings.put("auth", "invalid: " + e.getMessage());
+            // the dash-less spelling is what an environment variable binds to; the dashed one wins (D-50)
+            List<String> names = AuthSpellings.of(id, topology.known()).reversed();
+            for (String name : names) {
+                try {
+                    Binder.get(configurable).bind(PREFIX + name + ".auth", Bindable.mapOf(String.class, String.class))
+                            .ifBound(values -> values.forEach((key, value) -> settings.put("auth." + key, value)));
+                } catch (BindException e) {
+                    settings.put("auth", "invalid: " + e.getMessage());
+                }
             }
         }
         return settings;
@@ -198,9 +219,9 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
         return key.replace("-", "").toLowerCase(Locale.ROOT);
     }
 
-    /** Whether {@code key} is one of loopback module {@code id}'s restart-only client settings (D-77). */
-    private static boolean loopbackKey(String key, String id) {
-        String rest = relaxed(key.substring(PREFIX.length() + id.length() + 1));
+    /** Whether {@code key} is one of a loopback module's restart-only client settings (D-77). */
+    private static boolean loopbackKey(String key) {
+        String rest = relaxed(restOf(key));
         return rest.equals("remote.connecttimeout") || rest.equals("remote.readtimeout")
                 || rest.equals("remote.url") || rest.equals("remote.serviceid")
                 || rest.startsWith("remote.httpinterface.") || rest.startsWith("loopback.");

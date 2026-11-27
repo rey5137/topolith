@@ -1,6 +1,7 @@
 package io.github.rey5137.topolith.spring.boot;
 
 import java.security.Principal;
+import java.util.Objects;
 
 import io.github.rey5137.topolith.core.Incubating;
 
@@ -15,12 +16,66 @@ public interface TenantContext {
     String current();
 
     /**
-     * Makes {@code tenant} current until the returned scope is closed, after checking it against {@code principal},
-     * the request's principal (the {@code Authentication} under Spring Security, null when anonymous). A null
-     * {@code tenant} makes no tenant current. Throw to reject a tenant the principal may not act for: the module route
-     * then answers 403 without calling the provider and without the exception's message.
+     * Makes the request's tenant current until the returned scope is closed, after checking it against the request's
+     * principal and the module it calls. A null {@link Request#tenant()} makes no tenant current. Throw to reject a
+     * tenant the principal may not act for: the module route then answers 403 without calling the provider and
+     * without the exception's message.
      */
-    Scope open(String tenant, Principal principal);
+    Scope open(Request request);
+
+    /**
+     * What a module route's request carries. Topolith constructs it; a host test builds one with {@link #of}. A later
+     * field adds an accessor without breaking implementors.
+     */
+    final class Request {
+        private final String tenant;
+        private final Principal principal;
+        private final String moduleId;
+
+        private Request(String tenant, Principal principal, String moduleId) {
+            this.tenant = tenant;
+            this.principal = principal;
+            this.moduleId = Objects.requireNonNull(moduleId, "moduleId");
+        }
+
+        /** A request for a host's test of its {@code TenantContext}. */
+        public static Request of(String tenant, Principal principal, String moduleId) {
+            return new Request(tenant, principal, moduleId);
+        }
+
+        /** The tenant the caller sent, or null when it sent none. */
+        public String tenant() {
+            return tenant;
+        }
+
+        /** The request's principal (the {@code Authentication} under Spring Security), null when anonymous. */
+        public Principal principal() {
+            return principal;
+        }
+
+        /** The id of the module whose route is called. */
+        public String moduleId() {
+            return moduleId;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Request that && Objects.equals(tenant, that.tenant)
+                    && Objects.equals(principal, that.principal) && moduleId.equals(that.moduleId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(tenant, principal, moduleId);
+        }
+
+        /** Never prints the principal's credentials: its name only. */
+        @Override
+        public String toString() {
+            return "TenantContext.Request[tenant=" + tenant + ", principal="
+                    + (principal == null ? null : principal.getName()) + ", moduleId=" + moduleId + "]";
+        }
+    }
 
     /** Restores the state before {@link #open}. */
     interface Scope extends AutoCloseable {

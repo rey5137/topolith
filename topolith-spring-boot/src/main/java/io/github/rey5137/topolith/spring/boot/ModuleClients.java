@@ -15,6 +15,7 @@ import io.github.rey5137.topolith.core.Topology;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.InitializingBean;
+import org.springframework.core.Ordered;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer;
@@ -96,7 +97,11 @@ final class ModuleAuthConfigurer implements RestClientHttpServiceGroupConfigurer
     }
 }
 
-final class ModuleClientConfigurer implements RestClientHttpServiceGroupConfigurer, BeanFactoryAware, InitializingBean {
+final class ModuleClientConfigurer
+        implements RestClientHttpServiceGroupConfigurer, BeanFactoryAware, InitializingBean, Ordered {
+    /** Before the hooks configurer (the lowest precedence), so it sees every default header a customizer set. */
+    static final int ORDER = Ordered.LOWEST_PRECEDENCE - 100;
+
     private static final Set<String> PROTECTED = Set.of("baseUrl", "uriBuilderFactory", "requestFactory",
             "requestInterceptors", "defaultUriVariables", "messageConverters", "configureMessageConverters", "clone");
     private final String moduleId;
@@ -116,6 +121,11 @@ final class ModuleClientConfigurer implements RestClientHttpServiceGroupConfigur
     @Override
     public void afterPropertiesSet() {
         ModuleClients.requireClientModule(beanFactory, moduleId, "client customization");
+    }
+
+    @Override
+    public int getOrder() {
+        return ORDER;
     }
 
     @Override

@@ -1,6 +1,8 @@
 package io.github.rey5137.topolith.spring.boot;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -38,6 +40,9 @@ import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.web.server.servlet.context.AnnotationConfigServletWebServerApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer;
+import org.springframework.web.service.invoker.HttpExchangeAdapter;
+import org.springframework.web.service.invoker.HttpRequestValues;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -306,6 +311,109 @@ class CallObservationTest {
         }
     }
 
+    @Test
+    void ac_ext_45_in_loopback_mode_the_child_holds_when_the_exchange_runs_on_another_thread() throws Exception {
+        Recorder recorder = new Recorder();
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            server(loader, recorder, "topolith.modules.account.mode=loopback")
+                    .withUserConfiguration(ContextPropagationTest.Hop.class).run(context -> {
+                        assertNull(context.getStartupFailure());
+                        context.getBean(Holder.class).account().find("ok");
+                        assertChild(recorder);
+                    });
+        }
+    }
+
+    @Test
+    void ac_ext_45_in_external_mode_the_child_holds_when_the_exchange_runs_on_another_thread() throws Exception {
+        Recorder provider = new Recorder();
+        Recorder recorder = new Recorder();
+        serveExposed(provider, context -> external("http://127.0.0.1:" + ProviderErrorsTest.port(context), recorder,
+                new Class<?>[] {ContextPropagationTest.Hop.class, Spy.class}, caller -> {
+                    Spy.seen.clear();
+                    caller.getBean(AccountContract.class).find("ok");
+                    assertChild(recorder);
+                    // a spy outside the handoff saw the captured observation on the request
+                    assertEquals(List.of("account:true"), Spy.seen);
+                }));
+    }
+
+    /** Records, per group, whether a request reaches the adapter carrying the captured observation. */
+    @Configuration(proxyBeanMethods = false)
+    static class Spy {
+        static final List<String> seen = new CopyOnWriteArrayList<>();
+
+        @Bean
+        RestClientHttpServiceGroupConfigurer spy() {
+            return groups -> groups.forEachProxyFactory((group, factory) -> factory.exchangeAdapterDecorator(
+                    adapter -> (HttpExchangeAdapter) Proxy.newProxyInstance(
+                            HttpExchangeAdapter.class.getClassLoader(), new Class<?>[] {HttpExchangeAdapter.class},
+                            (proxy, method, args) -> {
+                                if (args != null && args[0] instanceof HttpRequestValues values) {
+                                    seen.add(group.name() + ":"
+                                            + values.getAttributes().containsKey(ObservationHandoff.OBSERVATION));
+                                }
+                                try {
+                                    return method.invoke(adapter, args);
+                                } catch (InvocationTargetException e) {
+                                    throw e.getCause();
+                                }
+                            })));
+        }
+    }
+
+    @Test
+    void ac_ext_45_without_a_registry_no_observation_is_captured_and_the_call_succeeds() throws Exception {
+        Recorder provider = new Recorder();
+        serveExposed(provider, context -> {
+            Spy.seen.clear();
+            try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+                runner(loader, ClientHost.class, null, NO_BOOT_REGISTRY, "topolith.modules.payment.mode=none",
+                        "topolith.modules.account.mode=external",
+                        "topolith.modules.account.remote.url=http://127.0.0.1:" + ProviderErrorsTest.port(context))
+                        .withUserConfiguration(ContextPropagationTest.Hop.class, Spy.class).run(caller -> {
+                            assertNull(caller.getStartupFailure());
+                            assertTrue(caller.getBeansOfType(ObservationRegistry.class).isEmpty());
+                            assertEquals("found", caller.getBean(AccountContract.class).find("ok"));
+                            assertEquals(List.of("account:false"), Spy.seen);
+                        });
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
+    @Test
+    void ac_ext_45_an_internal_or_none_module_gets_no_handoff_and_only_the_external_group_is_touched()
+            throws Exception {
+        Spy.seen.clear();
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            runner(loader, ClientHost.class, new Recorder(), "topolith.modules.account.mode=internal",
+                    "topolith.modules.payment.mode=none", "topolith.modules.boundary.mode=none")
+                    .withUserConfiguration(Spy.class).run(context -> {
+                        assertNull(context.getStartupFailure());
+                        assertFalse(context.containsBean("topolithObservationHandoff"));
+                        assertTrue(Spy.seen.isEmpty());
+                    });
+        }
+        Recorder provider = new Recorder();
+        serveExposed(provider, context -> {
+            Spy.seen.clear();
+            try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+                runner(loader, ClientHost.class, new Recorder(), "topolith.modules.account.mode=external",
+                        "topolith.modules.account.remote.url=http://127.0.0.1:" + ProviderErrorsTest.port(context),
+                        "topolith.modules.payment.mode=none", "topolith.modules.boundary.mode=none")
+                        .withUserConfiguration(Spy.class).run(caller -> {
+                            assertNull(caller.getStartupFailure());
+                            assertEquals("found", caller.getBean(AccountContract.class).find("ok"));
+                            assertEquals(List.of("account:true"), Spy.seen);
+                        });
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
     private static void assertChild(Recorder recorder) {
         List<Observation.Context> http = recorder.named("http.client.requests");
         assertEquals(1, http.size(), "the HTTP client's observation: " + recorder.stopped);
@@ -316,10 +424,16 @@ class CallObservationTest {
     /** An external caller host at {@code url}, with its registry. */
     private void external(String url, Recorder recorder, Consumer<AssertableApplicationContext> check,
             String... properties) throws Exception {
+        external(url, recorder, new Class<?>[0], check, properties);
+    }
+
+    private void external(String url, Recorder recorder, Class<?>[] extra,
+            Consumer<AssertableApplicationContext> check, String... properties) throws Exception {
         try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
             runner(loader, ClientHost.class, recorder, "topolith.modules.payment.mode=none",
                     "topolith.modules.account.mode=external", "topolith.modules.account.remote.url=" + url,
-                    "topolith.modules.account.remote.read-timeout=2s").withPropertyValues(properties)
+                    "topolith.modules.account.remote.read-timeout=2s").withUserConfiguration(extra)
+                    .withPropertyValues(properties)
                     .run(context -> {
                         assertNull(context.getStartupFailure());
                         check.accept(context);

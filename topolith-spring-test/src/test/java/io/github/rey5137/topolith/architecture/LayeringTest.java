@@ -35,6 +35,19 @@ class LayeringTest {
             .should().dependOnClassesThat().resideInAPackage("org.springframework.cloud..").allowEmptyShould(true);
     private static final ArchRule NO_MODULITH = noClasses().should().dependOnClassesThat()
             .resideInAPackage("org.springframework.modulith..").allowEmptyShould(true);
+    // INV-7: each optional library stays in the classes that are guarded against its absence (R-EXT-11, R-EXT-12,
+    // R-EXT-13). A nested class counts as its top-level class.
+    private static final String SPRING_BOOT = BASE + ".spring.boot.";
+    private static final ArchRule SECURITY_CONFINED = confined("org.springframework.security..",
+            SPRING_BOOT + "BearerToken", SPRING_BOOT + "ClientCredentialsHook", SPRING_BOOT + "ExposedRequestMatcher");
+    private static final ArchRule OBSERVATION_CONFINED = confined("io.micrometer.observation..",
+            SPRING_BOOT + "ModuleCallObserver", SPRING_BOOT + "observation.ModuleCallContext",
+            SPRING_BOOT + "observation.ModuleCallObservationConvention",
+            SPRING_BOOT + "observation.DefaultModuleCallObservationConvention",
+            BASE + ".spring.test.RestClientSerializer");
+    private static final ArchRule SERVLET_CONFINED = confined("jakarta.servlet..",
+            SPRING_BOOT + "ContextRoute", SPRING_BOOT + "ExposedRequestMatcher", SPRING_BOOT + "ExposureConfiguration",
+            SPRING_BOOT + "ModuleExceptionResolver", SPRING_BOOT + "RouteMark");
     private static final ArchRule GUARDED = classes().that().resideInAnyPackage(OPTIONAL)
             .and(new com.tngtech.archunit.base.DescribedPredicate<com.tngtech.archunit.core.domain.JavaClass>(
                     "depend on an integration and are Spring configurations") {
@@ -74,6 +87,11 @@ class LayeringTest {
     @Test void ac_build_05_integrations_stay_in_optional_modules() {
         OPTIONAL_ONLY.check(production());
         NO_MODULITH.check(production());
+    }
+    @Test void ac_build_05_security_micrometer_and_servlet_stay_in_guarded_classes() {
+        SECURITY_CONFINED.check(production());
+        OBSERVATION_CONFINED.check(production());
+        SERVLET_CONFINED.check(production());
     }
     @Test void ac_build_06_optional_configurations_are_guarded() { GUARDED.check(production()); }
     @Test void ac_build_03_fails_on_bad_fixture() {
@@ -133,6 +151,16 @@ class LayeringTest {
                 "spring.cloud.nested.GuardedOuter$NestedConfiguration"}) {
             assertFalse(classes.contain(BASE + "." + name), name);
         }
+    }
+
+    private static ArchRule confined(String library, String... allowed) {
+        return noClasses().that(new com.tngtech.archunit.base.DescribedPredicate<JavaClass>(
+                "are not one of " + String.join(", ", allowed)) {
+            @Override public boolean test(JavaClass type) {
+                String outer = type.getName().split("\\$")[0];
+                return !java.util.Arrays.asList(allowed).contains(outer);
+            }
+        }).should().dependOnClassesThat().resideInAPackage(library).allowEmptyShould(true);
     }
 
     private JavaClasses fixture(String packageName) {

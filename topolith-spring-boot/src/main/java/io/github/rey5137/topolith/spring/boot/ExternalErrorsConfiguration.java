@@ -6,6 +6,7 @@ import org.aopalliance.intercept.MethodInterceptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer;
 
 /**
@@ -23,6 +24,24 @@ class ExternalErrorsConfiguration {
         return new ExternalClientBuilders();
     }
 
+    /**
+     * Ordered before Spring Cloud's circuit-breaker configurer (15), so its decorator, added first, is the innermost
+     * and runs on the breaker's thread (R-EXT-11).
+     */
+    @Bean
+    @Order(10)
+    RestClientHttpServiceGroupConfigurer topolithObservationHandoff(Topology topology,
+            ObjectProvider<CallObserver> observers) {
+        String[] callers = ExternalHttpServicesRegistrar.clientModules(topology).toArray(String[]::new);
+        return groups -> {
+            CallObserver observer = observers.getIfAvailable();
+            if (observer != null) {
+                groups.filterByName(callers).forEachProxyFactory((group, factory) -> factory
+                        .exchangeAdapterDecorator(ObservationHandoff.decorator(observer)));
+            }
+        };
+    }
+
     @Bean
     RestClientHttpServiceGroupConfigurer topolithContractErrors(Topology topology, ExternalClientBuilders clients,
             ObjectProvider<CallObserver> observers, ObjectProvider<ContextPropagation> propagation,
@@ -36,11 +55,15 @@ class ExternalErrorsConfiguration {
             groups.filterByName(callers).forEachProxyFactory((group, factory) -> {
                 OutgoingAuth hooks = auth.getIfAvailable();
                 boolean relay = hooks != null && hooks.relays(group.name());
-                if (context != null || relay) {
+                CallObserver current = observers.getIfAvailable();
+                if (context != null || relay || current != null) {
                     // read on the calling thread, which a circuit breaker's exchange may not be on (R-EXT-12, D-93)
                     factory.httpRequestValuesProcessor((method, parameters, arguments, values) -> {
                         if (context != null) {
                             context.headers().forEach(values::addHeader);
+                        }
+                        if (current != null) {
+                            ObservationHandoff.capture(current, values);
                         }
                         String token = relay ? BearerToken.current() : null;
                         if (token != null) {
@@ -49,18 +72,17 @@ class ExternalErrorsConfiguration {
                     });
                 }
                 factory.proxyFactoryCustomizer((proxy, service) -> {
-                        proxy.addAdvice(0, new ContractCallTranslator(group.name(), topology.apiPackages(),
-                                service.getClassLoader()));
-                        // in front of the translation, so the observation ends after it (R-EXT-11, D-86)
-                        CallObserver observer = observers.getIfAvailable();
-                        if (observer != null) {
-                            Mode mode = topology.mode(group.name());
-                            proxy.addAdvice(0, (MethodInterceptor) invocation -> invocation.getMethod()
-                                    .getDeclaringClass() == Object.class ? invocation.proceed()
-                                    : observer.observe(group.name(), mode, service, invocation.getMethod().getName(),
-                                            invocation::proceed));
-                        }
-                    });
+                    proxy.addAdvice(0, new ContractCallTranslator(group.name(), topology.apiPackages(),
+                            service.getClassLoader()));
+                    // in front of the translation, so the observation ends after it (R-EXT-11, D-86)
+                    if (current != null) {
+                        Mode mode = topology.mode(group.name());
+                        proxy.addAdvice(0, (MethodInterceptor) invocation -> invocation.getMethod()
+                                .getDeclaringClass() == Object.class ? invocation.proceed()
+                                : current.observe(group.name(), mode, service, invocation.getMethod().getName(),
+                                        invocation::proceed));
+                    }
+                });
             });
         };
     }

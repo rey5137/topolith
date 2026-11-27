@@ -241,7 +241,10 @@ or Boot's `management.observations.enable.topolith=false`); Topolith has no prop
   route with its handler when its route handling starts, and the advice, before any stack walk, does not observe the
   invocation of that handler method on that bean; calls the handler then makes are observed as usual. A loopback or
   external call is therefore counted once, by its caller. The call runs in the observation's scope: Spring's
-  `http.client.requests` observation, and in internal mode the provider's own observations, are its children. On the
+  `http.client.requests` observation, and in internal mode the provider's own observations, are its children. That holds when
+  the HTTP exchange runs on another thread, as a Spring Cloud CircuitBreaker's time limiter does: the caller's thread
+  captures the current observation on the request and the innermost exchange adapter decorator reopens it on the thread
+  that runs the exchange, so the client observation, and the W3C trace headers it sends, keep their parent. On the
   provider's side `http.server.requests` continues the trace that Micrometer Tracing propagates in W3C headers;
   Topolith specifies no trace headers of its own.
 - **Name and keys.** The contextual (span) name is `<module.id> <contract simple name>.<method>`, the same in every
@@ -284,7 +287,9 @@ Implements INV-2, INV-4, INV-6 and D-86 through D-89.
   external mode; a transport failure (an R-EXT-10 fault in loopback mode, a refused connection in external mode) sets
   `ModuleUnavailableException`; and the observation's error is the exception the caller receives.
 - AC-EXT-45 (M6.2): In loopback and external mode Spring's `http.client.requests` observation is a child of the
-  `topolith.module.call` observation.
+  `topolith.module.call` observation. It stays a child when the exchange runs on another
+  thread, with a real Spring Cloud CircuitBreaker (Resilience4j) and with a decorator that hops threads; without an
+  `ObservationRegistry` bean nothing is captured; a `none` or internal module gets no handoff.
 - AC-EXT-46 (M6.2): Without an `ObservationRegistry` bean a contract call succeeds and nothing is observed; a `none`
   module gets no advice, no client instrumentation and no bean; a `final` handler provider fails startup with TL0029
   with neither a transaction manager nor an `ObservationRegistry` bean, and with a registry while
@@ -301,42 +306,56 @@ A loopback or external contract call carries the caller's MDC values for the key
 - **Caller.** On the calling thread, for each listed key with an MDC value, the group's client sends the header
   `Topolith-Mdc-<key>`, and with a `TenantContext` bean whose `current()` returns a tenant it sends `Topolith-Tenant`.
   A value is UTF-8, percent-encoded except for RFC 3986 unreserved characters; a key or tenant with no value sends no
-  header. An encoded value over 1024 characters is not sent: an MDC value logs TL0035 naming the key, never the value,
-  and a tenant fails the call before it is sent with a `TopolithException` carrying TL0038 (so R-EXT-11's `exception`
-  is `undeclared`), so a provider never runs without the caller's tenant.
+  header. An encoded value over 1024 characters, or an MDC value or tenant with an ISO control character (CR and LF
+  included), is not sent: an MDC value logs TL0035 naming the key, never the value, and a tenant fails the call before
+  it is sent with a `TopolithException` carrying TL0038 (so R-EXT-11's `exception` is `undeclared`). A provider that
+  receives a tenant therefore has it or refuses the call (see Provider), and a caller whose tenant cannot be sent
+  never calls it (D-98, D-99).
 - **Provider.** On a handler of an internal or loopback module's route, Topolith reads the headers of its own listed
   keys only (header names match case-insensitively; the value is stored under the listed spelling) and
-  `Topolith-Tenant`. Before the handler runs it puts each sent MDC value and removes every listed key the request does
+  `Topolith-Tenant`. The interceptor is registered at the highest precedence among those registered through
+  `WebMvcConfigurer`/`InterceptorRegistry`, so the values are current from the first of those on, a host's own included
+  (a `MappedInterceptor` bean runs before the registry's interceptors). Before the handler runs it puts each sent MDC value and removes every listed key the request does
   not carry, even one a server filter put, and with a `TenantContext` bean it calls
-  `TenantContext.open(tenant, principal)` with the sent tenant, or null when none was sent, so the provider sees no
-  tenant then. Once the request completes, normally or not, it restores each listed key's previous MDC value
+  `TenantContext.open(request)` with a `TenantContext.Request` holding the sent tenant, or null when none was sent, so
+  the provider sees no tenant then, the request's principal and the id of the module whose route is called. Once the request completes, normally or not, it restores each listed key's previous MDC value
   (removing a key that was absent) and closes the tenant scope, so nothing leaks to the next request on a pooled
-  thread. A header that does not decode or is over the limit answers 400 without calling the provider. No other route
-  reads these headers.
+  thread. A header that does not decode, is over the limit, or decodes to a value with an ISO control character
+  answers 400 without calling the provider, so a client cannot forge a log line through an MDC value. A request
+  carrying `Topolith-Tenant` to a host with no `TenantContext` bean answers 500 without calling the provider and logs
+  TL0039, and the caller receives R-EXT-04's unspecified exception (`exception` is `undeclared`); MDC headers need no
+  bean and are ignorable when no key is listed. The same decisions apply to a forward to a module route. The values are current on the request's dispatch threads only; work the handler hands to another thread
+  does not see them, as in internal mode. No other route reads these headers.
 - **Trust.** Any client that reaches a module route can send these headers, and a loopback module's routes are on the
-  host's own port (D-76), so a module route trusts `Topolith-Tenant` only through `TenantContext.open`'s check: it
-  receives the request's principal (`HttpServletRequest.getUserPrincipal()`, which under Spring Security is the
+  host's own port (D-76), so a module route trusts `Topolith-Tenant` only through `TenantContext.open`'s check: its
+  request carries the principal (`HttpServletRequest.getUserPrincipal()`, which under Spring Security is the
   request's `Authentication`, null when anonymous or unauthenticated) and must reject a tenant that principal may not
   act for by throwing. A rejection answers 403 without calling the provider and without sending the exception's
   message, and the caller receives R-EXT-04's unspecified exception (`exception` is `undeclared`). Internal calls do
   not cross a route, so they are never checked.
 - **`TenantContext`.** A public `@Incubating` interface in `io.github.rey5137.topolith.spring.boot`: `String current()`
-  returns the calling thread's tenant or null, and `TenantContext.Scope open(String tenant, java.security.Principal
-  principal)` checks the tenant against the principal, then makes it current, or makes no tenant current for null,
-  until the scope's `close()` restores the previous state. It uses JDK types only but is not in `topolith-core`: only
+  returns the calling thread's tenant or null, and `TenantContext.Scope open(TenantContext.Request request)` checks the
+  request's tenant against its principal and module, then makes it current, or makes no tenant current for null, until
+  the scope's `close()` restores the previous state. `Request` is a public final nested class that only Topolith
+  constructs (plus `Request.of(tenant, principal, moduleId)` for host tests) with accessors `String tenant()`,
+  `java.security.Principal principal()` and `String moduleId()` (the module whose route is called, never null), and
+  `equals`, `hashCode` and a `toString` that prints the principal's name only; a later field adds an accessor. It uses JDK types only but is not in `topolith-core`: only
   the HTTP path uses it, and business code needs no Topolith type (INV-1). With no bean no tenant crosses; two beans
   fail startup with TL0034.
 - **Parity.** For each listed key and for the tenant the provider observes the caller's value in every mode, and none
   when the caller has none, whatever the provider's server thread held (INV-6). Unlisted MDC keys reach the provider in
-  internal mode only.
+  internal mode only. A stated exception: an MDC value or tenant with a control character is refused or dropped on the
+  caller and answers 400 on the provider, whereas an internal provider sees the raw value (D-99).
 - **Validation.** A listed key that is not a run of letters, digits, `.`, `_` and `-` starting with a letter or digit,
   two keys equal ignoring case, more than 16 keys, or a listed key without SLF4J on the classpath fail startup with
   TL0034 naming the key. The list is read once at startup; a refresh does not change it.
 - **Trace context.** Trace and baggage propagation are Micrometer Tracing's and Spring's (W3C headers) and are not
   specified here; a host using Micrometer Tracing may carry a value as a baggage remote field instead of an MDC key.
-- **Activation.** The client side exists only on external and loopback groups and the provider side only with an
-  internal or loopback module, each only when a key is listed or a `TenantContext` bean exists; a `none` module gets
-  neither (INV-2).
+- **Activation.** The client side exists only on external and loopback groups, and only when a key is listed or a
+  `TenantContext` bean exists. The provider side is installed on every host that exposes an internal module or serves
+  a loopback one, whether or not a key is listed or a `TenantContext` bean exists, so that a tenant is never ignored
+  (D-98); it costs one pass over the request's header names on a module route and nothing elsewhere. A host that
+  exposes no module, and a `none` module, get nothing (INV-2).
 
 Implements INV-1, INV-2, INV-4, INV-6, INV-7, D-90 and D-91.
 
@@ -348,22 +367,29 @@ Implements INV-1, INV-2, INV-4, INV-6, INV-7, D-90 and D-91.
   MDC keys and tenant are back to their previous values, so the next request on that thread sees none of the call's.
 - AC-EXT-50 (M6.3): A route outside every module ignores `Topolith-Mdc-*` and `Topolith-Tenant`, a module route ignores
   the header of an unlisted key, and a header that does not decode or is over the limit answers 400 without calling
-  the provider.
-- AC-EXT-51 (M6.3): An MDC value over the limit is not sent and logs TL0035 naming the key but not the value; a tenant
-  over the limit fails the call with a `TopolithException` carrying TL0038 without sending it, and R-EXT-11's
-  `exception` is `undeclared`.
+  the provider; a header that decodes to a value with an ISO control character (CR, LF, tab) in a listed key or in the
+  tenant answers 400 too (D-99), including on a forward from a route outside every module to a module route.
+- AC-EXT-51 (M6.3): An MDC value over the limit or with a control character is not sent and logs TL0035 naming the
+  key but not the value; a tenant over the limit or with a control character fails the call with a
+  `TopolithException` carrying TL0038 without sending it, and R-EXT-11's `exception` is `undeclared`. A request
+  carrying `Topolith-Tenant` to a host with no `TenantContext` bean answers 500 with TL0039 logged and without calling
+  the provider, in loopback and external mode, the caller receives the unspecified exception, and a request with no
+  tenant header still passes on such a host (D-98).
 - AC-EXT-52 (M6.3): An invalid key, two keys equal ignoring case, more than 16 keys, a listed key without SLF4J on the
   classpath, and two `TenantContext` beans fail startup with TL0034; with no key listed and no `TenantContext` bean,
-  and for a `none` module, Topolith installs no propagation interceptor.
-- AC-EXT-58 (M6.3): `TenantContext.open` receives the request's principal, the `Authentication` under Spring Security
-  and null for an anonymous request; when it rejects the tenant, the module route answers 403 without calling the
+  and for a `none` module, the client side installs nothing; the provider side is installed only on a host that
+  exposes a module, and a host that exposes none, or has only `none` modules, installs none (INV-2). A host
+  interceptor registered through `InterceptorRegistry` ahead of the default order sees the sent MDC and tenant, because Topolith's interceptor has the highest
+  precedence.
+- AC-EXT-58 (M6.3): `TenantContext.open` receives a `Request` whose `principal()` is the `Authentication` under Spring
+  Security and null for an anonymous request, and whose `moduleId()` is the module whose route is called; when it rejects the tenant, the module route answers 403 without calling the
   provider or sending the exception's message, and the loopback or external caller receives an exception that is
   neither declared nor `ModuleUnavailableException`.
 
 ### R-EXT-13 — Outgoing authentication
 
 Each external or loopback module's client authenticates its calls through at most one outgoing-auth hook, chosen by
-`topolith.modules.<id>.auth.type` or supplied by the host (D-92 through D-96).
+`topolith.modules.<id>.auth.type` or supplied by the host (D-92 through D-97).
 
 | `auth.type` | Hook |
 |---|---|
@@ -384,19 +410,33 @@ Each external or loopback module's client authenticates its calls through at mos
   `topolith:<registration id>`, never the calling thread's, so one token per registration is obtained and cached
   whoever calls. Its token request uses the host's single client-credentials `OAuth2AccessTokenResponseClient` bean
   when there is one, and otherwise the connect and read timeouts the module's client currently uses, never its SSL
-  bundle or redirect settings; a token request failing on I/O raises `ModuleUnavailableException` with D-55's kind. A
+  bundle or redirect settings; a token request failing on I/O or answered 5xx or 429 raises
+  `ModuleUnavailableException` with D-55's kind, while an OAuth2 4xx error such as `invalid_client` or an empty answer
+  stays unspecified (D-97). A
   provider response whose OAuth2 error is `invalid_token` (a 401 naming no other error counts), or a token request
   ending in `invalid_grant`, removes the token; the failed call is not retried, and the next call obtains a new one
-  (D-96).
+  (D-96). A host's own wrapper around an I/O failure is not unwrapped (R-EXT-04).
 - **Custom hook.** `ModuleClients.authenticate(<id>, <interceptor>)` returns a group configurer, declared as a bean,
   that installs a Spring `ClientHttpRequestInterceptor` as the module's hook instead of `auth.type`'s. Like
   `ModuleClients.configure` it accepts an external or loopback module only (D-83); its interceptor needs no Spring
-  Security. Every hook runs after the interceptors an R-EXT-06 customizer adds.
+  Security. Every hook runs after the interceptors an R-EXT-06 customizer adds. The hook's interceptor may run on
+  another thread (a circuit breaker's), so a custom hook reads nothing thread-bound (`SecurityContextHolder`, MDC, a
+  tenant holder); a value to relay comes from the request.
+- **Order.** Topolith installs the hooks in a group configurer that runs after every other configurer: after every
+  configurer with an explicit order, after Topolith's own, and after every `ModuleClients.configure` customizer,
+  which runs at `Ordered.LOWEST_PRECEDENCE - 100` wherever the host declares it. A plain host
+  `RestClientHttpServiceGroupConfigurer` at the lowest precedence ties with the hooks configurer and keeps bean
+  registration order, so it can still add an interceptor behind the hook; the call-time check below is the only
+  guard against that interceptor overwriting the hook's `Authorization`.
 - **One hook per module.** Two `ModuleClients.authenticate` beans for one module, or one together with an explicit
   `auth.type`, fail startup with TL0036 naming the module. A request that reaches the hook already carrying an
   `Authorization` header (a customizer's) and whose `Authorization` the hook changes fails before it is sent with a
   `TopolithException` carrying TL0036 (R-EXT-11's `exception` is `undeclared`), so two credential sources never pick
-  a winner silently (INV-4).
+  a winner silently (INV-4). A default `Authorization` header a customizer sets
+  on a module that has any hook, relay included, fails startup with TL0036 naming the module, because the hook
+  would collide with it whenever a caller holds a token; an `Authorization` an interceptor sets is only checked at
+  call time. The call-time failure is thrown inside the circuit breaker, so a group fallback of the host can swallow
+  it and return its fallback value; the startup check moves the common case (a default header) out of that path.
 - **Validation.** An `auth.*` key for a module that is neither external nor loopback, an unknown `auth.*` key or
   `auth.type` value, an `auth.registration-id` without `client-credentials`, or a `ModuleClients.authenticate` naming
   such a module fail with TL0003 naming the key or module. `client-credentials` without Spring Security's OAuth2
@@ -421,7 +461,7 @@ Each external or loopback module's client authenticates its calls through at mos
   nothing assumes the caller and provider share a thread (INV-6); a call made on another thread relays what that
   thread's `SecurityContext` holds, which is also what an internal provider would see there.
 
-Implements INV-2, INV-4, INV-6, INV-7 and D-92 through D-96.
+Implements INV-2, INV-4, INV-6, INV-7 and D-92 through D-97.
 
 - AC-EXT-53 (M6.4): With `relay`, a loopback and an external call from a thread whose `Authentication` is a
   `JwtAuthenticationToken` send its token as `Authorization: Bearer`, and the provider sees an `Authentication` with
@@ -437,9 +477,16 @@ Implements INV-2, INV-4, INV-6, INV-7 and D-92 through D-96.
 - AC-EXT-60 (M6.4): A `client-credentials` token request uses the host's single client-credentials
   `OAuth2AccessTokenResponseClient` bean when there is one; otherwise it has the module's read timeout, also after a
   refresh lowers it, and a token request that times out fails the call with `ModuleUnavailableException` (timeout).
+- AC-EXT-61 (M6 gate): A `client-credentials` token request answered 503 or 429, or ending in an I/O failure, fails
+  the call with `ModuleUnavailableException` (connection failure), also when a 5xx is under a circuit breaker's
+  `NoFallbackAvailableException`, and also when the failure is nested in another exception inside Spring Security's;
+  one answered 400 `invalid_client`, or an OAuth2 failure with no cause, reaches the caller as the OAuth2 exception;
+  a host's own wrapper around a `ResourceAccessException` reaches the caller as thrown. A token-request factory an
+  R-EXT-08 refresh replaces is closed when it is `AutoCloseable` or `DisposableBean`.
 - AC-EXT-55 (M6.4): `ModuleClients.authenticate(<id>, <interceptor>)` installs the interceptor as that module's only
-  hook; two hooks for one module, or a hook with an explicit `auth.type`, fail startup with TL0036, and a hook that
-  changes an `Authorization` header a customizer set fails the call with a `TopolithException` carrying TL0036
+  hook; two hooks for one module, or a hook with an explicit `auth.type`, fail startup with TL0036, a default `Authorization`
+  header a customizer sets on a module with any hook (relay included) fails startup with TL0036, and a hook that
+  changes an `Authorization` header an interceptor set fails the call with a `TopolithException` carrying TL0036
   without sending it.
 - AC-EXT-56 (M6.4): An `auth.*` key for an internal or `none` module, an unknown key or value, an
   `auth.registration-id` without `client-credentials` and a `ModuleClients.authenticate` for an internal module fail

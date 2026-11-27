@@ -1,6 +1,5 @@
 package io.github.rey5137.topolith.spring.boot.errorfixture.host;
 
-import java.security.Principal;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.github.rey5137.topolith.spring.boot.TenantContext;
@@ -12,6 +11,8 @@ public final class ThreadTenant implements TenantContext {
     public static final AtomicInteger HANDLED = new AtomicInteger();
     /** The principal name {@link #open} last received, or {@code anonymous}. */
     public static volatile String lastPrincipal;
+    /** The module id {@link #open} last received. */
+    public static volatile String lastModule;
 
     public static String tenant() {
         return HOLDER.get();
@@ -31,8 +32,10 @@ public final class ThreadTenant implements TenantContext {
     }
 
     @Override
-    public Scope open(String tenant, Principal principal) {
-        lastPrincipal = principal == null ? "anonymous" : principal.getName();
+    public Scope open(Request request) {
+        lastPrincipal = request.principal() == null ? "anonymous" : request.principal().getName();
+        lastModule = request.moduleId();
+        String tenant = request.tenant();
         if ("evil".equals(tenant)) {
             throw new IllegalStateException("tenant secret message");
         }

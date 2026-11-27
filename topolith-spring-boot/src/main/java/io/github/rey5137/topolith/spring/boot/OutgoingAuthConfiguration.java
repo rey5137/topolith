@@ -1,6 +1,9 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import io.github.rey5137.topolith.core.Diagnostic;
 import io.github.rey5137.topolith.core.Topology;
+import io.github.rey5137.topolith.core.TopolithCode;
+import io.github.rey5137.topolith.core.TopolithException;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -15,7 +18,10 @@ import org.springframework.boot.ssl.SslBundles;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer;
@@ -46,12 +52,27 @@ class OutgoingAuthConfiguration {
         return auth::hooks;
     }
 
+    /**
+     * Runs after every other configurer, so the default headers it inspects are final and no host configurer
+     * appends an interceptor behind the hook (R-EXT-13). Beans of equal order keep registration order and an
+     * auto-configuration registers after the host's own beans.
+     */
     @Bean
+    @Order(Ordered.LOWEST_PRECEDENCE)
     RestClientHttpServiceGroupConfigurer topolithOutgoingAuthHooks(Topology topology, OutgoingAuth auth) {
         String[] callers = ExternalHttpServicesRegistrar.clientModules(topology).toArray(String[]::new);
         return groups -> groups.filterByName(callers).forEachClient((group, builder) -> {
             ClientHttpRequestInterceptor hook = auth.hooks().get(group.name());
             if (hook != null) {
+                // a default Authorization would collide with the hook whenever a caller holds a token (D-92)
+                builder.defaultHeaders(headers -> {
+                    if (headers.containsHeader(HttpHeaders.AUTHORIZATION)) {
+                        throw new TopolithException(new Diagnostic(TopolithCode.TL0036, "a client customizer of "
+                                + "module '" + group.name() + "' sets a default Authorization header and the "
+                                + "module has an outgoing-auth hook.",
+                                "Set credentials in either the customizer or the hook (auth.type), not both."));
+                    }
+                });
                 builder.requestInterceptor(new AuthHook(group.name(), hook));
             }
         });

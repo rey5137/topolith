@@ -100,8 +100,9 @@ final class ContextPropagation {
 
     /**
      * The caller half: the headers to send, read on the calling thread, where the host's MDC and tenant are (a
-     * circuit breaker may run the exchange itself on another one). TL0035 for an MDC value over the limit; TL0038
-     * for a tenant over it, so no call goes out without its tenant.
+     * circuit breaker may run the exchange itself on another one). TL0035 for an MDC value over the limit or with a
+     * control character; TL0038 for a tenant over it or with a control character, so no call goes out without its
+     * tenant.
      */
     Map<String, String> headers() {
         Map<String, String> headers = new LinkedHashMap<>();
@@ -110,18 +111,28 @@ final class ContextPropagation {
             if (value == null) {
                 continue;
             }
-            String encoded = encode(value);
-            if (encoded.length() > MAX_ENCODED) {
-                LOG.warn(new Diagnostic(TopolithCode.TL0035, "MDC key '" + key + "' has a value over "
-                        + MAX_ENCODED + " characters once percent-encoded, so it is not sent.",
-                        "Shorten the value of '" + key + "', or stop listing the key.").toString());
+            if (value.chars().anyMatch(Character::isISOControl)) {
+                LOG.warn(new Diagnostic(TopolithCode.TL0035, "MDC key '" + key + "' has a value with a control "
+                        + "character, so it is not sent.", "Remove the control characters from the value of '" + key
+                        + "', or stop listing the key.").toString());
             } else {
-                headers.put(MDC_PREFIX + key, encoded);
+                String encoded = encode(value);
+                if (encoded.length() > MAX_ENCODED) {
+                    LOG.warn(new Diagnostic(TopolithCode.TL0035, "MDC key '" + key + "' has a value over "
+                            + MAX_ENCODED + " characters once percent-encoded, so it is not sent.",
+                            "Shorten the value of '" + key + "', or stop listing the key.").toString());
+                } else {
+                    headers.put(MDC_PREFIX + key, encoded);
+                }
             }
         }
         TenantContext context = tenants.getIfAvailable();
         String tenant = context == null ? null : context.current();
         if (tenant != null) {
+            if (tenant.chars().anyMatch(Character::isISOControl)) {
+                throw new TopolithException(new Diagnostic(TopolithCode.TL0038, "the tenant has a control "
+                        + "character, so the call is not sent.", "Use a tenant without control characters."));
+            }
             String encoded = encode(tenant);
             if (encoded.length() > MAX_ENCODED) {
                 throw new TopolithException(new Diagnostic(TopolithCode.TL0038, "the tenant is over "
@@ -133,13 +144,17 @@ final class ContextPropagation {
         return headers;
     }
 
+    private static boolean unreserved(char c) {
+        return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '.'
+                || c == '_' || c == '~';
+    }
+
     /** UTF-8, percent-encoded except for RFC 3986's unreserved characters. */
     static String encode(String value) {
         StringBuilder out = new StringBuilder();
         for (byte b : value.getBytes(StandardCharsets.UTF_8)) {
             char c = (char) (b & 0xff);
-            if (c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '.'
-                    || c == '_' || c == '~') {
+            if (unreserved(c)) {
                 out.append(c);
             } else {
                 out.append('%').append(Character.toUpperCase(Character.forDigit(c >> 4, 16)))
@@ -149,7 +164,8 @@ final class ContextPropagation {
         return out.toString();
     }
 
-    /** The inverse of {@link #encode}; IllegalArgumentException for an over-long, mis-encoded or non-UTF-8 value. */
+    /** The inverse of {@link #encode}; IllegalArgumentException for an over-long, mis-encoded, non-UTF-8 or
+     * control-character value (D-99). */
     static String decode(String encoded) {
         if (encoded == null || encoded.length() > MAX_ENCODED) {
             throw new IllegalArgumentException("absent or over-long value");
@@ -166,19 +182,23 @@ final class ContextPropagation {
                 }
                 bytes[length++] = (byte) (high << 4 | low);
                 i += 2;
-            } else if (c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '.'
-                    || c == '_' || c == '~') {
+            } else if (unreserved(c)) {
                 bytes[length++] = (byte) c;
             } else {
                 throw new IllegalArgumentException("unencoded character");
             }
         }
+        String decoded;
         try {
-            return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+            decoded = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes, 0, length))
                     .toString();
         } catch (CharacterCodingException e) {
             throw new IllegalArgumentException("not UTF-8", e);
         }
+        if (decoded.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("control character");
+        }
+        return decoded;
     }
 }

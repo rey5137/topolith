@@ -131,6 +131,12 @@ class ContextPropagationTest {
         String probe() {
             return MDC.get("user.id") + "|" + MDC.get("other") + "|" + ThreadTenant.tenant();
         }
+
+        /** A forward from a route outside every module to a module route. */
+        @GetMapping("/probe/forward")
+        void forward(HttpServletRequest request, HttpServletResponse response) throws Exception {
+            request.getRequestDispatcher("/account/find?case=ctx").forward(request, response);
+        }
     }
 
     @Configuration(proxyBeanMethods = false)
@@ -322,6 +328,7 @@ class ContextPropagationTest {
         provider(context -> {
             assertEquals(200, get(context, "/account/find?case=ctx", "Topolith-Tenant", "acme").statusCode());
             assertEquals("anonymous", ThreadTenant.lastPrincipal);
+            assertEquals("account", ThreadTenant.lastModule);
             assertEquals(200, get(context, "/account/find?case=ctx", "Topolith-Tenant", "acme", "X-User", "alice")
                     .statusCode());
             assertEquals("alice", ThreadTenant.lastPrincipal);
@@ -442,6 +449,166 @@ class ContextPropagationTest {
     void ac_ext_52_two_tenant_context_beans_fail_with_tl0034() throws Exception {
         startup(null, 2, context -> assertEquals(TopolithCode.TL0034, failure(context)));
         startup(null, 1, context -> assertEquals(1, context.getBeansOfType(ContextPropagation.class).size()));
+    }
+
+    /** What a host's own interceptor ahead of Topolith's sees on a module route. */
+    static final List<String> HOST_SAW = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    @Configuration(proxyBeanMethods = false)
+    static class HostInterceptors implements org.springframework.web.servlet.config.annotation.WebMvcConfigurer {
+        @Override
+        public void addInterceptors(org.springframework.web.servlet.config.annotation.InterceptorRegistry registry) {
+            registry.addInterceptor(new org.springframework.web.servlet.HandlerInterceptor() {
+                @Override
+                public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+                    if (request.getRequestURI().startsWith("/account/")) {
+                        HOST_SAW.add(MDC.get("user.id") + "|" + ThreadTenant.tenant());
+                    }
+                    return true;
+                }
+            }).order(-1000);
+        }
+    }
+
+    @Test
+    void ac_ext_58_a_host_interceptor_ahead_of_the_default_order_sees_the_sent_values() throws Exception {
+        HOST_SAW.clear();
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            server(loader, "topolith.modules.account.mode=internal", "topolith.modules.account.expose.enabled=true")
+                    .withUserConfiguration(HostInterceptors.class).run(context -> {
+                        assertNull(context.getStartupFailure());
+                        assertEquals(CARRIED, get(context, "/account/find?case=ctx", SENT).body());
+                        assertEquals(List.of("alice|acme"), HOST_SAW);
+                    });
+        }
+    }
+
+    @Test
+    void ac_ext_50_a_decoded_control_character_in_an_mdc_value_or_the_tenant_answers_400() throws Exception {
+        provider(context -> {
+            String[][] bad = {{"Topolith-Mdc-user.id", "a%0D%0Ab"}, {"Topolith-Mdc-user.id", "%0A"},
+                    {"Topolith-Mdc-user.id", "a%09b"}, {"Topolith-Mdc-user.id", "%7F"},
+                    {"Topolith-Tenant", "acme%0D%0Aforged"}, {"Topolith-Tenant", "%00"}};
+            for (String[] header : bad) {
+                assertEquals(400, get(context, "/account/find?case=ctx", header).statusCode(), header[1]);
+            }
+            assertEquals(0, ThreadTenant.HANDLED.get());
+            // a space, an accent and a percent sign are not control characters
+            assertEquals(200, get(context, "/account/find?case=ctx", "Topolith-Mdc-user.id", "a%20%C3%A9%25")
+                    .statusCode());
+        });
+    }
+
+    @Test
+    void ac_ext_50_a_forward_from_a_non_module_route_goes_through_the_provider_interceptor() throws Exception {
+        provider(context -> {
+            // the forwarding route is outside every module, so only the forward target can have opened the values
+            assertEquals(CARRIED, get(context, "/probe/forward", SENT).body());
+            assertEquals(400, get(context, "/probe/forward", "Topolith-Tenant", "%0A").statusCode());
+        });
+    }
+
+    @Test
+    void ac_ext_51_the_provider_without_a_tenant_context_answers_500_with_tl0039_for_a_tenant_header(
+            CapturedOutput output) throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            for (String mode : new String[] {"topolith.modules.account.mode=loopback",
+                    "topolith.modules.account.mode=internal"}) {
+                bare(loader, mode, "topolith.modules.account.expose.enabled=true").run(context -> {
+                    assertNull(context.getStartupFailure());
+                    HttpResponse<String> refused = get(context, "/account/find?case=ctx", "Topolith-Tenant", "acme");
+                    assertEquals(500, refused.statusCode(), mode);
+                    assertTrue(output.getAll().contains("TL0039"), output.getAll());
+                    // later requests still answer 500; only the first is logged at ERROR
+                    assertEquals(500, get(context, "/account/find?case=ctx", "Topolith-Tenant", "acme")
+                            .statusCode(), mode);
+                    // no tenant header, no tenant bean: the route still serves, and MDC headers stay ignorable
+                    assertEquals(200, get(context, "/account/find?case=ctx").statusCode(), mode);
+                    assertEquals(200, get(context, "/account/find?case=ctx", "Topolith-Mdc-user.id", "a%0Ab")
+                            .statusCode(), mode);
+                    // a route outside every module never reads the header
+                    assertEquals(200, get(context, "/probe", "Topolith-Tenant", "acme").statusCode(), mode);
+                });
+            }
+        }
+    }
+
+    @Test
+    void ac_ext_51_an_external_caller_with_a_tenant_receives_the_unspecified_exception_from_such_a_provider()
+            throws Exception {
+        try (Fixtures.RecordingLoader provider = new Fixtures.RecordingLoader(root)) {
+            bare(provider, "topolith.modules.account.mode=internal", "topolith.modules.account.expose.enabled=true")
+                    .run(served -> {
+                        assertNull(served.getStartupFailure());
+                        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+                            new ApplicationContextRunner().withClassLoader(loader)
+                                    .withUserConfiguration(ClientHost.class).withBean(ThreadTenant.class)
+                                    .withPropertyValues(NONE).withPropertyValues(KEYS,
+                                            "topolith.modules.account.mode=external",
+                                            "topolith.modules.account.remote.url=http://127.0.0.1:"
+                                                    + ProviderErrorsTest.port(served),
+                                            "topolith.modules.account.remote.read-timeout=5s")
+                                    .run(context -> {
+                                        assertNull(context.getStartupFailure());
+                                        AccountContract account = context.getBean(AccountContract.class);
+                                        // without a tenant the provider serves
+                                        assertNotNull(account.find("ctx"));
+                                        ThreadTenant.set("acme");
+                                        RuntimeException thrown = assertThrows(RuntimeException.class,
+                                                () -> account.find("ctx"));
+                                        assertInstanceOf(RestClientResponseException.class, thrown);
+                                        assertFalse(thrown instanceof ModuleUnavailableException);
+                                        assertEquals(500, ((RestClientResponseException) thrown).getStatusCode()
+                                                .value());
+                                    });
+                        } catch (IOException e) {
+                            throw new IllegalStateException(e);
+                        }
+                    });
+        }
+    }
+
+    @Test
+    void ac_ext_51_an_mdc_value_with_a_control_character_is_not_sent_and_a_tenant_with_one_fails_with_tl0038(
+            CapturedOutput output) throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            server(loader, "topolith.modules.account.mode=loopback").run(context -> {
+                assertNull(context.getStartupFailure());
+                MDC.put("user.id", "forged\r\nline");
+                MDC.put("trace", "kept");
+                assertEquals("null|kept|null|null", context.getBean(Holder.class).account().find("ctx"));
+                assertTrue(output.getAll().contains("TL0035"), output.getAll());
+                assertFalse(output.getAll().contains("forged"));
+                MDC.remove("user.id");
+                ThreadTenant.HANDLED.set(0);
+                ThreadTenant.set("acme\r\nforged");
+                TopolithException thrown = assertThrows(TopolithException.class,
+                        () -> context.getBean(Holder.class).account().find("ctx"));
+                assertEquals(TopolithCode.TL0038, thrown.diagnostics().get(0).code());
+                assertEquals(0, ThreadTenant.HANDLED.get());
+            });
+        }
+    }
+
+    @Test
+    void ac_ext_52_a_host_with_no_exposed_module_installs_no_route_check() throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            // no tenant bean here either: a tenant header is not looked at, and the module has no route
+            bare(loader, "topolith.modules.account.mode=internal").run(context -> {
+                assertNull(context.getStartupFailure());
+                assertEquals(200, get(context, "/probe", "Topolith-Tenant", "acme").statusCode());
+                assertEquals(404, get(context, "/account/find?case=ctx", "Topolith-Tenant", "acme").statusCode());
+            });
+            // a none module has no bean and no route, so the host has no provider half at all
+            new WebApplicationContextRunner(AnnotationConfigServletWebServerApplicationContext::new)
+                    .withClassLoader(loader).withUserConfiguration(ErrorHost.class, Probes.class)
+                    .withPropertyValues("server.port=0").withPropertyValues(NONE).run(context -> {
+                        assertNull(context.getStartupFailure());
+                        assertEquals(0, context.getBeansOfType(ExposureConfiguration.class).size());
+                        assertEquals(200, get(context, "/probe", "Topolith-Tenant", "acme").statusCode());
+                        assertEquals(404, get(context, "/account/find?case=ctx").statusCode());
+                    });
+        }
     }
 
     @Test

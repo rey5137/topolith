@@ -45,12 +45,14 @@ final class ModuleExceptionResolver implements HandlerExceptionResolver, Ordered
 
     private final Topology topology;
     private final TopologyResolver.Resolution resolution;
+    private final ListedContractRoutes routes;
     private final Supplier<List<HttpMessageConverter<?>>> converters;
 
-    ModuleExceptionResolver(Topology topology, TopologyResolver.Resolution resolution,
+    ModuleExceptionResolver(Topology topology, TopologyResolver.Resolution resolution, ListedContractRoutes routes,
             Supplier<List<HttpMessageConverter<?>>> converters) {
         this.topology = topology;
         this.resolution = resolution;
+        this.routes = routes;
         this.converters = converters;
     }
 
@@ -60,7 +62,7 @@ final class ModuleExceptionResolver implements HandlerExceptionResolver, Ordered
         if (!(handler instanceof HandlerMethod method) || response.isCommitted()) {
             return null;
         }
-        String module = ModuleHandlers.internalOwner(topology, method.getBeanType());
+        String module = routes.internalOwner(topology, method);
         Class<?> declared = module == null ? null : ContractExceptions.declared(exception.getClass(),
                 topology.apiPackages());
         if (declared == null || (!(exception instanceof RuntimeException)
@@ -173,6 +175,9 @@ final class ModuleExceptionResolver implements HandlerExceptionResolver, Ordered
     }
 
     private boolean declaredByContract(String module, HandlerMethod handler, Class<?> exception) {
+        if (routes.owner(handler) != null) {
+            return Arrays.stream(handler.getMethod().getExceptionTypes()).anyMatch(t -> t.isAssignableFrom(exception));
+        }
         Class<?> beanType = ClassUtils.getUserClass(handler.getBeanType());
         for (String name : resolution.contracts().getOrDefault(module, Set.of())) {
             try {

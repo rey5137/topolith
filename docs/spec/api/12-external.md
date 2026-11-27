@@ -153,9 +153,8 @@ has one discovery registration. Implements INV-8, P-2, D-125 and D-126.
 
 - **Route coverage (D-126).** At startup, for each module that is internal and exposed, or loopback, every abstract
   method of every contract it provides must be served by a module route: a handler method of a bean the module owns
-  (by definition, with its class in the module's package until M8.6, D-129) that implements that contract method, or, from
-  M8.6, a route Topolith registers for a listed
-  contract. An uncovered method, for example an inferred contract implemented only by a non-handler `@Service`, fails
+  (by definition and with its class in the module's package, D-129) that implements that contract method, or a route
+  Topolith registers for a listed contract (D-125). An uncovered method, for example an inferred contract implemented only by a non-handler `@Service`, fails
   startup with TL0044 (new, M8.3) naming the module, contract and method, and the fix (a module `@RestController`
   implementing the contract, D-53). An unexposed internal module and a `none` or `external` module are not checked.
 - **Routes for listed contracts (D-125, from M8.6).** For a contract listed in a module declaration's `provides`
@@ -167,12 +166,15 @@ has one discovery registration. Implements INV-8, P-2, D-125 and D-126.
   `/<id>` prefix and detects no handlers itself; it is registered on the host's mapping with `registerMapping` from a
   `SmartInitializingSingleton`, before the server starts. No functional route is used. Every abstract contract method
   must carry an `@HttpExchange`-family annotation, or startup fails with TL0026 naming the method (AC-EXT-28's
-  meaning); a path clash with another handler fails with TL0005 naming both. A registry maps each registered handler
+  meaning). A missing `requestMappingHandlerMapping` also fails with TL0026 naming the module and listed contracts;
+  a path clash with another handler fails with TL0005 naming both. A registry maps each registered handler
   to its module and is consulted first wherever Topolith decides a handler's module, so the route gets the `/<id>`
   prefix, R-EXT-12's tenant check, D-117's `Topolith-Module` header, R-EXT-04's problem translation and exactly one
   R-EXT-11 observation per call, as a module controller does; the route invokes the context bean, so R-EXT-07's
   boundary and the by-value proxy apply. A `BeanPostProcessor` on `RequestMappingHandlerAdapter` puts a delegating
   return-value handler first, only for those registered methods, which writes the result as `@ResponseBody` would.
+  Spring's existing handlers process `HttpEntity`, `HttpHeaders` and asynchronous return types, as for a module
+  `@RestController`.
   AOT reflection hints cover the contract methods and their binding types. A `none` module has no definition and an
   unexposed internal module no route, so neither gets anything (INV-2).
 

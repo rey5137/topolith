@@ -528,7 +528,8 @@ class ModulePersistenceTest {
     @Test
     void ac_mode_25_the_standalone_exemption_does_not_cover_another_module() throws Exception {
         run(OverlappingHost.class, List.of(ledgerRoot, billingRoot, hostRoot), List.of("topolith.standalone=ledger",
-                "topolith.modules.billing.mode=none"), context -> {
+                "topolith.modules.billing.mode=none", "spring.data.jdbc.repositories.enabled=false",
+                "spring.data.jpa.repositories.enabled=false"), context -> {
             assertEquals(List.of(TopolithCode.TL0018), codes(context));
             String message = failure(context).getMessage();
             assertTrue(message.contains("module 'billing'") && !message.contains("module 'ledger'"), message);
@@ -541,7 +542,8 @@ class ModulePersistenceTest {
     void ac_mode_25_a_host_auto_configuration_package_above_a_module_fails_with_tl0018_in_every_mode()
             throws Exception {
         for (String mode : List.of("internal", "external", "none")) {
-            run(OverlappingHost.class, List.of(ledgerRoot, hostRoot), List.of("topolith.modules.ledger.mode=" + mode),
+            run(OverlappingHost.class, List.of(ledgerRoot, hostRoot), List.of("topolith.modules.ledger.mode=" + mode,
+                    "spring.data.jdbc.repositories.enabled=false", "spring.data.jpa.repositories.enabled=false"),
                     context -> {
                         assertEquals(List.of(TopolithCode.TL0018), codes(context));
                         String message = failure(context).getMessage();

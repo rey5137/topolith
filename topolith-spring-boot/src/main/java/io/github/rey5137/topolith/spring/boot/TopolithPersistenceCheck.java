@@ -120,7 +120,8 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
     /** TL0007: management imports can activate in a child context outside this factory. */
     private static List<Diagnostic> resourceRegistrations(ClassLoader loader, Resolution resolution) {
         if (!ClassUtils.isPresent(
-                "org.springframework.boot.actuate.autoconfigure.web.server.ManagementContextAutoConfiguration", loader)) {
+                "org.springframework.boot.actuate.autoconfigure.web.server.ManagementContextAutoConfiguration",
+                loader)) {
             return List.of();
         }
         List<Diagnostic> found = new ArrayList<>();
@@ -317,8 +318,8 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
 
     /**
      * TL0024: a Spring Data repository or MyBatis mapper interface, in an internal module's package or in the host's
-     * auto-configuration packages, that no repository or mapper registration covers (D-36). Topolith registers JPA
-     * repositories per module only, and TL0018 keeps the host's scan away from module packages, so any other store
+     * auto-configuration packages, that no repository or mapper registration covers (D-36). Topolith registers
+     * repositories and mappers per module, and TL0018 keeps the host scan away from module packages. A missing store
      * would lose the interface silently. Found by class-file metadata, without loading the interfaces; a store whose
      * library is not on the class path has no interfaces to find.
      */
@@ -366,9 +367,12 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                 if (!owner.isEmpty() && !covered.contains(name)) {
                     found.putIfAbsent(name, new Diagnostic(TopolithCode.TL0024, "the interface " + name + " in "
                             + owner + " is a repository or mapper that no registration covers.",
-                            "0.1 registers JPA and JDBC repositories for modules: use Spring Data JPA or JDBC, "
-                            + "or have the module register its own (@Enable<Store>Repositories or @MapperScan on "
-                            + "its package) and the "
+                            "Topolith registers JPA, JDBC, R2DBC and MongoDB repositories and MyBatis mappers; "
+                            + "ensure the store infrastructure is available and a mapper has a single host "
+                            + "SqlSessionFactory, "
+                            + "or have the module register its own (@Enable<Store>Repositories or @MapperScan "
+                            + "on its package) "
+                            + "and the "
                             + "host declare its own @Enable<Store>Repositories for the host's package. An interface "
                             + "that is unregistered on purpose: annotate it @NoRepositoryBean. With multiple "
                             + "Spring Data stores, "

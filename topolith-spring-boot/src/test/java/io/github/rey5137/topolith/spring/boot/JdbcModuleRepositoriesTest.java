@@ -203,11 +203,14 @@ class JdbcModuleRepositoriesTest {
 
     @Test
     void ac_mode_32_without_jpa_an_unannotated_jdbc_aggregate_is_registered() throws Exception {
-        FilteredClassLoader withoutJpa = new FilteredClassLoader("org.springframework.data.jpa") {
+        FilteredClassLoader withoutJpa = new FilteredClassLoader("org.springframework.data.jpa",
+                "org.springframework.data.r2dbc", "org.springframework.data.mongodb") {
             @Override
             public Enumeration<URL> getResources(String name) throws IOException {
                 return Collections.enumeration(Collections.list(super.getResources(name)).stream()
-                        .filter(url -> !url.toString().contains("spring-data-jpa")).toList());
+                        .filter(url -> !url.toString().contains("spring-data-jpa"))
+                        .filter(url -> !url.toString().contains("spring-data-r2dbc"))
+                        .filter(url -> !url.toString().contains("spring-data-mongodb")).toList());
             }
         };
         try (RecordingLoader loader = new RecordingLoader(withoutJpa, plain)) {

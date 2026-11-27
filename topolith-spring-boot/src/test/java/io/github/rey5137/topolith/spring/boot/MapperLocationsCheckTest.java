@@ -53,7 +53,10 @@ class MapperLocationsCheckTest {
         try (RecordingLoader loader = new RecordingLoader(userRoot, hostRoot)) {
             ApplicationContextRunner runner = new ApplicationContextRunner().withClassLoader(loader)
                     .withUserConfiguration(Host.class)
-                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.modules.user.mode=" + mode,
+                    .withPropertyValues("spring.liquibase.enabled=false",
+                            "spring.autoconfigure.exclude=org.mybatis.spring.boot.autoconfigure."
+                                    + "MybatisAutoConfiguration",
+                            "topolith.modules.user.mode=" + mode,
                             "topolith.modules.user.remote.url=http://localhost");
             if (locations != null) {
                 runner = runner.withPropertyValues("mybatis.mapper-locations=" + locations);
@@ -65,7 +68,10 @@ class MapperLocationsCheckTest {
     private void runStandalone(String locations, Check check) throws IOException {
         try (RecordingLoader loader = new RecordingLoader(userRoot, hostRoot)) {
             new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(Host.class)
-                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.standalone=user",
+                    .withPropertyValues("spring.liquibase.enabled=false",
+                            "spring.autoconfigure.exclude=org.mybatis.spring.boot.autoconfigure."
+                                    + "MybatisAutoConfiguration",
+                            "topolith.standalone=user",
                             "mybatis.mapper-locations=" + locations)
                     .run(check::check);
         }

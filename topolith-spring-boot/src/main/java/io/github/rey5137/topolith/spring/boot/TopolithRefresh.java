@@ -1,5 +1,6 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -14,7 +15,10 @@ import io.github.rey5137.topolith.core.Diagnostic;
 import io.github.rey5137.topolith.core.Incubating;
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.TopolithCode;
+import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.core.Topology;
+import io.github.rey5137.topolith.spring.boot.internal.ResilienceRefresh;
+import io.github.rey5137.topolith.spring.boot.internal.ResilienceSettings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.BeanClassLoaderAware;
@@ -43,13 +47,15 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
     private final Topology topology;
     private final TopolithRefreshStatus status;
     private final ObjectProvider<ExternalClientEndpoints> endpoints;
+    private final ObjectProvider<ResilienceRefresh> resilience;
     private final Map<String, Boolean> runningBalanced = new HashMap<>();
     private final Map<String, Map<String, String>> runningLoopback = new HashMap<>();
     private final Map<String, Map<String, String>> runningAuth = new HashMap<>();
     private ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
 
     TopolithRefresh(Environment environment, Topology topology, TopolithRefreshStatus status,
-            ObjectProvider<ExternalClientEndpoints> endpoints) {
+            ObjectProvider<ExternalClientEndpoints> endpoints, ObjectProvider<ResilienceRefresh> resilience) {
+        this.resilience = resilience;
         this.environment = environment;
         this.topology = topology;
         this.status = status;
@@ -100,8 +106,21 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
                 auth.add(id);
             }
         });
+        // turning retry or the breaker on is restart-only while Spring Cloud's global breaker is applied (D-106)
+        ResilienceRefresh hook = resilience.getIfAvailable();
+        Set<String> global = new TreeSet<>();
+        if (hook != null && hook.globalBreaker()) {
+            Binder binder = Binder.get(environment);
+            for (String id : topology.idsOf(Mode.EXTERNAL)) {
+                if (!modes.containsKey(id) && (ResilienceSettings.retry(binder, id).active()
+                        || ResilienceSettings.breaker(binder, id).enabled())) {
+                    global.add(id);
+                }
+            }
+        }
         Set<String> pending = new TreeSet<>(wiring);
         pending.addAll(auth);
+        pending.addAll(global);
         status.update(modes, pending);
         Map<String, Map<String, String>> current = new HashMap<>();
         for (String key : new TreeSet<>(changedKeys)) {
@@ -122,6 +141,19 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
                 LOG.warn(new Diagnostic(TopolithCode.TL0010, "module '" + id + "' keeps its outgoing-auth hook: "
                         + "the refreshed " + key + " applies only after a restart.",
                         "Restart the application to apply it, or restore the running value.").toString());
+            }
+        }
+        for (String key : new TreeSet<>(changedKeys)) {
+            String id = canonical(moduleOf(key));
+            String rest = id == null ? "" : relaxed(restOf(key));
+            if (id != null && global.contains(id)
+                    && (rest.startsWith("remote.retry.") || rest.startsWith("remote.circuitbreaker."))) {
+                LOG.warn(new Diagnostic(TopolithCode.TL0010, "external module '" + id + "' keeps retry and its "
+                        + "circuit breaker off: the refreshed " + key + " applies only after a restart, because "
+                        + "Spring Cloud's global HTTP-service circuit breaker is applied to its group.",
+                        "Restart the application to apply it, or restore the running value. Set "
+                        + "spring.cloud.circuitbreaker.http-services.enabled=false up front to change retry and the "
+                        + "breaker without a restart.").toString());
             }
         }
         modes.forEach((id, requested) -> {
@@ -146,7 +178,44 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
                     && !wiring.contains(id)) {
                 clients.rebuild(id);
             }
+            boolean retry = rests.stream().anyMatch(rest -> rest.startsWith("remote.retry."));
+            boolean breaker = rests.stream().anyMatch(rest -> rest.startsWith("remote.circuitbreaker."));
+            if ((retry || breaker) && topology.idsOf(Mode.EXTERNAL).contains(id) && !modes.containsKey(id)
+                    && !global.contains(id)) {
+                refreshResilience(id, hook, retry, breaker);
+            }
         });
+    }
+
+    /**
+     * Validates module {@code id}'s refreshed retry and circuit-breaker settings and hands the changed group to the
+     * resilience hook, which builds before it swaps, so one failure changes neither. Any invalid setting or failure
+     * keeps the running policy and breaker, is logged as TL0011 and recorded for the actuator (D-14, D-104). Its
+     * failure is kept apart from the client refresh's, so a success of one never clears the other's.
+     */
+    private void refreshResilience(String id, ResilienceRefresh hook, boolean retry, boolean breaker) {
+        try {
+            List<Diagnostic> problems = new ArrayList<>();
+            Binder binder = Binder.get(environment);
+            ResilienceSettings.checkModule(environment, binder, topology, classLoader, id, problems);
+            if (!problems.isEmpty()) {
+                throw new TopolithException(problems);
+            }
+            if (hook != null) {
+                hook.apply(id, retry ? ResilienceSettings.retry(binder, id) : null,
+                        breaker ? ResilienceSettings.breaker(binder, id) : null);
+            }
+        } catch (RuntimeException | LinkageError e) {
+            String reason = e.getMessage() == null ? e.getClass().getSimpleName()
+                    : ExternalClientEndpoints.stripUserInfo(e.getMessage());
+            status.fail(id, TopolithRefreshStatus.RESILIENCE, reason);
+            LOG.warn(new Diagnostic(TopolithCode.TL0011, "the refreshed retry and circuit-breaker settings of "
+                    + "external module '" + id + "' were not applied: " + reason, "Fix the topolith.modules." + id
+                    + ".remote.retry.* and remote.circuit-breaker.* settings; the running policy and breaker stay "
+                    + "in use.").toString());
+            return;
+        }
+        status.succeed(id, TopolithRefreshStatus.RESILIENCE);
     }
 
     private String moduleOf(String key) {
@@ -224,7 +293,8 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
         String rest = relaxed(restOf(key));
         return rest.equals("remote.connecttimeout") || rest.equals("remote.readtimeout")
                 || rest.equals("remote.url") || rest.equals("remote.serviceid")
-                || rest.startsWith("remote.httpinterface.") || rest.startsWith("loopback.");
+                || rest.startsWith("remote.httpinterface.") || rest.startsWith("loopback.")
+                || rest.startsWith("remote.retry.") || rest.startsWith("remote.circuitbreaker.");
     }
 
     /** Loopback module {@code id}'s client settings, by key: its timeouts, HTTP interfaces and {@code loopback.*}. */
@@ -246,7 +316,8 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
         }
         if (environment instanceof ConfigurableEnvironment configurable) {
             Binder binder = Binder.get(configurable);
-            for (String group : List.of("remote.http-interface", "loopback")) {
+            for (String group : List.of("remote.http-interface", "loopback", "remote.retry",
+                    "remote.circuit-breaker")) {
                 try {
                     binder.bind(prefix + group, Bindable.mapOf(String.class, String.class))
                             .ifBound(values -> values.forEach((key, value) -> settings.put(group + "." + key, value)));

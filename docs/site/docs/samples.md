@@ -50,6 +50,10 @@ The hosts do not inherit Topolith's parent POM. They import only the platform BO
 The hybrid end-to-end tests start `payment-service` in a Testcontainers container and reach it by fixed URL and through
 Consul discovery. They need Docker and the packaged `payment-service` JAR.
 
+`PaymentApi.find` is `@Idempotent`. The monolith's resilience tests use it: with retry on and a seeded loopback fault
+it recovers, while `charge` makes one attempt; with the circuit breaker on, `PaymentDeclinedException` and
+`PaymentNotFoundException` keep their types over loopback and external HTTP and the circuit stays closed.
+
 ## Running
 
 Install the reactor once, then run a host:

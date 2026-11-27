@@ -535,8 +535,8 @@ auto-configuration (which is not gated on `EnvironmentChangeEvent` or `spring-cl
   exchange are retried: (1) a connection failure (`ResourceAccessException` other than a timeout, including R-EXT-10's
   `connection-failure` fault); (2) a connect or read timeout (`ResourceAccessException` timeout, including R-EXT-10's
   `timeout` fault or latency at or above the read timeout); (3) a circuit-breaker time-limiter
-  `java.util.concurrent.TimeoutException` (under Spring Cloud's global http-services breaker; Topolith's per-group
-  breaker has no time limiter, R-EXT-15); and (4) an HTTP 502, 503 or 504 response without a Topolith
+  `java.util.concurrent.TimeoutException` (defensive only: it cannot occur while D-106 keeps Spring Cloud's global
+  breaker off for a resilient module; Topolith's per-group breaker has no time limiter, R-EXT-15); and (4) an HTTP 502, 503 or 504 response without a Topolith
   `urn:topolith:problem:contract-exception` body (including R-EXT-10's `unavailable` fault). After a read or
   time-limiter timeout the provider may have run, which is why only idempotent calls are retried.
 - **Non-retryable outcomes.** Every other outcome is not retried: any Topolith
@@ -567,7 +567,7 @@ auto-configuration (which is not gated on `EnvironmentChangeEvent` or `spring-cl
   explicit `max-backoff` below `initial-backoff`, `multiplier` below `1.0` or non-finite, `safe-methods-idempotent` not
   a boolean), or setting `remote.retry.max-attempts > 1` while Spring Cloud's global
   `spring.cloud.circuitbreaker.http-services.enabled=true` is also set fails startup with TL0003 naming the key. Spring
-  Cloud enables its global breaker when that key is unset, so Topolith defaults the key to `false` (a lowest-priority
+  Cloud applies its global breaker when that key is unset, so Topolith defaults the key to `false` (a lowest-priority
   property a host's own value overrides) while a module has `remote.retry.max-attempts > 1` or
   `remote.circuit-breaker.enabled=true` (D-106). Tuning
   keys (`initial-backoff`, `max-backoff`, `multiplier`, `safe-methods-idempotent`) are allowed when `max-attempts` is
@@ -576,10 +576,12 @@ auto-configuration (which is not gated on `EnvironmentChangeEvent` or `spring-cl
   fails startup with TL0041 naming the module and `topolith-spring-cloud`. A `none` or `internal` module registers no
   retry bean, configurer or decorator (INV-2). On refresh (`EnvironmentChangeEvent`), an `external` module validates
   and swaps only its active retry policy atomically (leaving its running circuit breaker and breaker state untouched)
-  and logs TL0011 on invalid settings while keeping the running policy (R-EXT-08, D-104); a `loopback` module's
+  and logs TL0011 on invalid settings while keeping the running policy (R-EXT-08, D-104). A call captures its policy
+  once when it starts (D-107). Turning retry on is restart-only (TL0010, restart pending) while Spring Cloud's global
+  breaker is applied, which is judged by its configurer bean being in the context, not by the key (D-106). A `loopback` module's
   `remote.retry.*` keys are restart-only (TL0010, D-77).
 
-Implements INV-2, INV-4, INV-6, INV-7 and D-100 through D-105.
+Implements INV-2, INV-4, INV-6, INV-7 and D-100 through D-107.
 
 - AC-EXT-62 (M7.3): By default (`remote.retry.safe-methods-idempotent` unset or `false`), a contract method that is not
   declared `@Idempotent` (including a `@GetExchange`, `@PutExchange`, `@DeleteExchange` or `@PostExchange` method
@@ -626,7 +628,8 @@ later as an internal adapter with no key, diagnostic code or rule change (D-105)
 
 - **What trips the breaker and D-51 translation.** Topolith classifies each attempt's outcome itself, identically in
   every breaker implementation. A breaker failure is recorded only for a transport or availability failure of the
-  provider hop: a connection failure, a connect, read or time-limiter timeout, a 5xx response without a Topolith
+  provider hop: a connection failure, a connect or read timeout (a time-limiter timeout is defensive only, as in
+  R-EXT-14), a 5xx response without a Topolith
   `urn:topolith:problem:contract-exception` body (502, 503, 504 and any other 5xx such as 500 without a Topolith
   problem), or zero LoadBalancer instances. A successful response records a success. Every other outcome is ignored,
   counting neither as a failure nor as a success: any Topolith problem response (a declared exception, a provider's own
@@ -665,10 +668,12 @@ later as an internal adapter with no key, diagnostic code or rule change (D-105)
   breaker to closed with an empty window under the new thresholds, or removing it when `enabled` becomes `false`, while
   changing only `remote.retry.*`, URL, service id or timeouts leaves the running breaker and its open/closed state
   untouched — and logs TL0011 on invalid settings or a missing/unsupported `CircuitBreakerFactory` while keeping the
-  running breaker (R-EXT-08, D-104); a `loopback` module's `remote.circuit-breaker.*` keys are restart-only (TL0010,
+  running breaker (R-EXT-08, D-104). A call captures its breaker instance once when it starts, so a call in flight
+  never records into a rebuilt breaker (D-107). Turning the breaker on is restart-only (TL0010, restart pending) while
+  Spring Cloud's global breaker is applied (its configurer bean is in the context, D-106). A `loopback` module's `remote.circuit-breaker.*` keys are restart-only (TL0010,
   D-77).
 
-Implements INV-2, INV-4, INV-6, INV-7, D-51 and D-102 through D-105.
+Implements INV-2, INV-4, INV-6, INV-7, D-51 and D-102 through D-107.
 
 - AC-EXT-65 (M7.3): With `remote.circuit-breaker.enabled=true`, calls to that module's group run on the calling thread
   through a Spring Cloud CircuitBreaker configured with the group's `failure-rate-threshold`, `sliding-window-size`,
@@ -697,7 +702,8 @@ Implements INV-2, INV-4, INV-6, INV-7, D-51 and D-102 through D-105.
   `failure-rate-threshold` outside `(0, 100]`, `sliding-window-size` or `minimum-number-of-calls` below `1`,
   `minimum-number-of-calls` above the effective `sliding-window-size`, `wait-duration-in-open-state` below `1ms`),
   `max-attempts` above `1` or `circuit-breaker.enabled=true` together with
-  `spring.cloud.circuitbreaker.http-services.enabled=true`, another source configuring breaker `<id>`, a breaker named
+  `spring.cloud.circuitbreaker.http-services.enabled=true` or a Spring Cloud HTTP-service breaker configurer bean in
+  the context (D-106), another source configuring breaker `<id>`, a breaker named
   `<id>` already in `CircuitBreakerRegistry`, an active Resilience4j bulkhead provider on the factory, or a host
   `@HttpServiceFallback` targeting a module group fails startup with TL0003; `remote.retry.max-attempts` above `1`
   without `topolith-spring-cloud`'s resilience configuration, or `remote.circuit-breaker.enabled=true` without it or
@@ -706,7 +712,12 @@ Implements INV-2, INV-4, INV-6, INV-7, D-51 and D-102 through D-105.
   module's retry policy (turning retry on or off while keeping tuning keys, and leaving an open circuit breaker open),
   and changing `remote.circuit-breaker.*` rebuilds only the module's circuit breaker (resetting it to closed under the
   new thresholds, or turning it off while keeping threshold keys) while calls in flight finish on the previous policy
-  and breaker; invalid refreshed retry or circuit-breaker settings (any TL0003 or TL0041 condition) or a rebuild
+  and breaker; invalid refreshed retry or circuit-breaker settings (any TL0003 or TL0041 condition except the global-breaker key,
+  which Spring Cloud reads only at startup and a refresh never tests, D-106) or a rebuild
   failure leave the running policy and breaker unchanged, log TL0011 and surface the failure on the `topolith` actuator
   endpoint; on a `loopback` module, changing `remote.retry.*` or `remote.circuit-breaker.*` leaves the client
-  unchanged, logs TL0010 and marks restart pending until the keys match their running values.
+  unchanged, logs TL0010 and marks restart pending until the keys match their running values. A call in flight
+  keeps the policy and the breaker instance it started with (D-107). With a `Resilience4JCircuitBreakerFactory`, the
+  global key unset and every module's retry and breaker off, Spring Cloud's global breaker is applied, so refreshing
+  `max-attempts=3` (or `circuit-breaker.enabled=true`) is not applied: one attempt, no Topolith breaker in the
+  registry, TL0010 and restart pending; setting `max-attempts` back to `1` clears it.

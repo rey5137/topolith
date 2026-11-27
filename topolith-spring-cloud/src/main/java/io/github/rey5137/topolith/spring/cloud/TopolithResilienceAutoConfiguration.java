@@ -11,6 +11,7 @@ import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.spring.boot.TopolithAutoConfiguration;
 import io.github.rey5137.topolith.spring.boot.internal.ResilienceModules;
+import io.github.rey5137.topolith.spring.boot.internal.ResilienceSettings;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -32,25 +33,26 @@ import org.springframework.web.client.support.RestClientHttpServiceGroupConfigur
 @ConditionalOnClass(RestClientHttpServiceGroupConfigurer.class)
 @ConditionalOnBean(ResilienceModules.class)
 public class TopolithResilienceAutoConfiguration {
-    private static final String COMMONS = "org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory";
+    static final String COMMONS = "org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory";
 
-    /**
-     * Ordered after Topolith's observation handoff (10) and before its call translator, which has no order: the retry
-     * advice added here is innermost, so the translator sees the final failure and the observation spans every
-     * attempt (R-EXT-11).
-     */
+    /** The running policies and breakers; the startup validation of the breakers happens here (TL0003, TL0041). */
     @Bean
-    @Order(20)
-    RestClientHttpServiceGroupConfigurer topolithResilience(ResilienceModules modules, Environment environment,
+    GroupResilience topolithGroupResilience(ResilienceModules modules, Environment environment,
             ConfigurableListableBeanFactory beans) {
         boolean commons = ClassUtils.isPresent(COMMONS, beans.getBeanClassLoader());
+        boolean global = false;
         if (commons) {
             CircuitBreakers.checkFallbacks(beans, modules);
+            global = CircuitBreakers.globalBreaker(beans);
+            if (global) {
+                CircuitBreakers.checkGlobal(modules.ids().stream().filter(id -> modules.module(id).retry().active()
+                        || modules.module(id).breaker().enabled()).toList());
+            }
         }
-        Map<String, ResilienceModules.Module> enabled = new TreeMap<>();
+        Map<String, ResilienceSettings.Breaker> enabled = new TreeMap<>();
         modules.ids().forEach(id -> {
             if (modules.module(id).breaker().enabled()) {
-                enabled.put(id, modules.module(id));
+                enabled.put(id, modules.module(id).breaker());
             }
         });
         Map<String, BreakerCall> breakers = Map.of();
@@ -58,22 +60,28 @@ public class TopolithResilienceAutoConfiguration {
             if (!commons) {
                 throw factoryProblem(enabled.keySet(), Map.of());
             }
-            breakers = CircuitBreakers.create(beans, environment, enabled);
+            breakers = CircuitBreakers.create(beans, environment, enabled, false);
         }
-        Map<String, BreakerCall> installed = breakers;
-        String[] names = modules.ids().stream().filter(id -> installed.containsKey(id)
-                || modules.module(id).retry().active()).toArray(String[]::new);
+        return new GroupResilience(modules, breakers, beans, environment, global);
+    }
+
+    /**
+     * Ordered after Topolith's observation handoff (10) and before its call translator, which has no order: the retry
+     * advice added here is innermost, so the translator sees the final failure and the observation spans every
+     * attempt (R-EXT-11). Every group gets both, inert while off, so a refresh can turn them on (D-104).
+     */
+    @Bean
+    @Order(20)
+    RestClientHttpServiceGroupConfigurer topolithResilience(ResilienceModules modules, GroupResilience running) {
+        String[] names = modules.ids().toArray(String[]::new);
         return groups -> {
             if (names.length > 0) {
                 groups.filterByName(names).forEachProxyFactory((group, factory) -> {
-                    BreakerCall breaker = installed.get(group.name());
-                    if (breaker != null) {
-                        factory.exchangeAdapterDecorator(adapter -> new BreakerAdapter(adapter, breaker));
-                    }
-                    if (modules.module(group.name()).retry().active()) {
-                        factory.proxyFactoryCustomizer((proxy, service) -> proxy.addAdvice(0,
-                                new RetryAdvice(group.name(), service, modules)));
-                    }
+                    factory.exchangeAdapterDecorator(
+                            adapter -> new BreakerAdapter(adapter, running.breaker(group.name())));
+                    factory.proxyFactoryCustomizer((proxy, service) -> proxy.addAdvice(0,
+                            new RetryAdvice(group.name(), service, modules, running.retry(group.name()),
+                                    running.breaker(group.name()))));
                 });
             }
         };

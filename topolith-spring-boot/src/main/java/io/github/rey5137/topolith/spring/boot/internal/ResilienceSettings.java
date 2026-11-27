@@ -87,6 +87,20 @@ public final class ResilienceSettings {
      */
     public static void check(Environment env, Binder binder, Topology topology, ClassLoader loader,
             List<Diagnostic> problems) {
+        check(env, binder, topology, loader, problems, null, true);
+    }
+
+    /**
+     * As {@link #check} for the settings of module {@code id} only: what a refresh of that module validates. Spring
+     * Cloud reads its global breaker key only at startup, so a refresh never tests it (D-106).
+     */
+    public static void checkModule(Environment env, Binder binder, Topology topology, ClassLoader loader, String id,
+            List<Diagnostic> problems) {
+        check(env, binder, topology, loader, problems, id, false);
+    }
+
+    private static void check(Environment env, Binder binder, Topology topology, ClassLoader loader,
+            List<Diagnostic> problems, String only, boolean startup) {
         Map<String, Object> modules;
         try {
             modules = binder.bind(MODULES, Bindable.mapOf(String.class, Object.class)).orElse(Map.of());
@@ -103,6 +117,9 @@ public final class ResilienceSettings {
             }
             String id = topology.known().contains(written) ? written
                     : compact.getOrDefault(written.replace("-", ""), written);
+            if (only != null && !only.equals(id)) {
+                return;
+            }
             Map<String, String> retry = new TreeMap<>();
             Map<String, String> breaker = new TreeMap<>();
             String base = MODULES + "." + written + ".remote.";
@@ -127,11 +144,11 @@ public final class ResilienceSettings {
             Breaker parsedBreaker = parseBreaker(named(breaker, base + "circuit-breaker", BREAKER_KEYS, problems),
                     problems, base + "circuit-breaker.");
             if (parsedRetry.active()) {
-                clash(global, problems, base + "retry.max-attempts", id);
+                clash(startup && global, problems, base + "retry.max-attempts", id);
                 needsCloud(cloud, problems, base + "retry.max-attempts", id);
             }
             if (parsedBreaker.enabled()) {
-                clash(global, problems, base + "circuit-breaker.enabled", id);
+                clash(startup && global, problems, base + "circuit-breaker.enabled", id);
                 needsCloud(cloud, problems, base + "circuit-breaker.enabled", id);
             }
         });

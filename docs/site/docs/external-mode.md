@@ -96,11 +96,73 @@ At readiness the host compares the major `api-version` of its `*-api` JAR with t
 `/<id>/.topolith/api-version`. A mismatch logs `TL0023`; an unreachable or unreadable endpoint logs `TL0015`. Neither
 fails startup.
 
+## Retry, circuit breaker and idempotency
+
+Retry and a circuit breaker are per module and off by default. They need `topolith-spring-cloud`; the breaker also
+needs exactly one `Resilience4JCircuitBreakerFactory` bean, for example from
+`spring-cloud-starter-circuitbreaker-resilience4j`. A missing piece fails startup with `TL0041`. They apply to
+`external` and `loopback` modules; a `none` or `internal` module with these keys fails with `TL0003`.
+
+Set them under `topolith.modules.<id>.remote`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `retry.max-attempts` | `1` | Attempts per call, from 1 to 10; `1` is off. |
+| `retry.initial-backoff` | `100ms` | Wait before the first retry. |
+| `retry.multiplier` | `2.0` | Growth of the wait, at least `1.0`. |
+| `retry.max-backoff` | the larger of `1s` and `initial-backoff` | Cap on the wait. |
+| `retry.safe-methods-idempotent` | `false` | Treat `GET`, `HEAD`, `OPTIONS` and `TRACE` exchanges as idempotent. |
+| `circuit-breaker.enabled` | `false` | Turns the breaker on. |
+| `circuit-breaker.failure-rate-threshold` | `50` | Percent of failed calls that opens the circuit. |
+| `circuit-breaker.sliding-window-size` | `100` | Calls the failure rate is measured over. |
+| `circuit-breaker.minimum-number-of-calls` | `10` | Calls needed before the circuit can open. |
+| `circuit-breaker.wait-duration-in-open-state` | `60s` | Time before the circuit lets a probe call through. |
+
+- **Idempotency is declared, never guessed.** Put `@Idempotent` on a contract method (or the interface) in the API
+  package; the processor writes it into the descriptor and startup checks the two agree (`TL0040`). A method that is not
+  declared is never retried, whatever its HTTP method. `retry.safe-methods-idempotent=true` also admits `GET`, `HEAD`,
+  `OPTIONS` and `TRACE` exchanges.
+- **What is retried.** Only a transient provider failure of an idempotent call: a connection failure, a timeout, or a
+  502, 503 or 504 without a Topolith problem. A declared exception, a 4xx, a 429 and a 500 are returned at once. A
+  retried call is one observation and ends in the same `ModuleUnavailableException` as an unretried one.
+- **The breaker counts provider-hop failures only.** A declared exception crosses it as its own type and never opens the
+  circuit; an open circuit raises `ModuleUnavailableException` (kind `circuit open`) without calling the provider. The
+  retry sits outside the breaker, so each attempt enters it and a retry stops as soon as the circuit opens. Topolith
+  alone owns breaker `<id>`: another source configuring it, an `@HttpServiceFallback` for the group, or a Resilience4j
+  bulkhead fails startup with `TL0003`. Spring Cloud's global HTTP-service breaker
+  would wrap every group on another thread, so Topolith defaults `spring.cloud.circuitbreaker.http-services.enabled`
+  to `false` while a module uses either feature. Setting it to `true`, or a Spring Cloud HTTP-service breaker
+  configurer bean in the context, together with a module that uses them fails startup with `TL0003`.
+
+The `samples/hosts/monolith` tests show both: `MonolithLoopbackRetryTest` retries the `@Idempotent` `PaymentApi.find`
+past a seeded loopback fault while the `charge` mutation makes one attempt, and `MonolithBreakerPaymentTest` and
+`MonolithMockBreakerTest` show declared payment exceptions surviving the breaker in loopback and external runs.
+
 ## Refreshing an endpoint
 
 With `topolith-spring-cloud`, changing a URL, a service id (to another service id) or a timeout in the environment
 rebuilds that client in place; calls in flight finish on the old client. Invalid settings keep the old client and log
 `TL0011`. Switching between URL and service id needs a restart (`TL0010`, reported as `restartPending`).
+
+The same event refreshes an `external` module's resilience settings, each group on its own:
+
+- A change under `remote.retry.*` swaps only the retry policy, including turning retry on or off. The running circuit
+  breaker and its open or closed state are untouched.
+- A change under `remote.circuit-breaker.*` rebuilds only the breaker, closed with an empty window under the new
+  thresholds, or removes it when `enabled` becomes `false`. Retry is untouched.
+- Changing only the URL, service id or a timeout touches neither.
+- A call captures its retry policy and its breaker once, when it starts, and uses them for every attempt: a call in
+  flight finishes on the previous policy and breaker and never records into a rebuilt one. Invalid settings, a missing or unsupported
+  `CircuitBreakerFactory` or a failed rebuild keep the running policy and breaker, log `TL0011` and show on the
+  `topolith` actuator endpoint.
+
+Spring Cloud applies its global breaker only at startup, so turning retry or the breaker on by refresh is restart-only
+for a module whose startup left that global breaker applied (every module had them off and the key was not set to
+`false`). The refresh is not applied, `TL0010` names the module and key, and `restartPending` stays until both are off
+again. Set `spring.cloud.circuitbreaker.http-services.enabled=false` up front to turn them on and off by refresh.
+
+On a `loopback` module, `remote.retry.*` and `remote.circuit-breaker.*` are restart-only like its other client
+settings: a change logs `TL0010` and keeps `restartPending` until the keys match their running values again.
 
 ## Customizing the client
 

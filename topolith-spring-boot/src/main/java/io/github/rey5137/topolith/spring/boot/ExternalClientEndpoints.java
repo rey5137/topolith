@@ -143,13 +143,13 @@ final class ExternalClientEndpoints {
                 sources.replace(ExternalClientProperties.SOURCE_NAME, old);
             }
             String reason = e.getMessage() == null ? e.getClass().getSimpleName() : stripUserInfo(e.getMessage());
-            status.fail(id, reason);
+            status.fail(id, TopolithRefreshStatus.ENDPOINT, reason);
             LOG.warn(new Diagnostic(TopolithCode.TL0011, "the refreshed client settings of external module '" + id
                     + "' were not applied: " + reason, "Fix the topolith.modules." + id + ".remote.* settings; the "
                     + "previous client stays in use.").toString());
             return false;
         }
-        status.succeed(id);
+        status.succeed(id, TopolithRefreshStatus.ENDPOINT);
         TopologyResolver.Resolution resolution = beanFactory.getBean(TopologyResolver.RESOLUTION_BEAN,
                 TopologyResolver.Resolution.class);
         VersionReadiness.startRemote(beanFactory, resolution, Set.of(id));

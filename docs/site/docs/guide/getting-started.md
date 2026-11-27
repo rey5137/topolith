@@ -38,7 +38,8 @@ public interface PaymentApi {
     @PostExchange("/charges")
     ChargeResult charge(@RequestBody ChargeRequest request);
 
-    /** Finds a charge by id. */
+    /** Finds a charge by id; a read, so a client with retry enabled may repeat it (R-EXT-14). */
+    @Idempotent
     @GetExchange("/charges/{id}")
     ChargeResult find(@PathVariable("id") String id);
 

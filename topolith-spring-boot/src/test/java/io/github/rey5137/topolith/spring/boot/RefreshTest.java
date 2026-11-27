@@ -494,7 +494,9 @@ class RefreshTest {
         var status = new TopolithRefreshStatus();
         var refresh = new TopolithRefresh(environment, topology, status,
                 new org.springframework.beans.factory.support.DefaultListableBeanFactory()
-                        .getBeanProvider(ExternalClientEndpoints.class));
+                        .getBeanProvider(ExternalClientEndpoints.class),
+                new org.springframework.beans.factory.support.DefaultListableBeanFactory()
+                        .getBeanProvider(io.github.rey5137.topolith.spring.boot.internal.ResilienceRefresh.class));
         // the env-var form of order-service has no dash
         values.put("topolith.modules.orderservice.auth.type", "none");
         refresh.apply(Set.of("topolith.modules.orderservice.auth.type"));
@@ -563,12 +565,14 @@ class RefreshTest {
                 statusConstructor.setAccessible(true);
                 var constructor = loader.loadClass(TopolithRefresh.class.getName()).getDeclaredConstructor(
                         org.springframework.core.env.Environment.class, io.github.rey5137.topolith.core.Topology.class,
-                        status, org.springframework.beans.factory.ObjectProvider.class);
+                        status, org.springframework.beans.factory.ObjectProvider.class,
+                        org.springframework.beans.factory.ObjectProvider.class);
                 constructor.setAccessible(true);
                 // the topology holds an external module, so every client-module branch runs
                 assertNotNull(constructor.newInstance(context.getEnvironment(),
                         context.getBean(io.github.rey5137.topolith.core.Topology.class),
-                        statusConstructor.newInstance(), context.getBeanProvider(Object.class)));
+                        statusConstructor.newInstance(), context.getBeanProvider(Object.class),
+                        context.getBeanProvider(Object.class)));
             } catch (Exception e) {
                 throw new IllegalStateException(e);
             }

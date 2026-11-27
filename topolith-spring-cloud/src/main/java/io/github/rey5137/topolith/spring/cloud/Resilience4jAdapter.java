@@ -4,7 +4,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.Supplier;
 
 import io.github.rey5137.topolith.core.Diagnostic;
@@ -12,14 +11,12 @@ import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.spring.boot.internal.Outcomes;
 import io.github.rey5137.topolith.spring.boot.internal.ResilienceSettings;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
-import io.github.resilience4j.timelimiter.TimeLimiterConfig;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
-import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JCircuitBreaker;
 import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JCircuitBreakerFactory;
-import org.springframework.cloud.client.circuitbreaker.CircuitBreaker;
 import org.springframework.core.env.Environment;
 import org.springframework.util.ReflectionUtils;
 
@@ -39,9 +36,9 @@ final class Resilience4jAdapter {
 
     /** The breaker of module {@code id}; TL0003 when anything else configures or owns breaker {@code id}. */
     static BreakerCall create(Object supported, String id, ResilienceSettings.Breaker settings,
-            Environment environment) {
+            Environment environment, boolean replacing) {
         Resilience4JCircuitBreakerFactory factory = (Resilience4JCircuitBreakerFactory) supported;
-        String conflict = conflict(factory, id, environment);
+        String conflict = conflict(factory, id, environment, replacing);
         if (conflict != null) {
             throw new TopolithException(new Diagnostic(TopolithCode.TL0003, "module '" + id
                     + "' sets topolith.modules." + id + ".remote.circuit-breaker.enabled=true, but " + conflict
@@ -56,24 +53,32 @@ final class Resilience4jAdapter {
                 .recordException(failure -> Outcomes.classify(failure).breakerFailure())
                 .ignoreException(failure -> !Outcomes.classify(failure).breakerFailure()).build();
         CircuitBreakerRegistry registry = factory.getCircuitBreakerRegistry();
-        registry.circuitBreaker(id, config);
-        // no executor, no time limiter and no bulkhead: the attempt runs on the calling thread
-        CircuitBreaker breaker = new Resilience4JCircuitBreaker(id, id, config, TimeLimiterConfig.ofDefaults(),
-                registry, factory.getTimeLimiterRegistry(), null, Optional.empty(), null, true);
+        // the call is bound to this instance, not to the registry name: a rebuild or removal cannot be undone by an
+        // attempt in flight (D-107), and nothing re-creates <id> on a run
+        CircuitBreaker built = CircuitBreaker.of(id, config, registry.getTags());
+        if (replacing) {
+            registry.replace(id, built);
+        }
+        // a first breaker (or one a host removed) is created by the registry, which then holds the instance bound here
+        CircuitBreaker breaker = registry.find(id).orElse(null) == built ? built : registry.circuitBreaker(id, config);
         return new BreakerCall() {
             @Override
             public <T> T run(Supplier<T> attempt) {
-                // the failure goes back as thrown: a rethrow is not a fallback value (INV-4)
-                return breaker.run(attempt, failure -> {
-                    throw Resilience4jAdapter.<RuntimeException>sneaky(failure);
-                });
+                // no executor, no time limiter and no bulkhead: the attempt runs on the calling thread, and a
+                // failure goes back as thrown: a rethrow is not a fallback value (INV-4)
+                return breaker.decorateSupplier(attempt).get();
+            }
+
+            @Override
+            public boolean registered() {
+                return registry.find(id).orElse(null) == breaker;
             }
         };
     }
 
-    @SuppressWarnings("unchecked")
-    private static <E extends Throwable> E sneaky(Throwable failure) throws E {
-        throw (E) failure;
+    /** Forgets module {@code id}'s breaker, so a later refresh to enabled finds the name free. */
+    static void remove(Object supported, String id) {
+        ((Resilience4JCircuitBreakerFactory) supported).getCircuitBreakerRegistry().remove(id);
     }
 
     private static String fix(String conflict, String id) {
@@ -82,7 +87,8 @@ final class Resilience4jAdapter {
                         + ".remote.circuit-breaker.enabled=false.";
     }
 
-    private static String conflict(Resilience4JCircuitBreakerFactory factory, String id, Environment environment) {
+    private static String conflict(Resilience4JCircuitBreakerFactory factory, String id, Environment environment,
+            boolean replacing) {
         if (factory.getBulkheadProvider() != null) {
             return "the factory has an active Resilience4j bulkhead provider";
         }
@@ -100,7 +106,7 @@ final class Resilience4jAdapter {
                 return source + "." + id + " is set";
             }
         }
-        if (factory.getCircuitBreakerRegistry().find(id).isPresent()) {
+        if (!replacing && factory.getCircuitBreakerRegistry().find(id).isPresent()) {
             return "a circuit breaker named '" + id + "' is already in the CircuitBreakerRegistry";
         }
         return null;

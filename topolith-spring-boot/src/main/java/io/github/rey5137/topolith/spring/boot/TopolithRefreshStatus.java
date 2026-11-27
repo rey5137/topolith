@@ -16,7 +16,11 @@ final class TopolithRefreshStatus {
 
     private volatile Map<String, String> requestedModes = Map.of();
     private volatile Set<String> wiring = Set.of();
+    /** Failures by module and part ({@link #ENDPOINT}, {@link #RESILIENCE}): one part's success keeps the other's. */
     private final Map<String, Failure> failures = new ConcurrentHashMap<>();
+
+    static final String ENDPOINT = "endpoint";
+    static final String RESILIENCE = "resilience";
 
     /** Replaces the computed restart state; it is recomputed on every refresh, so it clears by itself (D-13). */
     void update(Map<String, String> requestedModes, Set<String> wiring) {
@@ -36,15 +40,23 @@ final class TopolithRefreshStatus {
         return !requestedModes.isEmpty() || !wiring.isEmpty();
     }
 
-    void fail(String module, String message) {
-        failures.put(module, new Failure(message, Instant.now()));
+    void fail(String module, String part, String message) {
+        failures.put(module + "/" + part, new Failure(message, Instant.now()));
     }
 
-    void succeed(String module) {
-        failures.remove(module);
+    void succeed(String module, String part) {
+        failures.remove(module + "/" + part);
     }
 
+    /** The module's latest failure over its parts. */
     Failure failure(String module) {
-        return failures.get(module);
+        Failure latest = null;
+        for (String part : new String[] {ENDPOINT, RESILIENCE}) {
+            Failure candidate = failures.get(module + "/" + part);
+            if (candidate != null && (latest == null || candidate.at().isAfter(latest.at()))) {
+                latest = candidate;
+            }
+        }
+        return latest;
     }
 }

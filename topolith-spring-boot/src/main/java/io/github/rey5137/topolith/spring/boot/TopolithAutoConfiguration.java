@@ -10,6 +10,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.env.Environment;
 import io.github.rey5137.topolith.core.Incubating;
 import io.github.rey5137.topolith.core.Topology;
+import io.github.rey5137.topolith.spring.boot.internal.ResilienceRefresh;
 import org.springframework.core.Ordered;
 
 /**
@@ -44,8 +45,8 @@ public class TopolithAutoConfiguration {
     @Bean
     @Lazy(false)
     TopolithRefresh topolithRefresh(Environment environment, Topology topology, TopolithRefreshStatus status,
-            ObjectProvider<ExternalClientEndpoints> endpoints) {
-        return new TopolithRefresh(environment, topology, status, endpoints);
+            ObjectProvider<ExternalClientEndpoints> endpoints, ObjectProvider<ResilienceRefresh> resilience) {
+        return new TopolithRefresh(environment, topology, status, endpoints, resilience);
     }
 
     /** Eager, so lazy initialization cannot skip the readiness checks (D-24). */

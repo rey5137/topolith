@@ -69,8 +69,8 @@ keeps running.
 
 | Code | Meaning | Severity | Fix |
 |---|---|---|---|
-| `TL0010` | A refreshed mode or URL/service-id wiring change needs a restart. | warning | Restart the host. The running topology is unchanged until then. |
-| `TL0011` | Refreshed endpoint, retry or circuit-breaker settings are invalid or the client rebuild failed. | warning | Correct the settings. The old client keeps serving. |
+| `TL0010` | A refreshed mode, URL/service-id wiring change or loopback client setting (including `remote.retry.*` and `remote.circuit-breaker.*`) needs a restart. | warning | Restart the host. The running topology is unchanged until then. |
+| `TL0011` | Refreshed endpoint, retry or circuit-breaker settings are invalid or the client rebuild failed. | warning | Correct the settings. The old client, retry policy and circuit breaker keep serving. |
 | `TL0014` | Cloud context classes are present without Topolith refresh integration. | warning | Add `topolith-spring-cloud` if you want refresh handling. |
 | `TL0015` | The remote API-version endpoint is unavailable or inaccessible. | warning | Check the remote provider and its exposure. The host stays ready. |
 | `TL0023` | A host API descriptor's `api-version` major differs from its module's descriptor or the remote provider. | warning | Align the API JAR with the module version. |

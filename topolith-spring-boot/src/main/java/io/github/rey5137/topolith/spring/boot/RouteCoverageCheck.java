@@ -32,9 +32,11 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  */
 final class RouteCoverageCheck implements SmartInitializingSingleton {
     private final ListableBeanFactory beanFactory;
+    private final ListedContractRoutes registered;
 
-    RouteCoverageCheck(ListableBeanFactory beanFactory) {
+    RouteCoverageCheck(ListableBeanFactory beanFactory, ListedContractRoutes registered) {
         this.beanFactory = beanFactory;
+        this.registered = registered;
     }
 
     @Override
@@ -43,6 +45,24 @@ final class RouteCoverageCheck implements SmartInitializingSingleton {
                 TopologyResolver.Resolution.class);
         if (resolution.exposed().isEmpty()) {
             return;
+        }
+        if (beanFactory instanceof ConfigurableListableBeanFactory factory
+                && beanFactory.containsBean("requestMappingHandlerMapping")) {
+            registered.register(factory, resolution, beanFactory.getBean("requestMappingHandlerMapping",
+                    RequestMappingHandlerMapping.class));
+        } else {
+            List<Diagnostic> missing = new ArrayList<>();
+            for (String id : new TreeSet<>(resolution.exposed())) {
+                Set<String> listed = resolution.listed().getOrDefault(id, Set.of());
+                if (!listed.isEmpty()) {
+                    missing.add(new Diagnostic(TopolithCode.TL0026, "module '" + id + "' lists contracts "
+                            + new TreeSet<>(listed) + " but requestMappingHandlerMapping is missing.",
+                            "Enable Spring MVC and provide its requestMappingHandlerMapping bean."));
+                }
+            }
+            if (!missing.isEmpty()) {
+                throw new TopolithException(missing);
+            }
         }
         List<HandlerMethod> handlers = new ArrayList<>();
         beanFactory.getBeansOfType(RequestMappingHandlerMapping.class, false, false).values()
@@ -87,6 +107,10 @@ final class RouteCoverageCheck implements SmartInitializingSingleton {
      * the route under {@code /<id>} (D-44).
      */
     private boolean owned(HandlerMethod handler, String id, TopologyResolver.Resolution resolution) {
+        String registeredOwner = registered.owner(handler);
+        if (registeredOwner != null) {
+            return id.equals(registeredOwner);
+        }
         if (!id.equals(ModuleHandlers.internalOwner(resolution.topology(), handler.getBeanType()))) {
             return false;
         }
@@ -109,6 +133,9 @@ final class RouteCoverageCheck implements SmartInitializingSingleton {
     /** Whether a route's handler method is the implementation of the contract method in its handler class. */
     private static boolean served(Method method, Class<?> contract, Collection<HandlerMethod> routes) {
         for (HandlerMethod route : routes) {
+            if (route.getMethod().equals(method)) {
+                return true;
+            }
             Class<?> type = ClassUtils.getUserClass(route.getBeanType());
             if (contract.isAssignableFrom(type) && BridgeMethodResolver.findBridgedMethod(ClassUtils
                     .getMostSpecificMethod(method, type)).equals(BridgeMethodResolver.findBridgedMethod(

@@ -6,7 +6,6 @@ import java.util.Map;
 import java.util.Set;
 
 import io.github.rey5137.topolith.core.Diagnostic;
-import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import org.springframework.beans.BeansException;
@@ -18,9 +17,7 @@ import org.springframework.core.env.Environment;
 /**
  * The contracts a module declaration lists in {@code provides} (D-110), once every definition is registered: an
  * internal or loopback module contributes exactly one bean of each, owned by its definition as D-61 assigns it, so
- * several fail with TL0005 and none with TL0044. A listed contract has no route, so a module that lists contracts
- * and is loopback or exposed fails with TL0044 (until M8.6, D-125). A {@code none} or {@code external} module has no
- * entry.
+ * several fail with TL0005 and none with TL0044. A {@code none} or {@code external} module has no entry.
  */
 final class ListedContractsCheck implements BeanFactoryPostProcessor, EnvironmentAware {
     private Environment environment;
@@ -55,15 +52,7 @@ final class ListedContractsCheck implements BeanFactoryPostProcessor, Environmen
                             "Keep exactly one bean of " + contract + " in the module."));
                 }
             }
-            if (!entry.getValue().isEmpty() && resolution.exposed().contains(id)) {
-                String why = resolution.topology().mode(id) == Mode.LOOPBACK ? "loopback"
-                        : "exposed (topolith.modules." + id + ".expose.enabled=true)";
-                found.add(new Diagnostic(TopolithCode.TL0044, "module '" + id + "' is " + why + ", but its declaration "
-                        + "lists " + entry.getValue() + " in provides, and a contract a @Bean provides has no route.",
-                        "Provide each from a module @RestController that implements it (D-53), through a separate "
-                                + "HTTP interface (D-49) if the contract carries no @HttpExchange, and remove it "
-                                + "from provides; or keep the module internal and unexposed."));
-            }
+
         }
         if (!found.isEmpty()) {
             throw new TopolithException(found);

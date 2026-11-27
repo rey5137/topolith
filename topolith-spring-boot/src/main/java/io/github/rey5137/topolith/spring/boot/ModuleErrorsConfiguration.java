@@ -32,7 +32,7 @@ class ModuleErrorsConfiguration implements WebMvcConfigurer {
                 .filter(ExceptionHandlerExceptionResolver.class::isInstance)
                 .map(ExceptionHandlerExceptionResolver.class::cast).findFirst().orElse(null);
         resolvers.add(0, new ModuleExceptionResolver(topology, beanFactory.getBean(TopologyResolver.RESOLUTION_BEAN,
-                TopologyResolver.Resolution.class),
+                TopologyResolver.Resolution.class), beanFactory.getBean(ListedContractRoutes.class),
                 () -> handlers == null ? List.of() : handlers.getMessageConverters()));
     }
 }

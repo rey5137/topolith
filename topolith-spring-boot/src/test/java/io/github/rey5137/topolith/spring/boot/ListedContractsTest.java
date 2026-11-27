@@ -9,6 +9,7 @@ import java.util.function.Consumer;
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.spring.boot.errorfixture.clock.api.ClockContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.host.ErrorHost;
+import io.github.rey5137.topolith.spring.boot.errorfixture.unmapped.api.UnmappedContract;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,9 @@ import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.web.server.servlet.context.AnnotationConfigServletWebServerApplicationContext;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -98,7 +102,7 @@ class ListedContractsTest {
     }
 
     @Test
-    void ac_desc_16_a_loopback_or_exposed_module_that_lists_contracts_fails_with_tl0044() throws Exception {
+    void ac_ext_80_a_loopback_or_exposed_module_registers_a_listed_contract_route() throws Exception {
         for (String[] properties : List.of(new String[] {"topolith.modules.clock.mode=loopback"},
                 new String[] {"topolith.modules.clock.mode=internal", "topolith.modules.clock.expose.enabled=true"})) {
             try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
@@ -106,10 +110,48 @@ class ListedContractsTest {
                         .withClassLoader(loader).withUserConfiguration(ErrorHost.class)
                         .withPropertyValues("server.port=0", "spring.liquibase.enabled=false")
                         .withPropertyValues(properties)
-                        .run(context -> LoopbackTest.fails(context.getStartupFailure(), TopolithCode.TL0044,
-                                "module 'clock' is ", "lists [" + CLOCK + "] in provides", "@RestController",
-                                "separate HTTP interface"));
+                        .run(context -> {
+                            assertNull(context.getStartupFailure());
+                            var mapping = context.getBean("requestMappingHandlerMapping",
+                                    RequestMappingHandlerMapping.class);
+                            assertTrue(mapping.getHandlerMethods().keySet().stream()
+                                    .anyMatch(info -> info.getPatternValues().contains("/clock/now")));
+                        });
             }
+        }
+    }
+
+    @Test
+    void ac_ext_81_an_unannotated_listed_method_fails_with_tl0026() throws Exception {
+        ContractExceptionsTest.contracts(root, "unmapped", UnmappedContract.class);
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            new WebApplicationContextRunner(AnnotationConfigServletWebServerApplicationContext::new)
+                    .withClassLoader(loader).withUserConfiguration(ErrorHost.class)
+                    .withPropertyValues("server.port=0", "spring.liquibase.enabled=false",
+                            "topolith.modules.clock.mode=none", "topolith.modules.unmapped.mode=internal",
+                            "topolith.modules.unmapped.expose.enabled=true")
+                    .run(context -> LoopbackTest.fails(context.getStartupFailure(), TopolithCode.TL0026,
+                            "UnmappedContract.missing", "@HttpExchange"));
+        }
+    }
+
+    @Test
+    void ac_ext_81_a_clashing_listed_route_fails_with_tl0005() throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            new WebApplicationContextRunner(AnnotationConfigServletWebServerApplicationContext::new)
+                    .withClassLoader(loader).withUserConfiguration(ErrorHost.class, ClashController.class)
+                    .withPropertyValues("server.port=0", "spring.liquibase.enabled=false",
+                            "topolith.modules.clock.mode=internal", "topolith.modules.clock.expose.enabled=true")
+                    .run(context -> LoopbackTest.fails(context.getStartupFailure(), TopolithCode.TL0005,
+                            "ClockContract.now", "ClashController", "clash"));
+        }
+    }
+
+    @RestController
+    static class ClashController {
+        @GetMapping("/clock/now")
+        String clash() {
+            return "clash";
         }
     }
 

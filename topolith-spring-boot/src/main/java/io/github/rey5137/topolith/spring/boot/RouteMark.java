@@ -21,19 +21,24 @@ final class RouteMark {
     private RouteMark() {
     }
 
-    static void mark(HttpServletRequest request, HandlerMethod handler) {
-        request.setAttribute(ATTRIBUTE, handler);
+    private record Mark(HandlerMethod handler, boolean registered) { }
+
+    static void mark(HttpServletRequest request, HandlerMethod handler, boolean registered) {
+        request.setAttribute(ATTRIBUTE, new Mark(handler, registered));
     }
 
     /** Whether this invocation is the marked handler's own, consuming the mark when it is. */
     static boolean consume(Object target, Method method) {
         RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
         if (attributes == null || !(attributes.getAttribute(ATTRIBUTE, RequestAttributes.SCOPE_REQUEST)
-                instanceof HandlerMethod handler)) {
+                instanceof Mark mark)) {
             return false;
         }
+        HandlerMethod handler = mark.handler();
         Method marked = handler.getMethod();
-        if (ClassUtils.getUserClass(handler.getBeanType()) == AopUtils.getTargetClass(target)
+        boolean sameBean = mark.registered() ? marked.getDeclaringClass().isInstance(target)
+                : ClassUtils.getUserClass(handler.getBeanType()) == AopUtils.getTargetClass(target);
+        if (sameBean
                 && marked.getName().equals(method.getName())
                 && Arrays.equals(marked.getParameterTypes(), method.getParameterTypes())) {
             attributes.removeAttribute(ATTRIBUTE, RequestAttributes.SCOPE_REQUEST);

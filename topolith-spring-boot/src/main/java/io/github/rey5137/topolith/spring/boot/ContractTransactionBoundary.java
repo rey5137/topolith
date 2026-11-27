@@ -96,7 +96,9 @@ final class ContractTransactionBoundary implements BeanPostProcessor, PriorityOr
         Class<?> type = AopProxyUtils.ultimateTargetClass(bean);
         TopologyResolver.Resolution resolution = beanFactory.getBean(TopologyResolver.RESOLUTION_BEAN,
                 TopologyResolver.Resolution.class);
-        String module = ModuleHandlers.internalOwner(resolution.topology(), type);
+        String definition = definitionOwner(beanName, resolution);
+        String module = definition != null && !contracts(resolution.listed().getOrDefault(definition, Set.of()), type)
+                .isEmpty() ? definition : ModuleHandlers.internalOwner(resolution.topology(), type);
         Set<String> names = module == null ? Set.of() : resolution.contracts().getOrDefault(module, Set.of());
         if (module == null) {
             if (resolution.listed().values().stream().allMatch(Set::isEmpty)) {

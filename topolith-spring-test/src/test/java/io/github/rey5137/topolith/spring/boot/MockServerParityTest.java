@@ -32,7 +32,7 @@ class MockServerParityTest {
                 var server = new TopolithMockServer("payment")) {
             var found = DescriptorDiscovery.discover(loader);
             Topology topology = Topology.resolve(found.modules(), found.apis(), Map.of("payment", "internal"), null);
-            var resolver = new ModuleExceptionResolver(topology, null, List::of);
+            var resolver = new ModuleExceptionResolver(topology, null, new ListedContractRoutes(), List::of);
             var response = new MockHttpServletResponse();
             var handler = new HandlerMethod(new PaymentRoute(), PaymentRoute.class.getMethod("payment"));
             assertNotNull(resolver.resolveException(new MockHttpServletRequest(), response, handler, thrown));

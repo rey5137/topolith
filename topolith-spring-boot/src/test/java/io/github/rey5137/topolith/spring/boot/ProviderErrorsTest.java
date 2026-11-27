@@ -161,7 +161,7 @@ class ProviderErrorsTest {
                 var resolver = new ModuleExceptionResolver(
                         context.getBean(io.github.rey5137.topolith.core.Topology.class),
                         context.getBean(TopologyResolver.RESOLUTION_BEAN, TopologyResolver.Resolution.class),
-                        java.util.List::of);
+                        context.getBean(ListedContractRoutes.class), java.util.List::of);
                 assertNull(resolver.resolveException(new org.springframework.mock.web.MockHttpServletRequest(),
                         new org.springframework.mock.web.MockHttpServletResponse(), handler,
                         new AccountCheckedException("secret checked")));

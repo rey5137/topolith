@@ -3,11 +3,14 @@ package io.github.rey5137.topolith.spring.boot;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.cover.api.GoodContract;
+import io.github.rey5137.topolith.spring.boot.errorfixture.clock.api.ClockContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.cover.api.PartialContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.host.ErrorHost;
 import io.github.rey5137.topolith.spring.boot.errorfixture.tally.api.TallyContract;
@@ -16,8 +19,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.test.context.assertj.AssertableWebApplicationContext;
 import org.springframework.boot.test.context.runner.ContextConsumer;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.web.server.servlet.context.AnnotationConfigServletWebServerApplicationContext;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -102,6 +107,32 @@ class RouteCoverageTest {
                     "module 'cover'", PartialContract.class.getName() + " method(s) [find(String, int), pending()]");
             assertFalse(failure.getMessage().contains("find(String),"), failure.getMessage());
         }, COVER_EXPOSED);
+    }
+
+    @Test
+    void ac_ext_80_a_registered_route_covers_a_listed_contract() throws Exception {
+        ContractExceptionsTest.contracts(root, "clock", ClockContract.class);
+        serve(context -> {
+            assertNull(context.getStartupFailure());
+            var handler = context.getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class)
+                    .getHandlerMethods().entrySet().stream()
+                    .filter(entry -> entry.getKey().getPatternValues().contains("/clock/now"))
+                    .map(Map.Entry::getValue).findFirst().orElseThrow();
+            assertEquals("clock", context.getBean(ListedContractRoutes.class).owner(handler));
+        }, "topolith.modules.clock.mode=internal", "topolith.modules.clock.expose.enabled=true");
+    }
+
+    @Test
+    void ac_ext_80_a_missing_handler_mapping_reports_the_listed_contract_and_module() {
+        var resolution = new TopologyResolver.Resolution(null, Map.of(), Map.of(), List.of(), Map.of(),
+                Set.of("clock"), Map.of(), Map.of(), Map.of(), Map.of(),
+                Map.of("clock", Set.of(ClockContract.class.getName())));
+        new ApplicationContextRunner()
+                .withBean(TopologyResolver.RESOLUTION_BEAN, TopologyResolver.Resolution.class, () -> resolution)
+                .withBean(ListedContractRoutes.class)
+                .withBean(RouteCoverageCheck.class)
+                .run(context -> LoopbackTest.fails(context.getStartupFailure(), TopolithCode.TL0026, "module 'clock'",
+                        ClockContract.class.getName(), "requestMappingHandlerMapping"));
     }
 
     @Test

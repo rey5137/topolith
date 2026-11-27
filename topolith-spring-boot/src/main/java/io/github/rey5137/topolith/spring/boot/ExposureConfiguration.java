@@ -41,10 +41,13 @@ class ExposureConfiguration implements WebMvcConfigurer {
     private final Topology topology;
     private final Set<String> exposed;
     private final ContextRoute context;
+    private final ListedContractRoutes routes;
 
-    ExposureConfiguration(TopologyResolver.Resolution resolution, ObjectProvider<ContextPropagation> context) {
+    ExposureConfiguration(TopologyResolver.Resolution resolution, ObjectProvider<ContextPropagation> context,
+            ListedContractRoutes routes) {
         this.topology = resolution.topology();
         this.exposed = resolution.exposed();
+        this.routes = routes;
         ContextPropagation propagation = context.getIfAvailable();
         this.context = propagation == null || exposed.isEmpty() ? null : new ContextRoute(propagation);
     }
@@ -67,9 +70,9 @@ class ExposureConfiguration implements WebMvcConfigurer {
             public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
                     throws IOException {
                 if (handler instanceof HandlerMethod method) {
-                    String owner = ModuleHandlers.internalOwner(topology, method.getBeanType());
+                    String owner = routes.internalOwner(topology, method);
                     if (owner != null && exposed.contains(owner)) {
-                        RouteMark.mark(request, method);
+                        RouteMark.mark(request, method, routes.owner(method) != null);
                         if (context != null && !context.open(request, response, owner)) {
                             return false;
                         }
@@ -115,8 +118,8 @@ class ExposureConfiguration implements WebMvcConfigurer {
                     TopologyResolver.Resolution resolution = beanFactory.getBean(TopologyResolver.RESOLUTION_BEAN,
                             TopologyResolver.Resolution.class);
                     new ArrayList<>(mapping.getHandlerMethods().entrySet()).forEach(entry -> {
-                        String owner = ModuleHandlers.internalOwner(resolution.topology(),
-                                entry.getValue().getBeanType());
+                        String owner = beanFactory.getBean(ListedContractRoutes.class)
+                                .internalOwner(resolution.topology(), entry.getValue());
                         if (owner != null && !resolution.exposed().contains(owner)) {
                             mapping.unregisterMapping(entry.getKey());
                         }
@@ -127,11 +130,26 @@ class ExposureConfiguration implements WebMvcConfigurer {
         };
     }
 
+    @Bean
+    static ListedContractRoutes topolithListedContractRoutes() {
+        return new ListedContractRoutes();
+    }
+
+    @Bean
+    static BeanPostProcessor topolithListedRouteReturnValues(ListedContractRoutes routes) {
+        return new ListedRouteReturnValues(routes);
+    }
+
+    @Bean
+    static ListedRouteHints topolithListedRouteHints() {
+        return new ListedRouteHints();
+    }
+
     /** Eager, so lazy initialization cannot skip the route coverage check (D-126). */
     @Bean
     @Lazy(false)
-    static RouteCoverageCheck topolithRouteCoverage(ListableBeanFactory beanFactory) {
-        return new RouteCoverageCheck(beanFactory);
+    static RouteCoverageCheck topolithRouteCoverage(ListableBeanFactory beanFactory, ListedContractRoutes registered) {
+        return new RouteCoverageCheck(beanFactory, registered);
     }
 
     /** The matcher bean, only when Spring Security's web module is present (INV-7). */

@@ -71,12 +71,8 @@ API declaration is a compile error. At startup (which reads the listed entries f
 D-128) an internal module needs exactly one bean of each listed contract among the definitions it contributes (owned by
 its bean definition, as D-61 assigns ownership, not by its class): several fail
 with TL0005, none with TL0044 (new, M8.3). R-EXT-07's boundary and R-EXT-11's observation apply to that bean whatever
-its class, a JDK proxy or a factory result from outside the module's package included. A `@Bean` is not a handler, so a
-listed contract has no route, and until M8.6 a module whose declaration lists contracts fails startup with TL0044 when
-it is `loopback` or exposed (`topolith.modules.<id>.expose.enabled=true`). The message names each listed contract and
-the fix: provide the contract from a module `@RestController` instead of the `@Bean` (D-53), through a D-49 separate
-HTTP interface if the contract carries no `@HttpExchange`; the contract is then inferred, not listed. From M8.6 Topolith
-registers the routes of a listed contract's bean instead (R-EXT-05, D-125), and TL0044 no longer applies to it.
+its class, a JDK proxy or a factory result from outside the module's package included. For an exposed internal or
+loopback module, Topolith registers routes for the listed contract's bean (R-EXT-05, D-125).
 
 - AC-DESC-14 (M8.3): An api-package interface marked `@ConsumerImplemented` is left out of the API's and the module's
   `provides`, also when a class under the module's package implements it, and a module whose only implementation of a
@@ -89,9 +85,8 @@ registers the routes of a listed contract's bean instead (R-EXT-05, D-125), and 
   and runs under R-EXT-07's boundary. Moved to a module `@RestController` that implements it, the same contract is
   inferred, not listed, and works in loopback and external mode.
 - AC-DESC-16 (M8.3): An internal module with no bean for a contract its declaration lists fails startup with TL0044
-  (new, M8.3) naming the module and contract, and two beans fail with TL0005; the same module `loopback`, or `internal`
-  with `expose.enabled=true`, fails startup with TL0044 naming the listed contracts and the module `@RestController`
-  fix (until M8.6, when AC-EXT-80 replaces this clause); a `none` module is not checked.
+  (new, M8.3) naming the module and contract, and two beans fail with TL0005; a `none` module is not checked.
+  Routes for listed contracts are covered by AC-EXT-80.
 
 - AC-DESC-04 (M1.2): An implemented API interface is included in `provides`; an interface that is not a contract
   candidate (sealed or annotation) is not; a candidate no class implements fails the build.

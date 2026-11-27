@@ -1,5 +1,6 @@
 package io.github.rey5137.topolith.spring.cloud;
 
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -55,13 +56,13 @@ final class GroupResilience implements ResilienceRefresh {
         // everything that can fail is built before anything is published
         RetryAdvice.Policy policy = retry == null ? null : RetryAdvice.policy(retry);
         AtomicReference<BreakerCall> running = breakers.get(id);
+        BreakerCall current = running.get();
         BreakerCall rebuilt = null;
         if (breaker != null && breaker.enabled()) {
             if (!COMMONS_PRESENT) {
-                throw TopolithResilienceAutoConfiguration.factoryProblem(java.util.List.of(id), Map.of());
+                throw TopolithResilienceAutoConfiguration.factoryProblem(List.of(id), Map.of());
             }
             // replacing is only for Topolith's own instance: a host's breaker of the same name is a conflict (TL0003)
-            BreakerCall current = running.get();
             rebuilt = CircuitBreakers.create(beans, environment, Map.of(id, breaker),
                     current != null && current.registered()).get(id);
         }
@@ -69,7 +70,6 @@ final class GroupResilience implements ResilienceRefresh {
             retries.get(id).set(policy);
         }
         if (breaker != null) {
-            BreakerCall current = running.get();
             boolean owned = current != null && current.registered();
             running.set(rebuilt);
             // only Topolith's own breaker is ever removed: a host's breaker of the same name is not ours (D-105)

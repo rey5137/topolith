@@ -31,6 +31,10 @@ final class Resilience4jAdapter {
             "resilience4j.circuitbreaker.configs", "resilience4j.timelimiter.instances",
             "resilience4j.timelimiter.configs", "spring.cloud.circuitbreaker.resilience4j.disable-time-limiter-map");
 
+    // the Spring Cloud members the D-105 ownership check reads; a test pins that both exist on the supported version
+    static final String CONFIGURATIONS = "getConfigurations";
+    static final String CUSTOMIZERS = "circuitBreakerCustomizers";
+
     private Resilience4jAdapter() {
     }
 
@@ -92,10 +96,10 @@ final class Resilience4jAdapter {
         if (factory.getBulkheadProvider() != null) {
             return "the factory has an active Resilience4j bulkhead provider";
         }
-        if (configured(factory, "getConfigurations", null, id)) {
+        if (configured(factory, CONFIGURATIONS, null, id)) {
             return "a Spring Cloud Customizer or configure callback configures '" + id + "'";
         }
-        if (configured(factory, null, "circuitBreakerCustomizers", id)) {
+        if (configured(factory, null, CUSTOMIZERS, id)) {
             return "a Spring Cloud circuit breaker customizer is registered for '" + id + "'";
         }
         Binder binder = Binder.get(environment);
@@ -112,23 +116,46 @@ final class Resilience4jAdapter {
         return null;
     }
 
-    /** Whether the factory's map, read by method or by field, has an entry for {@code id}. */
-    private static boolean configured(Resilience4JCircuitBreakerFactory factory, String method, String field,
-            String id) {
+    /**
+     * Whether the factory's map, read by method or by field, has an entry for {@code id}. A member that is missing or
+     * not a map, or a read that fails, is TL0041: ownership of {@code id} cannot be verified, which is not the same as
+     * "not configured" (D-105).
+     */
+    static boolean configured(Resilience4JCircuitBreakerFactory factory, String method, String field, String id) {
+        String member = method != null ? "method " + method + "()" : "field " + field;
+        Object map;
         try {
-            Object map;
             if (method != null) {
                 Method getter = ReflectionUtils.findMethod(factory.getClass(), method);
+                if (getter == null) {
+                    throw unverifiable(id, member);
+                }
                 ReflectionUtils.makeAccessible(getter);
                 map = ReflectionUtils.invokeMethod(getter, factory);
             } else {
                 Field found = ReflectionUtils.findField(factory.getClass(), field);
+                if (found == null) {
+                    throw unverifiable(id, member);
+                }
                 ReflectionUtils.makeAccessible(found);
                 map = ReflectionUtils.getField(found, factory);
             }
-            return map instanceof Map<?, ?> entries && entries.containsKey(id);
+        } catch (TopolithException unsupported) {
+            throw unsupported;
         } catch (RuntimeException unreadable) {
-            return false;
+            throw unverifiable(id, member);
         }
+        if (!(map instanceof Map<?, ?> entries)) {
+            throw unverifiable(id, member);
+        }
+        return entries.containsKey(id);
+    }
+
+    private static TopolithException unverifiable(String id, String member) {
+        return new TopolithException(new Diagnostic(TopolithCode.TL0041, "unsupported "
+                + "Resilience4JCircuitBreakerFactory version: " + member + " is missing or unreadable, so Topolith "
+                + "cannot verify that it alone owns circuit breaker '" + id + "'.",
+                "Use a Spring Cloud CircuitBreaker version Topolith supports, or set topolith.modules." + id
+                        + ".remote.circuit-breaker.enabled=false."));
     }
 }

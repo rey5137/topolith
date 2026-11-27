@@ -21,7 +21,7 @@ import org.springframework.util.ClassUtils;
 
 /**
  * A module's {@code remote.retry.*} and {@code remote.circuit-breaker.*} settings (R-EXT-14, R-EXT-15): their
- * validation (TL0003, TL0041), their reading, and their defaults. Not public API (D-78).
+ * validation (TL0003, TL0041), their reading, and their defaults. Not public API (D-109).
  */
 @Incubating
 public final class ResilienceSettings {
@@ -160,6 +160,14 @@ public final class ResilienceSettings {
                     + GLOBAL_BREAKER + "=true makes Spring Cloud own the HTTP-service circuit breaker.",
                     "Set " + GLOBAL_BREAKER + "=false, or remove " + key + "."));
         }
+    }
+
+    /** TL0041: {@code key} (relative to {@code remote.}) is on while the resilience configuration is not running. */
+    public static Diagnostic notActive(String id, String key) {
+        String full = "topolith.modules." + id + ".remote." + key;
+        return new Diagnostic(TopolithCode.TL0041, "module '" + id + "' sets " + full + ", but "
+                + "topolith-spring-cloud's resilience configuration is not active: it is missing or excluded.",
+                "Activate TopolithResilienceAutoConfiguration, or turn " + full + " off.");
     }
 
     private static void needsCloud(boolean cloud, List<Diagnostic> problems, String key, String id) {

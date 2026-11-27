@@ -171,10 +171,13 @@ final class TopologyResolver {
             }
         }
         Map<String, Set<String>> idempotent = new TreeMap<>();
-        found.apis().forEach(api -> idempotent.computeIfAbsent(api.id(), key -> new TreeSet<>())
-                .addAll(api.idempotent()));
-        found.modules().forEach(module -> idempotent.computeIfAbsent(module.id(), key -> new TreeSet<>())
-                .addAll(module.idempotent()));
+        // the effective descriptor only (R-DESC-05): the API descriptor of an external module, the module descriptor of
+        // an internal or loopback one; a union would let a skewed jar widen what is retried
+        found.apis().stream().filter(api -> topology.idsOf(Mode.EXTERNAL).contains(api.id()))
+                .forEach(api -> idempotent.computeIfAbsent(api.id(), key -> new TreeSet<>()).addAll(api.idempotent()));
+        found.modules().stream().filter(module -> topology.internal().contains(module.id()))
+                .forEach(module -> idempotent.computeIfAbsent(module.id(), key -> new TreeSet<>())
+                        .addAll(module.idempotent()));
         Map<String, String> versions = new TreeMap<>();
         found.modules().forEach(module -> versions.put(module.id(), module.apiVersion()));
         Map<String, String> hostVersions = new TreeMap<>();

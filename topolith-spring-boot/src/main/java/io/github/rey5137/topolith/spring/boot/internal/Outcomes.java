@@ -10,7 +10,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 /**
  * The one classification of an exchange attempt's failure that retry, the circuit breaker and the contract translator
- * share (R-EXT-14, R-EXT-15, D-105). Not public API (D-78).
+ * share (R-EXT-14, R-EXT-15, D-105). Not public API (D-109).
  */
 @Incubating
 public final class Outcomes {

@@ -83,7 +83,9 @@ A contract method is recorded as idempotent in the module and API descriptors on
 `@Idempotent` (`io.github.rey5137.topolith.contract.Idempotent`, in `topolith-core`, `@Incubating`, `@Documented`,
 `RUNTIME` retention, targets `TYPE` and `METHOD`, no members); HTTP exchange annotations (`@GetExchange`,
 `@PutExchange`, `@DeleteExchange`, `@HttpExchange`) never add a method to the descriptor's `idempotent` set, and the
-caller-side `remote.retry.safe-methods-idempotent` setting (R-EXT-14) does not change the descriptor (D-100).
+caller-side `remote.retry.safe-methods-idempotent` setting (R-EXT-14) does not change the descriptor (D-100). Removing `@Idempotent` from a contract method or interface, or narrowing it
+(for example by adding a non-idempotent overload), is a breaking contract change that needs an `api-version` major
+bump; adding it is compatible (D-108).
 
 - **Contract and method scope.** On a provided contract interface `C` (an entry of `provides`), a public, abstract
   (non-`default`, non-`static`, non-`private`) interface method of `C` (declared on `C` or inherited from a

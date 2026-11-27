@@ -1,5 +1,5 @@
 /**
- * Hooks the Topolith test support calls and no application should: not public API, and free to change in any release
- * (D-78).
+ * Internal seams between topolith-spring-boot, topolith-spring-test and topolith-spring-cloud; not public API, free to
+ * change in any release (D-109).
  */
 package io.github.rey5137.topolith.spring.boot.internal;

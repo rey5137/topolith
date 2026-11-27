@@ -5,6 +5,7 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -130,7 +131,7 @@ final class IdempotencyCheck {
         Set<String> carriers = new TreeSet<>();
         try {
             List<Class<?>> pending = new ArrayList<>(List.of(type));
-            Set<Class<?>> seen = new java.util.HashSet<>();
+            Set<Class<?>> seen = new HashSet<>();
             while (!pending.isEmpty()) {
                 Class<?> current = pending.remove(pending.size() - 1);
                 if (!seen.add(current) || contractType != null && current.isAssignableFrom(contractType)) {

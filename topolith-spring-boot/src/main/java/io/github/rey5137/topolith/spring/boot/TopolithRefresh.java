@@ -201,9 +201,15 @@ public final class TopolithRefresh implements BeanClassLoaderAware {
             if (!problems.isEmpty()) {
                 throw new TopolithException(problems);
             }
+            ResilienceSettings.Retry refreshedRetry = retry ? ResilienceSettings.retry(binder, id) : null;
+            ResilienceSettings.Breaker refreshedBreaker = breaker ? ResilienceSettings.breaker(binder, id) : null;
             if (hook != null) {
-                hook.apply(id, retry ? ResilienceSettings.retry(binder, id) : null,
-                        breaker ? ResilienceSettings.breaker(binder, id) : null);
+                hook.apply(id, refreshedRetry, refreshedBreaker);
+            } else if (refreshedRetry != null && refreshedRetry.active()
+                    || refreshedBreaker != null && refreshedBreaker.enabled()) {
+                String key = refreshedRetry != null && refreshedRetry.active() ? "retry.max-attempts"
+                        : "circuit-breaker.enabled";
+                throw new TopolithException(List.of(ResilienceSettings.notActive(id, key)));
             }
         } catch (RuntimeException | LinkageError e) {
             String reason = e.getMessage() == null ? e.getClass().getSimpleName()

@@ -5,7 +5,7 @@ import io.github.rey5137.topolith.core.Incubating;
 /**
  * What {@code topolith-spring-cloud} registers so a refresh can swap an external module's retry policy and circuit
  * breaker (R-EXT-14, R-EXT-15, D-104). {@code TopolithRefresh} validates the settings and calls it only for the group
- * whose keys changed; a thrown exception keeps the running policy or breaker. Not public API (D-78).
+ * whose keys changed; a thrown exception keeps the running policy or breaker. Not public API (D-109).
  */
 @Incubating
 public interface ResilienceRefresh {

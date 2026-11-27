@@ -35,6 +35,11 @@ class LayeringTest {
             .should().dependOnClassesThat().resideInAPackage("org.springframework.cloud..").allowEmptyShould(true);
     private static final ArchRule NO_MODULITH = noClasses().should().dependOnClassesThat()
             .resideInAPackage("org.springframework.modulith..").allowEmptyShould(true);
+    // D-109: the internal seam is shared by the three Spring artifacts only
+    private static final ArchRule INTERNAL_SEAM = noClasses().that().resideOutsideOfPackages(
+            BASE + ".spring.boot..", BASE + ".spring.test..", BASE + ".spring.cloud..")
+            .should().dependOnClassesThat().resideInAPackage(BASE + ".spring.boot.internal..")
+            .allowEmptyShould(true);
     // INV-7: each optional library stays in the classes that are guarded against its absence (R-EXT-11, R-EXT-12,
     // R-EXT-13). A nested class counts as its top-level class.
     private static final String SPRING_BOOT = BASE + ".spring.boot.";
@@ -93,6 +98,10 @@ class LayeringTest {
         OBSERVATION_CONFINED.check(production());
         SERVLET_CONFINED.check(production());
     }
+    @Test void ac_build_17_internal_seam_stays_in_spring_artifacts() { INTERNAL_SEAM.check(production()); }
+    @Test void ac_build_17_fails_on_bad_internal_fixture() {
+        assertViolation(INTERNAL_SEAM, BASE + ".other.badinternal", "BadInternal");
+    }
     @Test void ac_build_06_optional_configurations_are_guarded() { GUARDED.check(production()); }
     @Test void ac_build_03_fails_on_bad_fixture() {
         assertViolation(CORE, BASE + ".core.bad", "BadCore");
@@ -146,7 +155,7 @@ class LayeringTest {
         JavaClasses classes = production();
         for (String name : new String[] {"core.bad.BadCore", "annotation.bad.BadAnnotation",
                 "processor.bad.BadProcessor", "spring.boot.badcloud.BadCloud", "spring.boot.badmodulith.BadModulith",
-                "spring.cloud.bad.BadConfiguration", "spring.cloud.good.GoodConfiguration", "other.bad.BadOther",
+                "spring.cloud.bad.BadConfiguration", "spring.cloud.good.GoodConfiguration", "other.bad.BadOther", "other.badinternal.BadInternal",
                 "spring.cloud.composed.ComposedConfiguration",
                 "spring.cloud.nested.GuardedOuter$NestedConfiguration"}) {
             assertFalse(classes.contain(BASE + "." + name), name);

@@ -148,6 +148,29 @@ class IdempotencyStartupTest {
     }
 
     @Test
+    void ac_desc_13_an_external_modules_idempotent_set_is_its_api_descriptors_not_the_union() throws Exception {
+        descriptors(Set.of(READ + "#count", READ + "#get", READ + "#save"), READ_IDEMPOTENT, ReadContract.class);
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(ErrorHost.class)
+                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.modules.idem.mode=external",
+                            "topolith.modules.idem.remote.url=http://localhost:1")
+                    .run(context -> {
+                        assertNull(context.getStartupFailure());
+                        TopologyResolver.Resolution resolution = context.getBean(TopologyResolver.RESOLUTION_BEAN,
+                                TopologyResolver.Resolution.class);
+                        assertEquals(READ_IDEMPOTENT, resolution.idempotent().get("idem"));
+                    });
+            new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(ErrorHost.class)
+                    .withPropertyValues("spring.liquibase.enabled=false", "topolith.modules.idem.mode=none")
+                    .run(context -> {
+                        assertNull(context.getStartupFailure());
+                        assertNull(context.getBean(TopologyResolver.RESOLUTION_BEAN, TopologyResolver.Resolution.class)
+                                .idempotent().get("idem"));
+                    });
+        }
+    }
+
+    @Test
     void ac_desc_13_a_descriptor_that_differs_from_the_annotations_fails_tl0040() throws Exception {
         descriptors(Set.of(READ + "#get"), Set.of(READ + "#get"), ReadContract.class);
         for (String mode : List.of("internal", "loopback", "external")) {

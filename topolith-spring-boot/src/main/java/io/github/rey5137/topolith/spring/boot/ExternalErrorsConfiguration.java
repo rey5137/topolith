@@ -1,7 +1,12 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import io.github.rey5137.topolith.core.Diagnostic;
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.Topology;
+import io.github.rey5137.topolith.core.TopolithException;
+import io.github.rey5137.topolith.spring.boot.internal.ResilienceRefresh;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -14,6 +19,7 @@ import org.springframework.core.env.Environment;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -51,6 +57,34 @@ class ExternalErrorsConfiguration {
                     mapped, services));
         }
         return new ResilienceModules(modules);
+    }
+
+    /**
+     * TL0041 when a module turns retry or the circuit breaker on while {@code topolith-spring-cloud}'s resilience
+     * configuration is not active (missing or excluded): the class-presence check names a missing jar early, this one
+     * judges the running state, so nothing starts with the policy silently absent.
+     */
+    @Bean
+    static SmartInitializingSingleton topolithResilienceActive(ResilienceModules modules,
+            ObjectProvider<ResilienceRefresh> hook) {
+        return () -> {
+            if (hook.getIfAvailable() != null) {
+                return;
+            }
+            List<Diagnostic> problems = new ArrayList<>();
+            for (String id : modules.ids()) {
+                ResilienceModules.Module module = modules.module(id);
+                if (module.retry().active()) {
+                    problems.add(ResilienceSettings.notActive(id, "retry.max-attempts"));
+                }
+                if (module.breaker().enabled()) {
+                    problems.add(ResilienceSettings.notActive(id, "circuit-breaker.enabled"));
+                }
+            }
+            if (!problems.isEmpty()) {
+                throw new TopolithException(problems);
+            }
+        };
     }
 
     /**

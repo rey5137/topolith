@@ -121,7 +121,8 @@ Set them under `topolith.modules.<id>.remote`:
 - **Idempotency is declared, never guessed.** Put `@Idempotent` on a contract method (or the interface) in the API
   package; the processor writes it into the descriptor and startup checks the two agree (`TL0040`). A method that is not
   declared is never retried, whatever its HTTP method. `retry.safe-methods-idempotent=true` also admits `GET`, `HEAD`,
-  `OPTIONS` and `TRACE` exchanges.
+  `OPTIONS` and `TRACE` exchanges. Removing `@Idempotent` from a method, or narrowing it, is a breaking change of the
+  API: bump the API's `api-version` major, because a caller on the older API jar keeps retrying the method.
 - **What is retried.** Only a transient provider failure of an idempotent call: a connection failure, a timeout, or a
   502, 503 or 504 without a Topolith problem. A declared exception, a 4xx, a 429 and a 500 are returned at once. A
   retried call is one observation and ends in the same `ModuleUnavailableException` as an unretried one.

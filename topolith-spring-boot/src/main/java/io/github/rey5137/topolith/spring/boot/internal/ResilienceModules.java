@@ -11,7 +11,7 @@ import io.github.rey5137.topolith.core.Incubating;
  * What {@code topolith-spring-cloud} needs of each external and loopback module to wire retry and the circuit breaker:
  * its settings, its descriptor's {@code idempotent} set and its separate HTTP interfaces (R-EXT-14, R-EXT-15). Only
  * those modules are in it, so a {@code none} or {@code internal} module leaves nothing behind (INV-2). Not public API
- * (D-78).
+ * (D-109).
  */
 @Incubating
 public final class ResilienceModules {

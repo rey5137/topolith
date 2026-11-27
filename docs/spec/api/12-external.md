@@ -522,7 +522,8 @@ auto-configuration (which is not gated on `EnvironmentChangeEvent` or `spring-cl
 - **Idempotency gate.** Retry applies per HTTP exchange (abstract contract method) invocation; a `default` method on a
   contract interface runs locally on the client proxy and is not itself an exchange (each abstract contract method it
   invokes is checked on its own exchange). An exchange is eligible for retry only when `max-attempts > 1` and either:
-  (a) the module's descriptor lists `<contract>#<method>` in `idempotent` (R-DESC-05, D-100); or
+  (a) the module's effective descriptor (`apis/<id>.properties` for an external module, `modules/<id>.properties` for
+  a loopback one, never a union) lists `<contract>#<method>` in `idempotent` (R-DESC-05, D-100); or
   (b) `remote.retry.safe-methods-idempotent=true` and the method's resolved HTTP method on the caller's exchange
   interface — the contract interface itself, or the separate interface mapped by
   `topolith.modules.<id>.remote.http-interface.<contract FQN>` (D-49), with a non-empty method-level `@HttpExchange`
@@ -572,8 +573,9 @@ auto-configuration (which is not gated on `EnvironmentChangeEvent` or `spring-cl
   `remote.circuit-breaker.enabled=true` (D-106). Tuning
   keys (`initial-backoff`, `max-backoff`, `multiplier`, `safe-methods-idempotent`) are allowed when `max-attempts` is
   unset or `1`: their values are validated at startup and refresh, and they are inactive while `max-attempts=1`.
-  Setting `remote.retry.max-attempts > 1` without `topolith-spring-cloud`'s resilience configuration on the classpath
-  fails startup with TL0041 naming the module and `topolith-spring-cloud`. A `none` or `internal` module registers no
+  Setting `remote.retry.max-attempts > 1` without `topolith-spring-cloud`'s resilience configuration on the classpath and active (not excluded)
+  fails startup with TL0041 naming the module and key. A refresh that turns retry on without it active fails with TL0011
+  (a TL0041 condition) and a failed `RESILIENCE` status. A `none` or `internal` module registers no
   retry bean, configurer or decorator (INV-2). On refresh (`EnvironmentChangeEvent`), an `external` module validates
   and swaps only its active retry policy atomically (leaving its running circuit breaker and breaker state untouched)
   and logs TL0011 on invalid settings while keeping the running policy (R-EXT-08, D-104). A call captures its policy
@@ -581,7 +583,7 @@ auto-configuration (which is not gated on `EnvironmentChangeEvent` or `spring-cl
   breaker is applied, which is judged by its configurer bean being in the context, not by the key (D-106). A `loopback` module's
   `remote.retry.*` keys are restart-only (TL0010, D-77).
 
-Implements INV-2, INV-4, INV-6, INV-7 and D-100 through D-107.
+Implements INV-2, INV-4, INV-6, INV-7 and D-100 through D-108.
 
 - AC-EXT-62 (M7.3): By default (`remote.retry.safe-methods-idempotent` unset or `false`), a contract method that is not
   declared `@Idempotent` (including a `@GetExchange`, `@PutExchange`, `@DeleteExchange` or `@PostExchange` method
@@ -706,8 +708,11 @@ Implements INV-2, INV-4, INV-6, INV-7, D-51 and D-102 through D-107.
   the context (D-106), another source configuring breaker `<id>`, a breaker named
   `<id>` already in `CircuitBreakerRegistry`, an active Resilience4j bulkhead provider on the factory, or a host
   `@HttpServiceFallback` targeting a module group fails startup with TL0003; `remote.retry.max-attempts` above `1`
-  without `topolith-spring-cloud`'s resilience configuration, or `remote.circuit-breaker.enabled=true` without it or
-  with zero, two or more, or an unsupported `CircuitBreakerFactory` bean, fails startup with TL0041.
+  without `topolith-spring-cloud`'s resilience configuration on the classpath and active, or
+  `remote.circuit-breaker.enabled=true` without it or
+  with zero, two or more, or an unsupported `CircuitBreakerFactory` bean, or one whose Spring Cloud members Topolith
+  reads to verify it alone owns the breaker are missing or unreadable (D-105), fails startup with TL0041; the same
+  condition on a refresh fails with TL0011 and a failed `RESILIENCE` status.
 - AC-EXT-68 (M7.4): On an `EnvironmentChangeEvent` for an `external` module, changing `remote.retry.*` swaps only the
   module's retry policy (turning retry on or off while keeping tuning keys, and leaving an open circuit breaker open),
   and changing `remote.circuit-breaker.*` rebuilds only the module's circuit breaker (resetting it to closed under the

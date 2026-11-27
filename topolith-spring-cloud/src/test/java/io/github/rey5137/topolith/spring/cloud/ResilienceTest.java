@@ -62,6 +62,7 @@ import org.springframework.context.annotation.Configuration;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -837,6 +838,57 @@ class ResilienceTest {
         startupFails(props("http://127.0.0.1:1", on), TopolithCode.TL0041, "module 'orders'", SecondFactory.class);
         startupFails(props("http://127.0.0.1:1", on, "spring.cloud.circuitbreaker.resilience4j.enabled=false"),
                 TopolithCode.TL0041, "OtherFactory", SecondFactory.class);
+    }
+
+    private static final String EXCLUDED = "spring.autoconfigure.exclude="
+            + "io.github.rey5137.topolith.spring.cloud.TopolithResilienceAutoConfiguration";
+
+    @Test
+    void ac_ext_67_retry_or_a_breaker_with_the_resilience_configuration_excluded_fails_with_tl0041()
+            throws Exception {
+        startupFails(props("http://127.0.0.1:1", R + "retry.max-attempts=2", EXCLUDED), TopolithCode.TL0041,
+                "topolith.modules.orders.remote.retry.max-attempts");
+        startupFails(props("http://127.0.0.1:1", R + "circuit-breaker.enabled=true", EXCLUDED), TopolithCode.TL0041,
+                "topolith.modules.orders.remote.circuit-breaker.enabled");
+        // both off: the module starts with no resilience and no diagnostic
+        external(props("http://127.0.0.1:1", EXCLUDED), context -> assertNotNull(context.getBean(OrderContract.class)));
+    }
+
+    @Test
+    void ac_ext_67_a_loopback_module_with_retry_and_the_resilience_configuration_excluded_fails_with_tl0041()
+            throws Exception {
+        String[] properties = {"topolith.modules.orders.mode=loopback", "topolith.modules.payment.mode=none",
+                R + "retry.max-attempts=2", "server.port=0", EXCLUDED};
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {root.toUri().toURL()},
+                ResilienceTest.class.getClassLoader())) {
+            new WebApplicationContextRunner(AnnotationConfigServletWebServerApplicationContext::new)
+                    .withClassLoader(loader).withUserConfiguration(OrderHost.class).withPropertyValues(properties)
+                    .run((AssertableWebApplicationContext context) -> {
+                        Throwable cause = context.getStartupFailure();
+                        while (cause != null && !(cause instanceof TopolithException)) {
+                            cause = cause.getCause();
+                        }
+                        TopolithException failure = assertInstanceOf(TopolithException.class, cause,
+                                String.valueOf(context.getStartupFailure()));
+                        assertTrue(failure.getMessage().contains("TL0041"), failure.getMessage());
+                    });
+        }
+    }
+
+    @Test
+    void ac_desc_13_a_method_only_the_module_descriptor_declares_idempotent_is_not_retried() throws Exception {
+        String api = PACKAGE + ".orders.api";
+        write("modules", "orders", out -> Descriptors.write(ModuleDescriptor.builder("orders")
+                .packageName(PACKAGE + ".orders").apiPackages(List.of(api)).apiVersion("1.0.0")
+                .provides(List.of(CONTRACT)).idempotent(List.of(CONTRACT + "#missing", CONTRACT + "#read",
+                        CONTRACT + "#reject", CONTRACT + "#replace", CONTRACT + "#peek")).build(), out));
+        try (Stub stub = new Stub()) {
+            stub.on("/peek", Reply.status(503));
+            external(props(stub.url(), R + "retry.max-attempts=3"), context -> {
+                assertThrows(ModuleUnavailableException.class, context.getBean(OrderContract.class)::peek);
+                assertEquals(1, stub.count("/peek"));
+            });
+        }
     }
 
     /** A host that declares Spring Cloud's global breaker configurer itself stacks it on the module's group. */

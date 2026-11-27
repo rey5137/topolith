@@ -349,6 +349,34 @@ class ResilienceRefreshTest {
     }
 
     @Test
+    void ac_ext_68_turning_retry_on_without_the_resilience_configuration_fails_with_tl0011(CapturedOutput output)
+            throws Exception {
+        run("http://127.0.0.1:1", context -> {
+            refresh(context, R + "retry.max-attempts", "2");
+            assertTrue(output.getAll().contains("TL0011"), output.getAll());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> failure = (Map<String, Object>) module(context, "orders").get("refresh");
+            assertEquals("failed", failure.get("status"));
+            assertEquals("TL0011", failure.get("code"));
+            assertTrue(failure.get("message").toString().contains("TL0041"), failure.toString());
+        }, "spring.autoconfigure.exclude=io.github.rey5137.topolith.spring.cloud.TopolithResilienceAutoConfiguration");
+    }
+
+    @Test
+    void ac_ext_68_turning_the_breaker_on_without_the_resilience_configuration_fails_with_tl0011(
+            CapturedOutput output) throws Exception {
+        run("http://127.0.0.1:1", context -> {
+            refresh(context, R + "circuit-breaker.enabled", "true");
+            assertTrue(output.getAll().contains("TL0011"), output.getAll());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> failure = (Map<String, Object>) module(context, "orders").get("refresh");
+            assertEquals("failed", failure.get("status"));
+            assertEquals("TL0011", failure.get("code"));
+            assertTrue(failure.get("message").toString().contains("TL0041"), failure.toString());
+        }, "spring.autoconfigure.exclude=io.github.rey5137.topolith.spring.cloud.TopolithResilienceAutoConfiguration");
+    }
+
+    @Test
     void ac_ext_68_invalid_breaker_settings_keep_the_running_breaker_and_log_tl0011(CapturedOutput output)
             throws Exception {
         try (Stub stub = new Stub()) {

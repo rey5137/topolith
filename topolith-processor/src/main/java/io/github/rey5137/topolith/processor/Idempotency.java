@@ -79,8 +79,8 @@ final class Idempotency {
      * Adds a TL0013 for each {@code @Idempotent} on a type that is not an interface, a type outside the api packages,
      * a method of either, or a {@code default}, {@code static} or {@code private} interface method.
      */
-    void misplaced(Collection<TypeElement> types, Set<String> apiPackages, List<Diagnostic> problems) {
-        for (TypeElement type : types) {
+    void misplaced(Collection<TypeElement> compiled, Set<String> apiPackages, List<Diagnostic> problems) {
+        for (TypeElement type : compiled) {
             String where = placement(type, apiPackages);
             if (type.getAnnotation(Idempotent.class) != null && where != null) {
                 problems.add(misplaced(type.getQualifiedName().toString(), where));

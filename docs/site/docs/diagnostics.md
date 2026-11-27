@@ -44,7 +44,7 @@ keeps running.
 | `TL0028` | A module is exposed in a reactive (WebFlux) application, which has no exposure support. | failure | Set `expose.enabled=false`, or use a servlet application. |
 | `TL0029` | A `final` handler class (`@Controller`, `@RestController`, `@RequestMapping`) provides an internal module's contract, whatever beans the host has; turning observation off does not avoid it. | failure | Make the class non-final. |
 | `TL0040` | A contract's idempotency declarations do not match or are invalid: the descriptor's `idempotent` set differs from the `@Idempotent` annotations on the loaded provided contracts (or the module and API descriptors disagree), a contract places `@Idempotent` on a `default` method or overloads a method name with conflicting `@Idempotent` annotations, or `@Idempotent` is placed on a separate `remote.http-interface` instead of the contract. | failure | Put `@Idempotent` on the contract interface or its abstract methods in the API package with consistent overloads, and rebuild the API and module artifacts with the processor. |
-| `TL0041` | Per-group retry or circuit breaker is configured (`remote.retry.max-attempts` above `1` or `remote.circuit-breaker.enabled=true`) without `topolith-spring-cloud`'s resilience configuration or, for a circuit breaker, without exactly one `CircuitBreakerFactory` bean of a supported implementation (`Resilience4JCircuitBreakerFactory`). | failure | Add `topolith-spring-cloud` (and a single supported factory such as `spring-cloud-starter-circuitbreaker-resilience4j` when `remote.circuit-breaker.enabled=true`), or turn the setting off. |
+| `TL0041` | Per-group retry or circuit breaker is configured (`remote.retry.max-attempts` above `1` or `remote.circuit-breaker.enabled=true`) without `topolith-spring-cloud`'s resilience configuration on the classpath and active (not excluded) or, for a circuit breaker, without exactly one `CircuitBreakerFactory` bean of a supported implementation (`Resilience4JCircuitBreakerFactory`). | failure | Add `topolith-spring-cloud` (and a single supported factory such as `spring-cloud-starter-circuitbreaker-resilience4j` when `remote.circuit-breaker.enabled=true`), or turn the setting off. |
 
 ## Call context and authentication
 
@@ -69,7 +69,7 @@ keeps running.
 
 | Code | Meaning | Severity | Fix |
 |---|---|---|---|
-| `TL0010` | A refreshed mode, URL/service-id wiring change or loopback client setting (including `remote.retry.*` and `remote.circuit-breaker.*`) needs a restart. | warning | Restart the host. The running topology is unchanged until then. |
+| `TL0010` | A refreshed mode, URL/service-id wiring change or loopback client setting (including `remote.retry.*` and `remote.circuit-breaker.*`) needs a restart, as does an external module's retry or circuit breaker turned on by a refresh while Spring Cloud's global HTTP-service breaker is applied (D-106). | warning | Restart the host. The running topology is unchanged until then. |
 | `TL0011` | Refreshed endpoint, retry or circuit-breaker settings are invalid or the client rebuild failed. | warning | Correct the settings. The old client, retry policy and circuit breaker keep serving. |
 | `TL0014` | Cloud context classes are present without Topolith refresh integration. | warning | Add `topolith-spring-cloud` if you want refresh handling. |
 | `TL0015` | The remote API-version endpoint is unavailable or inaccessible. | warning | Check the remote provider and its exposure. The host stays ready. |

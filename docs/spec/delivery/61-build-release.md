@@ -66,6 +66,8 @@ until 1.0. A release has a changelog and signed artifacts. Implements D-1.
 - AC-BUILD-13 (M4.4): A release dry run produces signed artifacts with the specified coordinates and license.
 - AC-BUILD-14 (M4.4): The release workflow targets Maven Central and includes the `0.1.0` changelog.
 - AC-BUILD-15 (M4.4): Public types carry `@Incubating` before 1.0.
+- AC-BUILD-17 (M7 gate): No class outside `topolith-spring-boot`, `topolith-spring-test` and `topolith-spring-cloud` depends
+  on `io.github.rey5137.topolith.spring.boot.internal`; a fixture that does fails the layering rule (D-109).
 
 ### R-BUILD-07 — Invariant changes
 

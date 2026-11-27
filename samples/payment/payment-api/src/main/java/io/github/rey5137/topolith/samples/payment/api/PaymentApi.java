@@ -21,5 +21,9 @@ public interface PaymentApi {
     /** Reports the {@code requestId} MDC value and the tenant the provider sees for this call. */
     @GetExchange("/context")
     CallContext context();
+
+    /** Reports the principal name and authorities the provider sees for this call. */
+    @GetExchange("/caller")
+    CallerIdentity caller();
 }
 // snippet:end payment-api

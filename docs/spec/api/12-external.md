@@ -48,7 +48,9 @@ Implements INV-4, INV-8 and P-3.
 
 Every group has connect and read timeouts, defaulting to two and five seconds respectively; each group can override
 both. Set `topolith.modules.<id>.remote.connect-timeout` and `remote.read-timeout`, or the corresponding Boot
-group properties; Boot-only values, including the global `spring.http.clients.*` timeouts, replace the defaults. Implements INV-4, P-2 and D-40.
+group properties; Boot-only values, including the global `spring.http.clients.*` timeouts, replace the defaults. The
+group's other Boot settings (`ssl.bundle`, redirects) apply to its client as Boot maps them (D-50). Implements INV-4,
+P-2 and D-40.
 
 - AC-EXT-07 (M2.1): An unconfigured client uses a two-second connect timeout and a five-second read timeout.
 - AC-EXT-08 (M2.1): Group timeout overrides apply to that group's client.
@@ -146,7 +148,8 @@ A URL-to-service-id or service-id-to-URL switch instead uses TL0010 and restart-
 Without Spring Cloud on the classpath there is no refresh handling. A host's own unguarded
 `RestClientHttpServiceGroupConfigurer` setting `requestFactory` for all groups may win over the swap (same lowest order),
 so refreshed timeouts would not apply; a refresh changing only Boot keys (`spring.http.serviceclient.<id>.*`,
-`spring.http.clients.*`) is restart-only and unchecked until the next start (D-50). Implements INV-4, INV-9, D-11 through D-16, D-20.
+`spring.http.clients.*`) is restart-only and unchecked until the next start (D-50). A rebuild also gives a
+client-credentials hook's token request the new timeouts (D-96). Implements INV-4, INV-9, D-11 through D-16, D-20.
 
 - AC-EXT-18 (M2.6): Changing the URL rebuilds the client.
 - AC-EXT-19 (M2.6): Changing timeout settings rebuilds the client.
@@ -360,7 +363,7 @@ Implements INV-1, INV-2, INV-4, INV-6, INV-7, D-90 and D-91.
 ### R-EXT-13 — Outgoing authentication
 
 Each external or loopback module's client authenticates its calls through at most one outgoing-auth hook, chosen by
-`topolith.modules.<id>.auth.type` or supplied by the host (D-92 through D-95).
+`topolith.modules.<id>.auth.type` or supplied by the host (D-92 through D-96).
 
 | `auth.type` | Hook |
 |---|---|
@@ -379,7 +382,12 @@ Each external or loopback module's client authenticates its calls through at mos
   `OAuth2AuthorizedClientManager` bean, and a host that wants its own manager installs Spring's interceptor over it
   as a custom hook. The interceptor authorizes the registration `auth.registration-id` for a fixed principal named
   `topolith:<registration id>`, never the calling thread's, so one token per registration is obtained and cached
-  whoever calls.
+  whoever calls. Its token request uses the host's single client-credentials `OAuth2AccessTokenResponseClient` bean
+  when there is one, and otherwise the connect and read timeouts the module's client currently uses, never its SSL
+  bundle or redirect settings; a token request failing on I/O raises `ModuleUnavailableException` with D-55's kind. A
+  provider response whose OAuth2 error is `invalid_token` (a 401 naming no other error counts), or a token request
+  ending in `invalid_grant`, removes the token; the failed call is not retried, and the next call obtains a new one
+  (D-96).
 - **Custom hook.** `ModuleClients.authenticate(<id>, <interceptor>)` returns a group configurer, declared as a bean,
   that installs a Spring `ClientHttpRequestInterceptor` as the module's hook instead of `auth.type`'s. Like
   `ModuleClients.configure` it accepts an external or loopback module only (D-83); its interceptor needs no Spring
@@ -393,8 +401,9 @@ Each external or loopback module's client authenticates its calls through at mos
   `auth.type` value, an `auth.registration-id` without `client-credentials`, or a `ModuleClients.authenticate` naming
   such a module fail with TL0003 naming the key or module. `client-credentials` without Spring Security's OAuth2
   client classes, without `auth.registration-id`, with a registration the `ClientRegistrationRepository` does not hold,
-  or without exactly one `ClientRegistrationRepository` and one `OAuth2AuthorizedClientService` bean to build its
-  manager from fails startup with TL0037 naming the module. The keys are restart-only: a refresh changing one logs
+  without exactly one `ClientRegistrationRepository` and one `OAuth2AuthorizedClientService` bean to build its
+  manager from, or with more than one client-credentials `OAuth2AccessTokenResponseClient` bean, fails startup with
+  TL0037 naming the module. The keys are restart-only: a refresh changing one logs
   TL0010 naming the module and the key and marks restart pending, as D-77 does for a loopback module's client settings.
 - **Parity.** In internal mode the provider runs on the caller's thread and sees the caller's `SecurityContext`;
   Topolith neither copies nor clears it. With `relay`, in loopback and external mode the provider sees the
@@ -412,7 +421,7 @@ Each external or loopback module's client authenticates its calls through at mos
   nothing assumes the caller and provider share a thread (INV-6); a call made on another thread relays what that
   thread's `SecurityContext` holds, which is also what an internal provider would see there.
 
-Implements INV-2, INV-4, INV-6, INV-7 and D-92 through D-95.
+Implements INV-2, INV-4, INV-6, INV-7 and D-92 through D-96.
 
 - AC-EXT-53 (M6.4): With `relay`, a loopback and an external call from a thread whose `Authentication` is a
   `JwtAuthenticationToken` send its token as `Authorization: Bearer`, and the provider sees an `Authentication` with
@@ -422,6 +431,12 @@ Implements INV-2, INV-4, INV-6, INV-7 and D-92 through D-95.
   access token Spring Security's OAuth2 client obtains for `auth.registration-id`, also from a thread outside any
   servlet request and with a host `OAuth2AuthorizedClientManager` bean present; calls by two different users obtain
   one token, stored for the principal `topolith:<registration id>`.
+- AC-EXT-59 (M6.4): With `client-credentials`, a provider answer of 401 whose `WWW-Authenticate` names
+  `invalid_token`, or no error, fails that call without retrying it and removes the token, so the next call sends a
+  new one; a 403 naming `insufficient_scope` keeps the token.
+- AC-EXT-60 (M6.4): A `client-credentials` token request uses the host's single client-credentials
+  `OAuth2AccessTokenResponseClient` bean when there is one; otherwise it has the module's read timeout, also after a
+  refresh lowers it, and a token request that times out fails the call with `ModuleUnavailableException` (timeout).
 - AC-EXT-55 (M6.4): `ModuleClients.authenticate(<id>, <interceptor>)` installs the interceptor as that module's only
   hook; two hooks for one module, or a hook with an explicit `auth.type`, fail startup with TL0036, and a hook that
   changes an `Authorization` header a customizer set fails the call with a `TopolithException` carrying TL0036
@@ -429,8 +444,8 @@ Implements INV-2, INV-4, INV-6, INV-7 and D-92 through D-95.
 - AC-EXT-56 (M6.4): An `auth.*` key for an internal or `none` module, an unknown key or value, an
   `auth.registration-id` without `client-credentials` and a `ModuleClients.authenticate` for an internal module fail
   with TL0003; `client-credentials` without the OAuth2 client classes, without a registration id, with an unknown one,
-  without a `ClientRegistrationRepository` or `OAuth2AuthorizedClientService` bean, or with two of either fails with
-  TL0037; a refresh changing an `auth.*` key logs TL0010 and marks restart pending.
+  without a `ClientRegistrationRepository` or `OAuth2AuthorizedClientService` bean, with two of either, or with two
+  client-credentials `OAuth2AccessTokenResponseClient` beans fails with TL0037; a refresh changing an `auth.*` key logs TL0010 and marks restart pending.
 - AC-EXT-57 (M6.4): An internal call's provider sees the caller's `SecurityContext` unchanged; an internal or `none`
   module gets no auth interceptor, and a host without Spring Security on the classpath starts and its loopback and
   external calls send no `Authorization`.

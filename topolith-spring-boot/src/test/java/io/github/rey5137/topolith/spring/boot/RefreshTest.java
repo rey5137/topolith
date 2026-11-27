@@ -20,6 +20,7 @@ import java.util.function.Consumer;
 import com.sun.net.httpserver.HttpServer;
 import io.github.rey5137.topolith.spring.boot.errorfixture.host.ErrorHost;
 import io.github.rey5137.topolith.spring.boot.errorfixture.separate.PlainHttp;
+import io.github.rey5137.topolith.contract.ModuleUnavailableException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.separate.api.PlainContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.separate.api.PlainException;
 import org.junit.jupiter.api.BeforeEach;
@@ -426,6 +427,90 @@ class RefreshTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void ac_ext_56_a_refreshed_auth_key_logs_tl0010_and_keeps_restart_pending(CapturedOutput output)
+            throws Exception {
+        caller(context -> {
+            refresh(context, "topolith.modules.separate.auth.type", "none");
+            String log = output.getAll();
+            assertTrue(log.contains("TL0010"), log);
+            assertTrue(log.contains("module 'separate' keeps its outgoing-auth hook: the refreshed "
+                    + "topolith.modules.separate.auth.type applies only after a restart"), log);
+            assertEquals(true, context.getBean(TopolithEndpoint.class).modules().get("restartPending"));
+            // restoring the running value clears it
+            refresh(context, "topolith.modules.separate.auth.type", null);
+            assertEquals(false, context.getBean(TopolithEndpoint.class).modules().get("restartPending"));
+        }, NoExtra.class, URL + "=http://127.0.0.1:1");
+    }
+
+    @Test
+    void ac_ext_60_a_refreshed_read_timeout_also_limits_the_client_credentials_token_request() throws Exception {
+        HttpServer server = stub("found", 0, path -> { });
+        java.util.concurrent.atomic.AtomicInteger issued = new java.util.concurrent.atomic.AtomicInteger();
+        HttpServer tokens = OutgoingAuthTest.tokens(issued, 1500);
+        try {
+            caller(context -> {
+                refresh(context, "topolith.modules.separate.remote.read-timeout", "300ms");
+                long start = System.nanoTime();
+                ModuleUnavailableException thrown = assertThrows(ModuleUnavailableException.class,
+                        () -> context.getBean(PlainContract.class).find("x"));
+                assertTrue(thrown.getMessage().endsWith("(timeout)"), thrown.getMessage());
+                assertTrue(System.nanoTime() - start < 1_200_000_000L);
+                // the rebuilt client's version check asks for a token too, under the same new limit
+                assertTrue(issued.get() >= 1);
+            }, OutgoingAuthTest.Registrations.class, URL + "=" + url(server),
+                    "topolith.modules.separate.remote.read-timeout=5s",
+                    "topolith.modules.separate.auth.type=client-credentials",
+                    "topolith.modules.separate.auth.registration-id=svc");
+        } finally {
+            server.stop(0);
+            OutgoingAuthTest.stop(tokens);
+        }
+    }
+
+    /** Loads Topolith's own classes itself and hides spring-web, as a host without spring-web would. */
+    private static final class NoSpringWeb extends java.net.URLClassLoader {
+        NoSpringWeb() {
+            super(new java.net.URL[] {TopolithRefresh.class.getProtectionDomain().getCodeSource().getLocation()},
+                    RefreshTest.class.getClassLoader());
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            if (name.startsWith("org.springframework.web.")) {
+                throw new ClassNotFoundException(name);
+            }
+            if (!name.startsWith("io.github.rey5137.topolith.spring.boot.")) {
+                return super.loadClass(name, resolve);
+            }
+            synchronized (getClassLoadingLock(name)) {
+                Class<?> loaded = findLoadedClass(name);
+                return loaded != null ? loaded : findClass(name);
+            }
+        }
+    }
+
+    @Test
+    void inv_7_the_refresh_handler_of_a_client_module_needs_no_spring_web() throws Exception {
+        caller(context -> {
+            try (NoSpringWeb loader = new NoSpringWeb()) {
+                Class<?> status = loader.loadClass(TopolithRefreshStatus.class.getName());
+                var statusConstructor = status.getDeclaredConstructor();
+                statusConstructor.setAccessible(true);
+                var constructor = loader.loadClass(TopolithRefresh.class.getName()).getDeclaredConstructor(
+                        org.springframework.core.env.Environment.class, io.github.rey5137.topolith.core.Topology.class,
+                        status, org.springframework.beans.factory.ObjectProvider.class);
+                constructor.setAccessible(true);
+                // the topology holds an external module, so every client-module branch runs
+                assertNotNull(constructor.newInstance(context.getEnvironment(),
+                        context.getBean(io.github.rey5137.topolith.core.Topology.class),
+                        statusConstructor.newInstance(), context.getBeanProvider(Object.class)));
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }, NoExtra.class, URL + "=http://127.0.0.1:1");
     }
 
     @Test

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import io.github.rey5137.topolith.samples.payment.api.CallContext;
+import io.github.rey5137.topolith.samples.payment.api.CallerIdentity;
 import io.github.rey5137.topolith.samples.payment.api.ChargeRequest;
 import io.github.rey5137.topolith.samples.payment.api.ChargeResult;
 import io.github.rey5137.topolith.samples.payment.api.PaymentApi;
@@ -13,6 +14,9 @@ import io.github.rey5137.topolith.samples.payment.api.PaymentNotFoundException;
 import io.github.rey5137.topolith.samples.payment.api.Tenants;
 import org.slf4j.MDC;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.RestController;
 
 // snippet:start payment-controller-header
@@ -50,6 +54,16 @@ public class PaymentController implements PaymentApi {
     @Override
     public CallContext context() {
         return new CallContext(MDC.get("requestId"), Tenants.current());
+    }
+
+    @Override
+    public CallerIdentity caller() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            return new CallerIdentity(null, List.of());
+        }
+        return new CallerIdentity(authentication.getName(), authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority).sorted().toList());
     }
 
     private static List<String> splitTags(String stored) {

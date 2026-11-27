@@ -128,8 +128,16 @@ final class ExternalClientEndpoints {
                     ExternalClientProperties.CONNECT_TIMEOUT_DEFAULT);
             Duration read = timeout(binder, prefix, "read-timeout", ExternalClientProperties.READ_TIMEOUT_DEFAULT);
             ClientHttpRequestFactory factory = client.factories().build(client.settings().withTimeouts(connect, read));
+            // a client-credentials token request follows the call's timeouts, and only those (D-96)
+            OutgoingAuth.TokenRequests tokens = beanFactory.getBeanProvider(OutgoingAuth.TokenRequests.class)
+                    .getIfAvailable();
+            ClientHttpRequestFactory tokenFactory = tokens != null && tokens.manages(id) ? client.factories()
+                    .build(HttpClientSettings.defaults().withTimeouts(connect, read)) : null;
             client.uri().set(new DefaultUriBuilderFactory(base));
             client.request().set(factory);
+            if (tokenFactory != null) {
+                tokens.replace(id, tokenFactory);
+            }
         } catch (RuntimeException e) {
             if (old != null) {
                 sources.replace(ExternalClientProperties.SOURCE_NAME, old);

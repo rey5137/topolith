@@ -68,6 +68,12 @@
             <scope>runtime</scope>
         </dependency>
         <dependency>
+            <!-- R-EXT-13: the bearer-token Authentication type, so this host's payment client relays the caller's
+                 token (D-93). It decodes no token itself, so it needs no resource-server starter. -->
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-resource-server</artifactId>
+        </dependency>
+        <dependency>
             <!-- Reactor order only: the container runs the exec JAR that maven-dependency-plugin copies below.
                  The pom-type dependency pulls payment-service ahead of this module; excluding its transitives keeps
                  payment-module (a payment-service dependency) off the test classpath (D-69). -->

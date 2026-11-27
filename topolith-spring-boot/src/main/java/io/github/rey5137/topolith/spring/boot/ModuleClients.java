@@ -15,6 +15,7 @@ import io.github.rey5137.topolith.core.Topology;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.InitializingBean;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer;
 
@@ -34,6 +35,64 @@ public final class ModuleClients {
     public static RestClientHttpServiceGroupConfigurer configure(String moduleId,
             Consumer<RestClient.Builder> customizer) {
         return new ModuleClientConfigurer(Objects.requireNonNull(moduleId), Objects.requireNonNull(customizer));
+    }
+
+    /**
+     * Make {@code interceptor} the named external or loopback module's only outgoing-auth hook, instead of the one
+     * {@code topolith.modules.<id>.auth.type} chooses. It runs after every interceptor a {@link #configure}
+     * customizer adds; a second hook for the module, or an explicit {@code auth.type}, fails startup with TL0036, and
+     * a request whose {@code Authorization}, set before the hook, the hook changes fails with TL0036 without being
+     * sent. Declare the returned configurer as a Spring bean.
+     */
+    public static RestClientHttpServiceGroupConfigurer authenticate(String moduleId,
+            ClientHttpRequestInterceptor interceptor) {
+        return new ModuleAuthConfigurer(Objects.requireNonNull(moduleId), Objects.requireNonNull(interceptor));
+    }
+
+    /** TL0003 unless {@code moduleId} is an external or loopback module; {@code what} names the host's setting. */
+    static void requireClientModule(BeanFactory beanFactory, String moduleId, String what) {
+        Topology topology = beanFactory.getBean(Topology.class);
+        if (!topology.known().contains(moduleId)
+                || topology.mode(moduleId) != Mode.EXTERNAL && topology.mode(moduleId) != Mode.LOOPBACK) {
+            String property = "topolith.modules." + moduleId + ".mode";
+            throw new TopolithException(new Diagnostic(TopolithCode.TL0003, what + " for module '"
+                    + moduleId + "' requires " + property + "=external or loopback.", "Set " + property
+                    + " to external or loopback."));
+        }
+    }
+}
+
+/** A host's outgoing-auth hook; {@link OutgoingAuth} installs it, so the configurer itself changes nothing. */
+final class ModuleAuthConfigurer implements RestClientHttpServiceGroupConfigurer, BeanFactoryAware, InitializingBean {
+    private final String moduleId;
+    private final ClientHttpRequestInterceptor interceptor;
+    private BeanFactory beanFactory;
+
+    ModuleAuthConfigurer(String moduleId, ClientHttpRequestInterceptor interceptor) {
+        this.moduleId = moduleId;
+        this.interceptor = interceptor;
+    }
+
+    String moduleId() {
+        return moduleId;
+    }
+
+    ClientHttpRequestInterceptor interceptor() {
+        return interceptor;
+    }
+
+    @Override
+    public void setBeanFactory(BeanFactory beanFactory) {
+        this.beanFactory = beanFactory;
+    }
+
+    @Override
+    public void afterPropertiesSet() {
+        ModuleClients.requireClientModule(beanFactory, moduleId, "an outgoing-auth hook");
+    }
+
+    @Override
+    public void configureGroups(Groups<RestClient.Builder> groups) {
     }
 }
 
@@ -56,14 +115,7 @@ final class ModuleClientConfigurer implements RestClientHttpServiceGroupConfigur
 
     @Override
     public void afterPropertiesSet() {
-        Topology topology = beanFactory.getBean(Topology.class);
-        if (!topology.known().contains(moduleId)
-                || topology.mode(moduleId) != Mode.EXTERNAL && topology.mode(moduleId) != Mode.LOOPBACK) {
-            String property = "topolith.modules." + moduleId + ".mode";
-            throw new TopolithException(new Diagnostic(TopolithCode.TL0003, "client customization for module '"
-                    + moduleId + "' requires " + property + "=external or loopback.", "Set " + property
-                    + " to external or loopback."));
-        }
+        ModuleClients.requireClientModule(beanFactory, moduleId, "client customization");
     }
 
     @Override
@@ -76,6 +128,12 @@ final class ModuleClientConfigurer implements RestClientHttpServiceGroupConfigur
                 new Class<?>[] {RestClient.Builder.class}, (proxy, method, args) -> {
                     if (PROTECTED.contains(method.getName())) {
                         throw new IllegalArgumentException("Topolith owns client setting " + method.getName());
+                    }
+                    if (method.getName().equals("requestInterceptor")) {
+                        // before the module's outgoing-auth hook, whichever configurer runs first (D-92)
+                        ClientHttpRequestInterceptor added = (ClientHttpRequestInterceptor) args[0];
+                        builder.requestInterceptors(list -> AuthHook.insert(list, added));
+                        return proxy;
                     }
                     if (method.getName().equals("apply")) {
                         @SuppressWarnings("unchecked")

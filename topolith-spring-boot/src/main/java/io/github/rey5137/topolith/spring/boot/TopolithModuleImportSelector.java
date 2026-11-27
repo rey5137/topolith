@@ -99,6 +99,7 @@ final class TopolithModuleImportSelector
                 "org.springframework.web.service.registry.AbstractHttpServiceRegistrar", classLoader)) {
             imports.add("io.github.rey5137.topolith.spring.boot.ExternalHttpServicesRegistrar");
             imports.add("io.github.rey5137.topolith.spring.boot.ExternalErrorsConfiguration");
+            imports.add("io.github.rey5137.topolith.spring.boot.OutgoingAuthConfiguration");
             if (ClassUtils.isPresent("org.springframework.boot.http.client.HttpClientSettings", classLoader)) {
                 if (externals) {
                     imports.add("io.github.rey5137.topolith.spring.boot.ExternalClientSwapConfiguration");

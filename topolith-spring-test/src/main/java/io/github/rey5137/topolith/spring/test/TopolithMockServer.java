@@ -50,7 +50,7 @@ public final class TopolithMockServer implements AutoCloseable {
      *
      * @throws IllegalArgumentException for a {@code ModuleUnavailableException}; use {@link #unavailable}
      */
-    public void problem(String method, String path, Class<? extends RuntimeException> exceptionType, String message) {
+    public void problem(String method, String path, Class<? extends Exception> exceptionType, String message) {
         rejectUnavailable(exceptionType);
         write(method, path, derivedStatus(exceptionType), exceptionType.getName(), message, id);
     }
@@ -61,7 +61,7 @@ public final class TopolithMockServer implements AutoCloseable {
      * @throws IllegalArgumentException when {@code status} is not 4xx or 5xx, when the exception type is annotated
      *         with another status (spring-web present), or for a {@code ModuleUnavailableException}
      */
-    public void problem(String method, String path, int status, Class<? extends RuntimeException> exceptionType,
+    public void problem(String method, String path, int status, Class<? extends Exception> exceptionType,
             String message) {
         rejectUnavailable(exceptionType);
         if (status < 400 || status > 599) {
@@ -144,7 +144,7 @@ public final class TopolithMockServer implements AutoCloseable {
 
     private record Response(int status, String body, String contentType) { }
 
-    /** The provider's version endpoint (R-VAL-04); a copy of the boot module's package-private path, guarded by a test. */
+    /** The provider's version endpoint (R-VAL-04), copied from the boot module and guarded by a test. */
     static final String VERSION_PATH = "/.topolith/api-version";
 
     private static String key(String method, String path) {
@@ -185,6 +185,7 @@ public final class TopolithMockServer implements AutoCloseable {
             Response response = path.startsWith(prefix + "/") || path.equals(prefix)
                     ? stubs.get(key(method, path.substring(prefix.length()))) : null;
             if (response == null) { exchange.sendResponseHeaders(404, -1); return; }
+            exchange.getResponseHeaders().set("Topolith-Module", id);
             if (response.body() == null || response.body().isEmpty()) {
                 exchange.sendResponseHeaders(response.status(), -1);
                 return;

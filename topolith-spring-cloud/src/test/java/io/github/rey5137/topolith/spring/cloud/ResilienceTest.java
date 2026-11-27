@@ -545,7 +545,7 @@ class ResilienceTest {
                 OrderContract orders = context.getBean(OrderContract.class);
                 assertThrows(OrderRejectedException.class, orders::reject);
                 assertEquals(1, stub.count("/reject"));
-                assertThrows(org.springframework.web.client.HttpClientErrorException.NotFound.class, orders::missing);
+                assertThrows(ModuleUnavailableException.class, orders::missing);
                 assertEquals(1, stub.count("/missing"));
                 ModuleUnavailableException downstream = assertThrows(ModuleUnavailableException.class, orders::read);
                 assertEquals("payment", downstream.moduleId());
@@ -562,7 +562,7 @@ class ResilienceTest {
             stub.on("/read", Reply.status(401)).on("/replace", Reply.status(429)).on("/reject", Reply.status(500));
             external(props(stub.url(), R + "retry.max-attempts=3"), context -> {
                 OrderContract orders = context.getBean(OrderContract.class);
-                assertThrows(org.springframework.web.client.RestClientResponseException.class, orders::read);
+                assertThrows(ModuleUnavailableException.class, orders::read);
                 assertThrows(org.springframework.web.client.RestClientResponseException.class, orders::replace);
                 assertThrows(org.springframework.web.client.RestClientResponseException.class, orders::reject);
                 assertEquals(List.of(1, 1, 1), List.of(stub.count("/read"), stub.count("/replace"),
@@ -584,6 +584,23 @@ class ResilienceTest {
             assertEquals("no instance", kind(e));
             assertTrue((System.nanoTime() - start) / 1_000_000 < 1500, "no backoff before giving up");
         });
+    }
+
+    @Test
+    void ac_ext_72_bare_statuses_are_neither_retried_nor_recorded_by_the_breaker() throws Exception {
+        try (Stub stub = new Stub()) {
+            stub.on("/read", Reply.status(401), Reply.status(403), Reply.status(404), Reply.status(405),
+                    Reply.status(415));
+            external(props(stub.url(), R + "retry.max-attempts=3", R + "circuit-breaker.enabled=true"), context -> {
+                OrderContract orders = context.getBean(OrderContract.class);
+                for (int status : new int[] {401, 403, 404, 405, 415}) {
+                    ModuleUnavailableException failure = assertThrows(ModuleUnavailableException.class, orders::read);
+                    assertEquals("status " + status, kind(failure));
+                }
+                assertEquals(5, stub.count("/read"));
+                assertEquals(0, breaker(context).getMetrics().getNumberOfBufferedCalls());
+            });
+        }
     }
 
     @Test
@@ -623,10 +640,8 @@ class ResilienceTest {
                 OrderContract orders = context.getBean(OrderContract.class);
                 for (int i = 0; i < 6; i++) {
                     assertThrows(OrderRejectedException.class, orders::reject);
-                    assertThrows(org.springframework.web.client.HttpClientErrorException.NotFound.class,
-                            orders::missing);
-                    assertThrows(org.springframework.web.client.HttpClientErrorException.Unauthorized.class,
-                            orders::replace);
+                    assertThrows(ModuleUnavailableException.class, orders::missing);
+                    assertThrows(ModuleUnavailableException.class, orders::replace);
                     ModuleUnavailableException e = assertThrows(ModuleUnavailableException.class, orders::peek);
                     assertEquals("payment", e.moduleId());
                     assertEquals("unavailable downstream", kind(e));

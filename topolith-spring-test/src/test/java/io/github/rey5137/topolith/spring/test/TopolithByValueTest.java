@@ -257,6 +257,16 @@ class TopolithByValueTest {
     }
 
     @Test
+    void ac_ext_70_checked_exception_passes_through_by_value_unchanged() {
+        byValue(context -> {
+            var failure = assertThrows(fixture.invoice.api.InvoiceCheckedException.class,
+                    () -> context.getBean(Invoices.class).checked());
+            assertSame(provider(context).checkedFailure, failure);
+            assertEquals("checked failure", failure.getMessage());
+        });
+    }
+
+    @Test
     void ac_test_12_unavailable_and_undeclared_exceptions_pass_as_thrown() {
         byValue(context -> {
             Invoices invoices = context.getBean(Invoices.class);

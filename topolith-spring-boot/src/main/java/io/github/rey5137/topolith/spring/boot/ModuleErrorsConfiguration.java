@@ -3,6 +3,7 @@ package io.github.rey5137.topolith.spring.boot;
 import java.util.List;
 
 import io.github.rey5137.topolith.core.Topology;
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.HandlerExceptionResolver;
@@ -18,9 +19,11 @@ import org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExc
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 class ModuleErrorsConfiguration implements WebMvcConfigurer {
     private final Topology topology;
+    private final BeanFactory beanFactory;
 
-    ModuleErrorsConfiguration(Topology topology) {
+    ModuleErrorsConfiguration(Topology topology, BeanFactory beanFactory) {
         this.topology = topology;
+        this.beanFactory = beanFactory;
     }
 
     @Override
@@ -28,7 +31,8 @@ class ModuleErrorsConfiguration implements WebMvcConfigurer {
         ExceptionHandlerExceptionResolver handlers = resolvers.stream()
                 .filter(ExceptionHandlerExceptionResolver.class::isInstance)
                 .map(ExceptionHandlerExceptionResolver.class::cast).findFirst().orElse(null);
-        resolvers.add(0, new ModuleExceptionResolver(topology,
+        resolvers.add(0, new ModuleExceptionResolver(topology, beanFactory.getBean(TopologyResolver.RESOLUTION_BEAN,
+                TopologyResolver.Resolution.class),
                 () -> handlers == null ? List.of() : handlers.getMessageConverters()));
     }
 }

@@ -335,6 +335,7 @@ class ContextPropagationTest {
             ThreadTenant.HANDLED.set(0);
             HttpResponse<String> rejected = get(context, "/account/find?case=ctx", "Topolith-Tenant", "evil");
             assertEquals(403, rejected.statusCode());
+            assertTrue(rejected.headers().firstValue("Topolith-Module").isEmpty());
             assertFalse(rejected.body().contains("secret"), rejected.body());
             assertEquals(0, ThreadTenant.HANDLED.get());
             // the rejected request leaves nothing behind either
@@ -343,19 +344,67 @@ class ContextPropagationTest {
     }
 
     @Test
-    void ac_ext_58_the_caller_receives_an_exception_neither_declared_nor_unavailable() throws Exception {
+    void ac_ext_58_the_caller_receives_status_403_unavailable() throws Exception {
         try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
             server(loader, "topolith.modules.account.mode=loopback").run(context -> {
                 assertNull(context.getStartupFailure());
                 ThreadTenant.set("evil");
-                RuntimeException thrown = assertThrows(RuntimeException.class,
+                ModuleUnavailableException thrown = assertThrows(ModuleUnavailableException.class,
                         () -> context.getBean(Holder.class).account().find("ctx"));
-                assertInstanceOf(RestClientResponseException.class, thrown);
-                assertFalse(thrown instanceof ModuleUnavailableException);
-                assertEquals(403, ((RestClientResponseException) thrown).getStatusCode().value());
+                assertEquals("module 'account' could not be reached (status 403)", thrown.getMessage());
+                assertInstanceOf(RestClientResponseException.class, thrown.getCause());
                 assertEquals(0, ThreadTenant.HANDLED.get());
             });
         }
+    }
+
+    @Test
+    void ac_ext_72_loopback_bare_statuses_are_unavailable() throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            server(loader, "topolith.modules.account.mode=loopback").withBean(BareStatusFilter.class).run(context -> {
+                assertNull(context.getStartupFailure());
+                for (int status : new int[] {401, 403, 404, 405, 415}) {
+                    ModuleUnavailableException failure = assertThrows(ModuleUnavailableException.class,
+                            () -> context.getBean(Holder.class).account().find("status-" + status));
+                    assertEquals("module 'account' could not be reached (status " + status + ")", failure.getMessage());
+                }
+            });
+        }
+    }
+
+    static class BareStatusFilter extends org.springframework.web.filter.OncePerRequestFilter {
+        @Override
+        protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+                throws jakarta.servlet.ServletException, IOException {
+            String value = request.getParameter("case");
+            if (value != null && value.startsWith("status-")) {
+                response.sendError(Integer.parseInt(value.substring(7)));
+                return;
+            }
+            chain.doFilter(request, response);
+        }
+    }
+
+    @Test
+    void ac_ext_74_external_tenant_rejection_is_status_403_unavailable() throws Exception {
+        provider(served -> {
+            try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+                new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(ClientHost.class)
+                        .withBean(ThreadTenant.class).withPropertyValues(NONE).withPropertyValues(KEYS,
+                                "topolith.modules.account.mode=external",
+                                "topolith.modules.account.remote.url=http://127.0.0.1:"
+                                        + ProviderErrorsTest.port(served)).run(context -> {
+                                    assertNull(context.getStartupFailure());
+                                    ThreadTenant.set("evil");
+                                    ModuleUnavailableException failure = assertThrows(ModuleUnavailableException.class,
+                                            () -> context.getBean(AccountContract.class).find("ctx"));
+                                    assertEquals("module 'account' could not be reached (status 403)",
+                                            failure.getMessage());
+                                });
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        });
     }
 
     @Test

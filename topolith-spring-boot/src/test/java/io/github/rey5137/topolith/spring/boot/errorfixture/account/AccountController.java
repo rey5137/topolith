@@ -6,6 +6,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountContract;
+import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountCheckedException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountNotFoundException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.payment.api.PaymentContract;
@@ -34,6 +35,7 @@ public class AccountController implements AccountContract {
     }
 
     @Override
+    @org.springframework.security.access.prepost.PreAuthorize("#p0 != 'method-security'")
     public String find(String failure) {
         if (failure.equals("ok")) {
             return "found";
@@ -55,14 +57,33 @@ public class AccountController implements AccountContract {
             return "paid " + payments.getObject().pay();
         }
         throw switch (failure) {
+            case "response-status" -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND);
+            case "status-annotated" -> new AccountHiddenException();
+            case "access-denied" -> new org.springframework.security.access.AccessDeniedException("denied");
+            case "jdk-argument" -> new IllegalArgumentException("argument");
+            case "jdk-state" -> new IllegalStateException("state");
+            case "jdk-unsupported" -> new UnsupportedOperationException("unsupported");
+            case "jdk-number" -> new NumberFormatException("number");
             case "missing" -> new AccountNotFoundException();
             case "locked" -> new LockedAccountException("account is locked");
             case "declined" -> new PaymentDeclinedException("card declined");
             case "unavailable" -> new ModuleUnavailableException("payment", "payment is down");
-            case "secret" -> new IllegalStateException("secret detail");
-            case "wrapped" -> new IllegalStateException("wrapped secret", new AccountException("inner"));
+            case "secret" -> new RuntimeException("secret detail");
+            case "wrapped" -> new RuntimeException("wrapped secret", new AccountException("inner"));
             default -> new UnsupportedOperationException(failure);
         };
+    }
+
+    @Override
+    public String checked(String failure) throws AccountCheckedException {
+        if (failure.equals("api-child")) {
+            throw new io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountChildCheckedException(
+                    "checked child");
+        }
+        if (failure.equals("subclass")) {
+            throw new AccountCheckedSubclass("checked subclass");
+        }
+        throw new AccountCheckedException("checked message");
     }
 
     /** An async module route: the values are read in the handler, the answer completes on another thread. */

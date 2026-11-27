@@ -23,13 +23,19 @@ import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountCo
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountFailure;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountNotFoundException;
+import io.github.rey5137.topolith.spring.boot.errorfixture.checked.api.AbstractCheckedContract;
+import io.github.rey5137.topolith.spring.boot.errorfixture.checked.api.BadStatusCheckedContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.checked.api.CheckedContract;
+import io.github.rey5137.topolith.spring.boot.errorfixture.checked.api.BrokenCheckedContract;
+import io.github.rey5137.topolith.spring.boot.errorfixture.checked.api.OutsideCheckedContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.mute.api.MuteContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.status.api.StatusContract;
 import io.github.rey5137.topolith.spring.boot.fixture.host.Hosts.Host;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.asm.ClassWriter;
+import org.springframework.asm.Opcodes;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -120,7 +126,7 @@ class ContractExceptionsTest {
         assertEquals(AccountException.class, ContractExceptions.declared(AccountException.class, api));
         // abstract classes are walked past; nothing concrete above them is in an api package
         assertNull(ContractExceptions.declared(AccountFailure.class, api));
-        assertNull(ContractExceptions.declared(IllegalStateException.class, api));
+        assertEquals(IllegalStateException.class, ContractExceptions.declared(IllegalStateException.class, api));
         assertNull(ContractExceptions.declared(AccountException.class, Set.of(ERRORS + ".account")));
         assertEquals(ModuleUnavailableException.class,
                 ContractExceptions.declared(ModuleUnavailableException.class, Set.of()));
@@ -133,6 +139,75 @@ class ContractExceptionsTest {
                 IOException.class.getName()), "topolith.modules.checked.mode=internal");
         run(context -> assertTl0027(context, "'checked'", CheckedContract.class.getName() + ".read"),
                 "topolith.modules.checked.mode=external", "topolith.modules.checked.remote.url=http://localhost:1");
+    }
+
+    @Test
+    void ac_ext_70_and_71_checked_contract_validation() throws Exception {
+        contracts(root, "checked", ERRORS + ".valid", ERRORS + ".valid.api",
+                io.github.rey5137.topolith.spring.boot.errorfixture.valid.api.ValidCheckedContract.class);
+        run(context -> assertNull(context.getStartupFailure()), "topolith.modules.checked.mode=internal");
+        run(context -> assertNull(context.getStartupFailure()), "topolith.modules.checked.mode=external",
+                "topolith.modules.checked.remote.url=http://localhost:1");
+    }
+
+    @Test
+    void ac_ext_71_checked_exceptions_must_be_in_api_and_rebuildable() throws Exception {
+        contracts(root, "checked", OutsideCheckedContract.class);
+        run(context -> assertTl0027(context, "OutsideCheckedException"), "topolith.modules.checked.mode=internal");
+        contracts(root, "checked", BrokenCheckedContract.class);
+        run(context -> assertTl0027(context, "BrokenCheckedException", "cannot rebuild"),
+                "topolith.modules.checked.mode=internal");
+        contracts(root, "checked", AbstractCheckedContract.class);
+        run(context -> assertTl0027(context, "AbstractCheckedException", "cannot rebuild"),
+                "topolith.modules.checked.mode=internal");
+        contracts(root, "checked", BadStatusCheckedContract.class);
+        run(context -> assertTl0027(context, "BadStatusCheckedException", "not an error status"),
+                "topolith.modules.checked.mode=internal");
+    }
+
+    @Test
+    void ac_ext_71_unrebuildable_checked_api_subclass_fails_startup() throws Exception {
+        contracts(root, "checked", ERRORS + ".child", ERRORS + ".child.api",
+                io.github.rey5137.topolith.spring.boot.errorfixture.child.api.ChildContract.class);
+        run(context -> assertTl0027(context, "ChildException", "HiddenChild", "BadStatusChild",
+                "cannot rebuild", "not an error status"),
+                "topolith.modules.checked.mode=internal");
+    }
+
+    @Test
+    void ac_ext_30_unreadable_contract_methods_produce_tl0027() {
+        String name = "broken.Contract";
+        ClassLoader loader = new ClassLoader(getClass().getClassLoader()) {
+            @Override
+            protected Class<?> findClass(String requested) throws ClassNotFoundException {
+                if (!requested.equals(name)) {
+                    throw new ClassNotFoundException(requested);
+                }
+                ClassWriter writer = new ClassWriter(0);
+                writer.visit(Opcodes.V17, Opcodes.ACC_PUBLIC | Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT,
+                        "broken/Contract", null, "java/lang/Object", null);
+                writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT, "read", "()Lmissing/Result;", null,
+                        null).visitEnd();
+                writer.visitEnd();
+                byte[] bytes = writer.toByteArray();
+                return defineClass(requested, bytes, 0, bytes.length);
+            }
+        };
+        List<Diagnostic> problems = new ArrayList<>();
+        ContractExceptions.check(Set.of("broken"), Map.of("broken", Set.of(name)), Map.of(), loader, problems);
+        assertEquals(List.of(TopolithCode.TL0027), problems.stream().map(Diagnostic::code).toList());
+        assertTrue(problems.get(0).description().contains("cannot be read"));
+        assertTrue(problems.get(0).description().contains("missing/Result"));
+        assertTrue(problems.get(0).action().contains("referenced classes"));
+    }
+
+    @Test
+    void ac_ext_73_jdk_exceptions_use_the_nearest_listed_class() {
+        assertEquals(IllegalArgumentException.class,
+                ContractExceptions.declared(NumberFormatException.class, Set.of()));
+        assertEquals(IllegalStateException.class, ContractExceptions.declared(IllegalStateException.class, Set.of()));
+        assertEquals(UnsupportedOperationException.class,
+                ContractExceptions.declared(UnsupportedOperationException.class, Set.of()));
     }
 
     @Test

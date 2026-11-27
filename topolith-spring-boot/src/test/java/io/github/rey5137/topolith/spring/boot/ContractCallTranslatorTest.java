@@ -20,6 +20,10 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ContractCallTranslatorTest {
+    interface Contract {
+        void call();
+    }
+
     /** Stands in, by class name, for Spring Cloud CircuitBreaker's wrapper. */
     static final class NoFallbackAvailableException extends RuntimeException {
         NoFallbackAvailableException(String message, Throwable cause) {
@@ -33,6 +37,9 @@ class ContractCallTranslatorTest {
                 (proxy, method, args) -> {
                     if (method.getName().equals("proceed")) {
                         throw failure;
+                    }
+                    if (method.getName().equals("getMethod")) {
+                        return Contract.class.getMethod("call");
                     }
                     throw new UnsupportedOperationException(method.getName());
                 });

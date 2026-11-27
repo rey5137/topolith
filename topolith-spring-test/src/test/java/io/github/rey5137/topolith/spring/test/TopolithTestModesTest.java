@@ -96,9 +96,9 @@ class TopolithTestModesTest {
                 server.stub("GET", "/ping", 503, "{}");
                 assertThrows(ModuleUnavailableException.class, client::ping);
                 server.reset();
-                RuntimeException missing = assertThrows(RuntimeException.class, client::ping);
-                assertFalse(missing instanceof ModuleUnavailableException);
-                assertFalse(missing instanceof PaymentException);
+                // An unstubbed path answers a bare 404, like a missing route (D-117).
+                ModuleUnavailableException missing = assertThrows(ModuleUnavailableException.class, client::ping);
+                assertTrue(missing.getMessage().contains("status 404"), missing.getMessage());
             });
         }
     }

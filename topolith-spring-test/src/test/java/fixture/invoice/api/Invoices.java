@@ -31,6 +31,8 @@ public interface Invoices extends Store<Invoice> {
 
     void fail(String kind);
 
+    void checked() throws InvoiceCheckedException;
+
     /** The provider increments the counter it receives. */
     void add(AtomicInteger counter);
 

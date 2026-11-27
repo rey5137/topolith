@@ -4,6 +4,7 @@ import java.util.List;
 
 import fixture.invoice.api.Invoice;
 import fixture.invoice.api.InvoiceException;
+import fixture.invoice.api.InvoiceCheckedException;
 import fixture.invoice.api.Invoices;
 import fixture.invoice.api.Line;
 import fixture.invoice.api.Lossy;
@@ -62,6 +63,14 @@ public class InvoicesImpl implements Invoices {
         };
         thrown = failure;
         throw failure;
+    }
+
+    public InvoiceCheckedException checkedFailure;
+
+    @Override
+    public void checked() throws InvoiceCheckedException {
+        checkedFailure = new InvoiceCheckedException("checked failure");
+        throw checkedFailure;
     }
 
     private volatile Invoice stored;

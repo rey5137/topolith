@@ -154,9 +154,17 @@ The RFC's "mutation proxy" (§6) is the by-value proxy of M5.2.
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M8.1 | Owner answers to Q-11, Q-13, Q-16–Q-19, Q-21, Q-22, Q-24, Q-26 written into the spec; code for those that need it | No open Q left unanswered or explicitly deferred |
-| M8.2 | Untested paths: fat-JAR nested resources, `java -jar`, DevTools, exploded war, Gradle layout, AOT, load-time weaving | Each has a test or a documented deferral |
-| M8.3 | CI runs the getting-started commands; RFC/spec migration-path conflict resolved; Dependabot PRs handled | CI green |
-| M8.4 | Docs-site pages for M5–M7, CHANGELOG, `v0.1.0` tag | 0.1.0 published |
+| M8.1 | RFC 0002 and spec: owner decisions for every open Q (Q-11, Q-13, Q-16–Q-19, Q-21, Q-22, Q-24, Q-26–Q-31); Q-27 and Q-31 decision only | No open Q left; M8 rules and ACs written |
+| M8.2 | Startup guards: host `mybatis.mapper-locations` loading a `none` module's mappers (Q-18), excluded Topolith auto-configuration (Q-13), module with no contracts (Q-19) | M8.2-owned ACs |
+| M8.3 | `provides` for SPI and lambda-only contracts (Q-11); Pattern A migrations on the module's own DataSource (Q-16) | M8.3-owned ACs |
+| M8.4 | Per-module R2DBC, MongoDB and MyBatis registration (Q-17) | M8.4-owned ACs |
+| M8.5 | Checked exceptions and exception payload across HTTP (Q-21); bare 4xx and JDK exception mapping (Q-22) | M8.5-owned ACs |
+| M8.6 | Parity ratchet and `warn` valve (Q-26); mode-independent `error` tag (Q-30); test wait for late version-check logs (Q-24) | M8.6-owned ACs |
+| M8.7 | OAuth2 login-session token relay and loopback warning (Q-28); wider context propagation (Q-29) | M8.7-owned ACs |
+| M8.8 | Untested paths: fat-JAR nested resources, `java -jar`, DevTools, exploded war, Gradle layout, AOT, load-time weaving | Each has a test or a documented deferral |
+| M8.9 | CI runs the getting-started commands; CI job timeouts; RFC/spec migration-path conflict resolved; Dependabot PRs handled | CI green |
+| M8.10 | Docs-site pages for M5–M8, CHANGELOG, `v0.1.0` tag | 0.1.0 published |
+
+**Model:** `opus` / `high` for M8.1, M8.3, M8.5 and M8.6 (public annotation and descriptor shape, wire format, parity).
 
 **Exit:** 0.1.0 published.

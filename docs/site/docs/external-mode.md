@@ -122,3 +122,45 @@ Turn it off with Micrometer's own means: an `ObservationPredicate`, or
 change its keys, define one `ModuleCallObservationConvention` bean (two fail startup with `TL0033`) or register a
 `GlobalObservationConvention<ModuleCallContext>`; the types are `@Incubating` in
 `io.github.rey5137.topolith.spring.boot.observation`.
+
+## Carrying MDC values and the tenant
+
+A loopback or external call can carry the caller's MDC values and tenant to the provider, so the provider logs and
+queries as the caller does; an internal call needs nothing, since the provider runs on the caller's thread. List the
+MDC keys to send in `topolith.context.mdc-keys` (empty by default, at most 16, each letters, digits, `.`, `_` and `-`
+starting with a letter or digit, distinct ignoring case); each key with a value is sent as a `Topolith-Mdc-<key>`
+header, UTF-8 and percent-encoded. Nothing else in MDC leaves the process. For the tenant, expose one `TenantContext`
+bean (`@Incubating`, in `io.github.rey5137.topolith.spring.boot`) that adapts the holder your application keeps it in,
+as the payment service does for the sample's holder:
+
+<!-- snippet: samples/payment/payment-service/src/main/java/io/github/rey5137/topolith/samples/payment/service/SampleTenants.java#sample-tenants -->
+```java
+/** Adapts the sample's {@link Tenants} holder to the tenant a caller's calls carry (R-EXT-12). */
+@Component
+class SampleTenants implements TenantContext {
+    @Override
+    public String current() {
+        return Tenants.current();
+    }
+
+    /** A real service checks {@code tenant} against {@code principal} here and throws to reject it. */
+    @Override
+    public Scope open(String tenant, Principal principal) {
+        String previous = Tenants.current();
+        Tenants.set(tenant);
+        return () -> Tenants.set(previous);
+    }
+}
+```
+
+The caller sends `Topolith-Tenant` from `current()`. On the provider, a module's route puts each sent MDC value, removes
+every listed key the request does not carry (even one a server filter put), calls `open` with the sent tenant (null
+when none was sent) and the request's principal, and restores the previous state when the request completes, normally
+or not. Any client that reaches a module's route can send these headers, and a loopback module's routes are on your
+server's own port, so `open` is where you decide whether the request's principal may act for the tenant: throw to
+reject it, and the route answers 403 without calling the provider.
+
+An MDC value over 1024 characters once encoded is not sent and logs `TL0035` naming the key; a tenant over that limit
+fails the call with a `TopolithException` carrying `TL0038`. A header that does not decode, or is over the limit,
+answers 400. An invalid key list, or two `TenantContext` beans, fails startup with `TL0034`. Routes outside every module
+ignore these headers. Trace and baggage propagation stay Micrometer Tracing's.

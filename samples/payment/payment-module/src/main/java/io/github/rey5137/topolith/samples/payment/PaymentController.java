@@ -4,11 +4,14 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
+import io.github.rey5137.topolith.samples.payment.api.CallContext;
 import io.github.rey5137.topolith.samples.payment.api.ChargeRequest;
 import io.github.rey5137.topolith.samples.payment.api.ChargeResult;
 import io.github.rey5137.topolith.samples.payment.api.PaymentApi;
 import io.github.rey5137.topolith.samples.payment.api.PaymentDeclinedException;
 import io.github.rey5137.topolith.samples.payment.api.PaymentNotFoundException;
+import io.github.rey5137.topolith.samples.payment.api.Tenants;
+import org.slf4j.MDC;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -43,6 +46,11 @@ public class PaymentController implements PaymentApi {
         return new ChargeResult(id, request.reference(), amount, "CHARGED", request.tags());
     }
     // snippet:end payment-charge
+
+    @Override
+    public CallContext context() {
+        return new CallContext(MDC.get("requestId"), Tenants.current());
+    }
 
     private static List<String> splitTags(String stored) {
         return stored == null || stored.isEmpty() ? List.of() : List.of(stored.split(TAG_SEPARATOR));

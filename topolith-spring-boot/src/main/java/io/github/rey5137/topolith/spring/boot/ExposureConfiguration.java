@@ -1,10 +1,12 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Set;
 
 import io.github.rey5137.topolith.core.Topology;
 import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -15,7 +17,7 @@ import org.springframework.core.annotation.Order;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.method.HandlerMethod;
-import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.servlet.AsyncHandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.PathMatchConfigurer;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -35,10 +37,13 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 class ExposureConfiguration implements WebMvcConfigurer {
     private final Topology topology;
     private final Set<String> exposed;
+    private final ContextRoute context;
 
-    ExposureConfiguration(TopologyResolver.Resolution resolution) {
+    ExposureConfiguration(TopologyResolver.Resolution resolution, ObjectProvider<ContextPropagation> context) {
         this.topology = resolution.topology();
         this.exposed = resolution.exposed();
+        ContextPropagation propagation = context.getIfAvailable();
+        this.context = propagation == null || !propagation.active() ? null : new ContextRoute(propagation);
     }
 
     @Override
@@ -48,19 +53,41 @@ class ExposureConfiguration implements WebMvcConfigurer {
         }
     }
 
-    /** Marks each request to a module route with its handler, for the call observation (D-86). */
+    /**
+     * Marks each request to a module route with its handler, for the call observation (D-86), and makes the caller's
+     * MDC values and tenant current around it (R-EXT-12).
+     */
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new HandlerInterceptor() {
+        registry.addInterceptor(new AsyncHandlerInterceptor() {
             @Override
-            public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+            public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
+                    throws IOException {
                 if (handler instanceof HandlerMethod method) {
                     String owner = ModuleHandlers.internalOwner(topology, method.getBeanType());
                     if (owner != null && exposed.contains(owner)) {
                         RouteMark.mark(request, method);
+                        return context == null || context.open(request, response);
                     }
                 }
                 return true;
+            }
+
+            /** The container thread goes back to its pool now; the async dispatch opens again (R-EXT-12). */
+            @Override
+            public void afterConcurrentHandlingStarted(HttpServletRequest request, HttpServletResponse response,
+                    Object handler) {
+                if (context != null) {
+                    context.close(request);
+                }
+            }
+
+            @Override
+            public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler,
+                    Exception failure) {
+                if (context != null) {
+                    context.close(request);
+                }
             }
         });
     }

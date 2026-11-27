@@ -57,6 +57,10 @@ public interface PaymentApi {
     /** Finds a charge by id. */
     @GetExchange("/charges/{id}")
     ChargeResult find(@PathVariable("id") String id);
+
+    /** Reports the {@code requestId} MDC value and the tenant the provider sees for this call. */
+    @GetExchange("/context")
+    CallContext context();
 }
 ```
 
@@ -399,6 +403,8 @@ The payment cases are written once, against `PaymentApi`, in `samples/payment-te
 <!-- snippet: samples/payment-tests/src/test/java/io/github/rey5137/topolith/samples/paymenttests/AbstractPaymentTest.java#shared-payment-test -->
 ```java
 /** The payment contract every sample host must satisfy (AC-TEST-05); shipped as this module's test-jar. */
+@Import(PaymentTenants.class)
+@TestPropertySource(properties = "topolith.context.mdc-keys=requestId")
 public abstract class AbstractPaymentTest {
     @Autowired
     protected PaymentApi paymentApi;

@@ -113,10 +113,15 @@ public final class Descriptors {
         if (packageName != null) {
             entry(out, "package", packageName);
         }
-        entry(out, "api-packages", String.join(",", api.apiPackages()));
+        boolean contracts = packageName == null || !api.apiPackages().isEmpty();
+        if (contracts) {
+            entry(out, "api-packages", String.join(",", api.apiPackages()));
+        }
         entry(out, "api-version", api.apiVersion());
-        entry(out, "provides", String.join(",", api.provides()));
-        entry(out, "idempotent", String.join(",", api.idempotent()));
+        if (contracts) {
+            entry(out, "provides", String.join(",", api.provides()));
+            entry(out, "idempotent", String.join(",", api.idempotent()));
+        }
     }
 
     private static void entry(Writer out, String key, String value) throws IOException {

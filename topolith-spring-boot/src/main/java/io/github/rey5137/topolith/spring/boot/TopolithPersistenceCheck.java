@@ -79,6 +79,8 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                 throw new TopolithException(found);
             }
         }
+        found.addAll(MapperLocationsCheck.check(environment, loader, topology,
+                TopologyResolver.standalone(environment)));
         found.addAll(resourceRegistrations(loader, resolution));
         found.addAll(nonInternalBeans(factory, resolution));
         found.addAll(defaultCandidates(factory, loader, resolution));

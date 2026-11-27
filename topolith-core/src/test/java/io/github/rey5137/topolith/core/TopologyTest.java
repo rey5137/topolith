@@ -309,4 +309,25 @@ class TopologyTest {
         assertEquals(Mode.LOOPBACK, Topology.resolve(List.of(provider), List.of(api), modes("pay", "loopback"), null)
                 .mode("pay"));
     }
+
+    private static ModuleDescriptor job() {
+        return ModuleDescriptor.builder("job").packageName("com.acme.job").apiVersion("1.0.0")
+                .source("jar:/job.jar!/job.properties").build();
+    }
+
+    @Test
+    void ac_mode_62_external_or_loopback_for_a_module_without_api_packages_fails_with_tl0003() {
+        for (String mode : List.of("external", "loopback", " Loopback ")) {
+            TopolithException failure = fails(List.of(job()), List.of(), modes("job", mode), null);
+            assertEquals(List.of(TopolithCode.TL0003), codes(failure));
+            assertTrue(failure.getMessage().contains("job") && failure.getMessage().contains("internal or none"));
+        }
+    }
+
+    @Test
+    void ac_desc_18_a_module_without_api_packages_resolves_internal_and_none() {
+        assertEquals(Mode.INTERNAL, Topology.resolve(List.of(job()), List.of(), modes("job", "internal"), null)
+                .mode("job"));
+        assertEquals(Mode.NONE, Topology.resolve(List.of(job()), List.of(), modes("job", "none"), null).mode("job"));
+    }
 }

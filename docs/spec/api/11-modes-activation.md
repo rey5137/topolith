@@ -41,9 +41,10 @@ otherwise startup fails with TL0002. A `loopback` module is internal for activat
 
 The import filter runs even when Topolith's own auto-configuration does not. An `AutoConfigurationImportListener`
 registered in `META-INF/spring.factories` therefore reads the exclusions of each `@EnableAutoConfiguration` import
-(`spring.autoconfigure.exclude`, `exclude` and `excludeName`): an excluded `io.github.rey5137.topolith.*`
-auto-configuration while the resolved topology has an `internal` or `loopback` module fails startup with TL0042 (new,
-M8.2) naming the class (D-111). A test slice that never includes Topolith's auto-configuration excludes nothing and is
+(`spring.autoconfigure.exclude`, `exclude` and `excludeName`): an excluded auto-configuration that activates modules
+(`TopolithAutoConfiguration` and the `Jpa`, `JpaRepositories`, `JdbcRepositories`, `Flyway` and `Liquibase` `*ModulesAutoConfiguration` classes of `topolith-spring-boot`) while the resolved topology has an `internal` or `loopback` module fails startup with TL0042 (new, M8.2)
+naming the class (D-111); excluding one that activates no module, such as `topolith-spring-cloud`'s resilience
+configuration, is not checked (TL0041 covers it). A test slice that never includes Topolith's auto-configuration excludes nothing and is
 not checked. Implements INV-2, INV-4, INV-8, P-3, D-7, D-30 and D-111.
 
 - AC-MODE-04 (M1.3): An internal module's configuration and packages are imported when its implementation is present.
@@ -53,9 +54,9 @@ not checked. Implements INV-2, INV-4, INV-8, P-3, D-7, D-30 and D-111.
 - AC-MODE-23 (M1.3): A non-internal module's auto-configuration outside its package, listed by an
   `AutoConfiguration.imports` file, is removed, also when the imports file and the class sit in separate roots.
 - AC-MODE-24 (M1.3): A host component scan covering a non-internal module's package fails with TL0007.
-- AC-MODE-55 (M8.2): Excluding `TopolithAutoConfiguration`, or another Topolith auto-configuration, by property or by
+- AC-MODE-55 (M8.2): Excluding `TopolithAutoConfiguration`, or another Topolith auto-configuration that activates modules, by property or by
   `@SpringBootApplication(exclude)` while a module is `internal` or `loopback` fails startup with TL0042 (new, M8.2)
-  naming the class; the same exclusion with only `none` modules, and a `@WebMvcTest` slice of the host, start.
+  naming the class; the same exclusion with only `none` modules, and a `@WebMvcTest` slice of the host and an excluded auto-configuration that activates no module start.
 
 ### R-MODE-03 — Non-internal isolation and dependencies
 
@@ -148,7 +149,7 @@ without those libraries starts unchanged. Implements INV-2, INV-4, INV-9, D-7, D
 - AC-MODE-60 (M8.4): A `none` or `external` module leaves no MyBatis mapper, MongoDB or R2DBC repository definition and
   no module class loaded, and a host without each store's classes loads none of its registration.
 - AC-MODE-61 (M8.2): A host `mybatis.mapper-locations` pattern that reaches a module's mapper XML fails startup with
-  TL0043 (new, M8.2) in every mode, `internal` and `none` included; a pattern that reaches only the host's XML starts.
+  TL0043 (new, M8.2) in every mode, `internal` and `none` included; a pattern that reaches only the host's XML starts; the standalone module's own XML is the host's and is exempt.
 
 ### R-MODE-05 — Refresh does not change topology
 

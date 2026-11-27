@@ -76,6 +76,39 @@ class DescriptorGenerationTest {
                 .contains("package=com.acme.user.impl\n"));
     }
 
+    private Javac.Result contractless(String declaration) throws IOException {
+        return Javac.compile(work.resolve("plain"), Map.of("com/acme/job/package-info.java", declaration
+                + "\npackage com.acme.job;\nimport io.github.rey5137.topolith.annotation.TopolithModule;\n",
+                "com/acme/job/Job.java", "package com.acme.job;\nclass Job { }\n"), List.of(Javac.core()),
+                Javac.VERSION);
+    }
+
+    @Test
+    void ac_desc_17_a_module_without_api_writes_a_descriptor_without_api_keys_and_no_api_descriptor()
+            throws IOException {
+        Javac.Result result = contractless("@TopolithModule(id = \"job\", requires = \"user\")");
+        assertTrue(result.success(), result.errors());
+        assertFalse(Files.exists(result.file("META-INF/topolith/apis/job.properties")));
+        String text = Files.readString(result.file("META-INF/topolith/modules/job.properties"));
+        assertFalse(text.contains("api-packages"), text);
+        assertFalse(text.contains("provides"), text);
+        assertFalse(text.contains("idempotent"), text);
+        assertTrue(text.contains("api-version=1.4.2"), text);
+        ModuleDescriptor parsed = result.module("job");
+        assertTrue(parsed.apiPackages().isEmpty());
+        assertEquals(List.of("user"), List.copyOf(parsed.requires()));
+        java.io.StringWriter again = new java.io.StringWriter();
+        io.github.rey5137.topolith.core.Descriptors.write(parsed, again);
+        assertEquals(text, again.toString());
+    }
+
+    @Test
+    void ac_desc_17_an_explicit_empty_api_is_the_same_as_no_api() throws IOException {
+        Javac.Result result = contractless("@TopolithModule(id = \"job\", api = {})");
+        assertTrue(result.success(), result.errors());
+        assertTrue(Files.isRegularFile(result.file("META-INF/topolith/modules/job.properties")));
+    }
+
     @Test
     void ac_desc_02_several_api_packages_are_all_recorded() throws IOException {
         String both = "@TopolithModule(id = \"user\", api = {\"com.acme.user\", \"com.acme.user.spi\"})";

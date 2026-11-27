@@ -294,4 +294,190 @@ class DescriptorGenerationTest {
         assertArrayEquals(before, Files.readAllBytes(second.file("META-INF/topolith/modules/user.properties")));
         assertFalse(new String(before).contains("#"));
     }
+
+    private static final String IDEMPOTENT = "import io.github.rey5137.topolith.contract.Idempotent;\n";
+    private static final String USER_IMPL = "com/acme/user/impl/UserServiceImpl.java";
+
+    /** The classpath entry holding Spring's HTTP exchange annotations. */
+    private static Path springWeb() {
+        try {
+            return Path.of(org.springframework.web.service.annotation.GetExchange.class.getProtectionDomain()
+                    .getCodeSource().getLocation().toURI());
+        } catch (java.net.URISyntaxException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
+
+    /** API sources whose contracts declare idempotency on a method, a type and an inherited declaration. */
+    private static String[] idempotentApi() {
+        return new String[] {
+            "com/acme/user/Crud.java", "package com.acme.user;\n" + IDEMPOTENT
+                    + "public interface Crud<T> { @Idempotent T find(); }\n",
+            "com/acme/user/Reads.java", "package com.acme.user;\n" + IDEMPOTENT
+                    + "@Idempotent public interface Reads { int count(); }\n",
+            "com/acme/user/UserService.java", "package com.acme.user;\n" + IDEMPOTENT + """
+                    public interface UserService extends Crud<String>, Reads {
+                        void rename();
+                        @Idempotent String page(int number);
+                        default String first() { return page(0); }
+                        boolean equals(Object other);
+                    }
+                    """,
+            "com/acme/user/Events.java", "package com.acme.user;\n" + IDEMPOTENT + """
+                    public class Events {
+                        @Idempotent public interface Listener { void on(); default void skip() { } String toString(); }
+                    }
+                    """};
+    }
+
+    private static final String IDEMPOTENT_IMPL = """
+            package com.acme.user.impl;
+            class UserServiceImpl implements com.acme.user.UserService {
+                public String find() { return "found"; }
+                public int count() { return 1; }
+                public void rename() { }
+                public String page(int number) { return "page"; }
+            }
+            """;
+
+    @Test
+    void ac_desc_12_idempotent_methods_types_and_inherited_declarations_are_recorded_in_both_descriptors()
+            throws IOException {
+        Set<String> expected = new java.util.TreeSet<>(Set.of(LISTENER + "#on", "com.acme.user.UserService#count",
+                "com.acme.user.UserService#find", "com.acme.user.UserService#page"));
+        Javac.Result apis = api(Fixtures.API, idempotentApi());
+        assertTrue(apis.success(), apis.errors());
+        assertEquals(expected, apis.api("user").idempotent());
+        String text = Files.readString(apis.file("META-INF/topolith/apis/user.properties"));
+        assertTrue(text.contains("\nidempotent=" + String.join(",", expected).replace("#", "\\#") + "\n"), text);
+        assertTrue(text.indexOf("\nprovides=") < text.indexOf("\nidempotent="), text);
+
+        Javac.Result fromJar = module(Javac.jar(apis.output(), work.resolve("user-api.jar")), Fixtures.MODULE,
+                USER_IMPL, IDEMPOTENT_IMPL);
+        assertTrue(fromJar.success(), fromJar.errors());
+        assertEquals(expected, fromJar.module("user").idempotent());
+
+        Map<String, String> sources = new LinkedHashMap<>(Fixtures.api("", idempotentApi()));
+        sources.putAll(Fixtures.module(Fixtures.MODULE, USER_IMPL, IDEMPOTENT_IMPL));
+        Javac.Result single = Javac.compile(work.resolve("single"), sources, List.of(Javac.core()), Javac.VERSION);
+        assertTrue(single.success(), single.errors());
+        assertEquals(expected, single.module("user").idempotent());
+        assertEquals(expected, single.api("user").idempotent());
+    }
+
+    @Test
+    void ac_desc_12_an_override_on_the_contract_is_the_declaration_that_counts() throws IOException {
+        Javac.Result result = api(Fixtures.API, "com/acme/user/Crud.java", "package com.acme.user;\n" + IDEMPOTENT
+                + "public interface Crud<T> { @Idempotent T find(); @Idempotent T load(); }\n",
+                "com/acme/user/UserService.java", "package com.acme.user;\n" + IDEMPOTENT
+                        + "public interface UserService extends Crud<String> { String find(); void rename(); }\n");
+        assertTrue(result.success(), result.errors());
+        assertEquals(Set.of("com.acme.user.UserService#load"), result.api("user").idempotent());
+    }
+
+    @Test
+    void ac_desc_12_http_exchange_annotations_without_idempotent_record_nothing() throws IOException {
+        Javac.Result result = Javac.compile(work, Fixtures.api(Fixtures.API, "com/acme/user/UserService.java", """
+                package com.acme.user;
+                import org.springframework.web.service.annotation.*;
+                @HttpExchange("/users")
+                public interface UserService extends Crud<String> {
+                    @GetExchange("/find") String find();
+                    @PutExchange("/name") void rename();
+                    @DeleteExchange("/x") void remove();
+                }
+                """), List.of(Javac.core(), springWeb()), Javac.VERSION);
+        assertTrue(result.success(), result.errors());
+        assertTrue(result.api("user").provides().contains("com.acme.user.UserService"));
+        assertEquals(Set.of(), result.api("user").idempotent());
+        assertTrue(Files.readString(result.file("META-INF/topolith/apis/user.properties")).contains("\nidempotent=\n"));
+    }
+
+    private void assertMisplaced(Javac.Result result, String fragment) {
+        assertFalse(result.success());
+        assertTrue(result.errors().contains("TL0013") && result.errors().contains(fragment), result.errors());
+        assertFalse(Files.exists(result.file("META-INF/topolith")), result.errors());
+    }
+
+    private Javac.Result moduleIn(String directory, Path api, String... extra) throws IOException {
+        return Javac.compile(work.resolve(directory), Fixtures.module(Fixtures.MODULE, extra),
+                List.of(Javac.core(), api), Javac.VERSION);
+    }
+
+    @Test
+    void ac_desc_12_idempotent_outside_an_abstract_contract_method_fails_the_build() throws IOException {
+        Javac.Result apis = api(Fixtures.API);
+        assertTrue(apis.success(), apis.errors());
+        assertMisplaced(moduleIn("class", apis.output(), USER_IMPL, """
+                package com.acme.user.impl;
+                @io.github.rey5137.topolith.contract.Idempotent
+                class UserServiceImpl implements com.acme.user.UserService {
+                    public String find() { return "found"; }
+                    public void rename() { }
+                }
+                """), "UserServiceImpl is on a type that is not an interface");
+        assertMisplaced(moduleIn("method", apis.output(), USER_IMPL, """
+                package com.acme.user.impl;
+                class UserServiceImpl implements com.acme.user.UserService {
+                    @io.github.rey5137.topolith.contract.Idempotent public String find() { return "found"; }
+                    public void rename() { }
+                }
+                """), "UserServiceImpl#find is on a type that is not an interface");
+        assertMisplaced(moduleIn("outside", apis.output(), "com/acme/user/impl/Local.java",
+                "package com.acme.user.impl;\n" + IDEMPOTENT + "interface Local { @Idempotent void go(); }\n"),
+                "Local#go is on an interface outside the api packages [com.acme.user]");
+        String[][] methods = {{"default", "default String first() { return find(); }"},
+            {"static", "static String first() { return \"\"; }"},
+            {"private", "private String first() { return find(); } default String second() { return first(); }"}};
+        for (String[] method : methods) {
+            Javac.Result result = Javac.compile(work.resolve(method[0]), Fixtures.api(Fixtures.API,
+                    "com/acme/user/UserService.java", "package com.acme.user;\n" + IDEMPOTENT
+                            + "public interface UserService extends Crud<String> { void rename(); @Idempotent "
+                            + method[1] + " }\n"), List.of(Javac.core()), Javac.VERSION);
+            assertMisplaced(result, "UserService#first is on a " + method[0] + " method");
+            assertEquals(1, result.errors().split("UserService#first is on", -1).length - 1, result.errors());
+        }
+    }
+
+    @Test
+    void ac_desc_12_an_idempotent_default_method_inherited_from_a_library_fails_the_build() throws IOException {
+        Javac.Result library = Javac.compile(work.resolve("library"), Map.of("com/acme/lib/Base.java",
+                "package com.acme.lib;\n" + IDEMPOTENT + "public interface Base { String find(); "
+                        + "@Idempotent default String first() { return find(); } }\n"),
+                List.of(Javac.core()), "-proc:none");
+        assertTrue(library.success(), library.errors());
+        Javac.Result result = Javac.compile(work.resolve("api"), Fixtures.api(Fixtures.API,
+                "com/acme/user/UserService.java", "package com.acme.user;\npublic interface UserService "
+                        + "extends Crud<String>, com.acme.lib.Base { void rename(); }\n"),
+                List.of(Javac.core(), library.output()), Javac.VERSION);
+        assertMisplaced(result, "@Idempotent on com.acme.lib.Base#first is on a default method");
+    }
+
+    @Test
+    void ac_desc_12_overloads_that_disagree_fail_the_build() throws IOException {
+        Javac.Result result = api(Fixtures.API, "com/acme/user/UserService.java", "package com.acme.user;\n"
+                + IDEMPOTENT + "public interface UserService extends Crud<String> { void rename(); "
+                + "@Idempotent String find(int id); }\n");
+        assertMisplaced(result, "overloads of com.acme.user.UserService#find disagree");
+
+        Javac.Result agree = Javac.compile(work.resolve("agree"), Fixtures.api(Fixtures.API,
+                "com/acme/user/UserService.java", "package com.acme.user;\n" + IDEMPOTENT
+                        + "public interface UserService extends Crud<String> { void rename(); "
+                        + "@Idempotent String find(); @Idempotent String find(int id); "
+                        + "default String find(long id) { return find(); } }\n"),
+                List.of(Javac.core()), Javac.VERSION);
+        assertTrue(agree.success(), agree.errors());
+        assertEquals(Set.of("com.acme.user.UserService#find"), agree.api("user").idempotent());
+    }
+
+    @Test
+    void ac_desc_12_a_module_build_whose_classpath_api_idempotent_methods_differ_fails() throws IOException {
+        Javac.Result apis = api(Fixtures.API, "com/acme/user/Audit.java", "package com.acme.user;\n" + IDEMPOTENT
+                + "public interface Audit { @Idempotent String last(); }\n");
+        assertTrue(apis.success(), apis.errors());
+        assertEquals(Set.of("com.acme.user.Audit#last"), apis.api("user").idempotent());
+        Javac.Result result = module(Javac.jar(apis.output(), work.resolve("user-api.jar")), Fixtures.MODULE);
+        assertMisplaced(result, "The API in the classpath API declares com.acme.user.Audit#last idempotent but the "
+                + "module does not.");
+    }
 }

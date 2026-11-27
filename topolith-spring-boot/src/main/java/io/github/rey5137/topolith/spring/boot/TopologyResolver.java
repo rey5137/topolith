@@ -143,6 +143,7 @@ final class TopologyResolver {
         for (Mode mode : List.of(Mode.EXTERNAL, Mode.LOOPBACK)) {
             ExternalContracts.check(mode, topology.idsOf(mode), contracts, mappings, classLoader, problems);
         }
+        IdempotencyCheck.check(topology, found.modules(), found.apis(), mappings, classLoader, problems);
         Map<String, Set<String>> apiPackages = new TreeMap<>();
         found.apis().forEach(api -> apiPackages.computeIfAbsent(api.id(), key -> new TreeSet<>())
                 .addAll(api.apiPackages()));

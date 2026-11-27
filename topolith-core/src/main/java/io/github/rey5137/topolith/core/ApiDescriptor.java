@@ -6,6 +6,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * The published API of a module (a {@code *-api} JAR's {@code META-INF/topolith/apis/<id>.properties}). Equality
@@ -16,6 +17,7 @@ public final class ApiDescriptor {
     private final String id;
     private final Set<String> apiPackages;
     private final Set<String> provides;
+    private final Set<String> idempotent;
     private final String apiVersion;
     private final int formatVersion;
     private final String source;
@@ -24,6 +26,7 @@ public final class ApiDescriptor {
         this.id = data.id;
         this.apiPackages = Collections.unmodifiableSet(new LinkedHashSet<>(data.apiPackages));
         this.provides = Collections.unmodifiableSet(new LinkedHashSet<>(data.provides));
+        this.idempotent = Collections.unmodifiableSortedSet(new TreeSet<>(data.idempotent));
         this.apiVersion = data.apiVersion;
         this.formatVersion = data.formatVersion;
         this.source = data.source == null ? "<generated>" : data.source;
@@ -47,6 +50,14 @@ public final class ApiDescriptor {
         return provides;
     }
 
+    /**
+     * The contract methods declared {@code @Idempotent}, as {@code <contract binary name>#<method name>}, sorted; empty
+     * when none is (R-DESC-05, D-100).
+     */
+    public Set<String> idempotent() {
+        return idempotent;
+    }
+
     public String apiVersion() {
         return apiVersion;
     }
@@ -63,18 +74,19 @@ public final class ApiDescriptor {
     @Override
     public boolean equals(Object other) {
         return other instanceof ApiDescriptor that && id.equals(that.id) && apiPackages.equals(that.apiPackages)
-                && provides.equals(that.provides) && apiVersion.equals(that.apiVersion)
-                && formatVersion == that.formatVersion;
+                && provides.equals(that.provides) && idempotent.equals(that.idempotent)
+                && apiVersion.equals(that.apiVersion) && formatVersion == that.formatVersion;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, apiPackages, provides, apiVersion, formatVersion);
+        return Objects.hash(id, apiPackages, provides, idempotent, apiVersion, formatVersion);
     }
 
     @Override
     public String toString() {
-        return "ApiDescriptor[" + id + ", " + apiVersion + ", " + apiPackages + ", " + provides + "]";
+        return "ApiDescriptor[" + id + ", " + apiVersion + ", " + apiPackages + ", " + provides + ", idempotent="
+                + idempotent + "]";
     }
 
     /** Validating builder; {@link #build()} throws a TL0013 {@link TopolithException} on any D-27 violation. */
@@ -93,6 +105,12 @@ public final class ApiDescriptor {
 
         public Builder provides(Collection<String> contracts) {
             data.provides.addAll(contracts);
+            return this;
+        }
+
+        /** Entries {@code <contract>#<method>}; each contract must be in {@link #provides}. */
+        public Builder idempotent(Collection<String> methods) {
+            data.idempotent.addAll(methods);
             return this;
         }
 

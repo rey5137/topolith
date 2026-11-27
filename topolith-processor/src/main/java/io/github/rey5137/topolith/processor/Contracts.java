@@ -112,6 +112,12 @@ final class Contracts {
         }
     }
 
+    /** The contracts whose binary name is one of the names, such as the {@link #mostDerived} ones. */
+    List<TypeElement> named(Collection<TypeElement> contracts, Set<String> names) {
+        return contracts.stream().filter(contract -> names.contains(elements.getBinaryName(contract).toString()))
+                .toList();
+    }
+
     /** Binary names of the contracts, minus any that is a superinterface of another, sorted. */
     Set<String> mostDerived(Collection<TypeElement> contracts) {
         Set<String> names = new TreeSet<>();

@@ -81,13 +81,12 @@ public class PaymentProperties {
   or `AbstractJdbcConfiguration` (or another bean that makes auto-configuration back off) fails with `TL0019` or
   `TL0031`; unmanaged or doubly-managed entities fail with `TL0021`; uncovered repositories fail with `TL0024`.
 
-## 5. Flyway location `db/migration/<id>` (`db/modules/<id>` in 0.1)
+## 5. Flyway or Liquibase location `db/modules/<id>`
 
 - **What to change:** Move the module's Flyway (or Liquibase) scripts out of `db/migration` into
   `classpath:db/modules/<id>` so each internal module runs its own migrations with its own tracking table after the
-  host's migrations and those of required modules. Note: 0.1 uses `db/modules/<id>` in place of RFC 0001 §4.3's
-  `db/migration/<id>` because Flyway scans `db/migration` recursively by default and would otherwise run `none`
-  modules' scripts.
+  host's migrations and those of required modules. Note: D-32 replaces RFC 0001 §4.3's original
+  `db/migration/<id>` with `db/modules/<id>` because Flyway's recursive scan would otherwise run `none` modules' scripts.
 - **How to check:** Any module migration that would not run exactly once (missing runner or `DataSource`, both tools
   present, or a host migration location reaching `db/modules/<id>`) fails startup with `TL0020`. A `none` or `external`
   module runs no migrations and creates no tables.

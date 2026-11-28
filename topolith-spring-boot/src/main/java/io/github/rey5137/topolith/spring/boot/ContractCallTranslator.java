@@ -36,6 +36,10 @@ final class ContractCallTranslator implements MethodInterceptor {
     /** The D-27 module id rule, as the descriptor parser applies it. */
     private static final Pattern MODULE_ID = Pattern.compile("[a-z][a-z0-9]*(-[a-z0-9]+)*");
     private static final int MAX_ID_LENGTH = 63;
+    /** The statuses of a route nobody served, as against one the module answered (D-116). */
+    private static final Set<Integer> UNROUTED_STATUSES = Set.of(401, 403, 404, 405, 415);
+    private static final Set<String> JDK_THREE = Set.of(IllegalArgumentException.class.getName(),
+            IllegalStateException.class.getName(), UnsupportedOperationException.class.getName());
 
     private final String module;
     private final Set<String> apiPackages;
@@ -135,7 +139,7 @@ final class ContractCallTranslator implements MethodInterceptor {
             return unavailable(module, "status " + e.getStatusCode().value(), e);
         }
         int status = e.getStatusCode().value();
-        if (problem == null && Set.of(401, 403, 404, 405, 415).contains(status)
+        if (problem == null && UNROUTED_STATUSES.contains(status)
                 && (e.getResponseHeaders() == null || e.getResponseHeaders().getFirst("Topolith-Module") == null)) {
             return unavailable(module, "status " + status, e);
         }
@@ -154,9 +158,7 @@ final class ContractCallTranslator implements MethodInterceptor {
         }
         int dot = className.lastIndexOf('.');
         if (className.length() > MAX_NAME_LENGTH || !BINARY_NAME.matcher(className).matches()
-                || !(apiPackages.contains(className.substring(0, dot))
-                        || Set.of(IllegalArgumentException.class.getName(), IllegalStateException.class.getName(),
-                                UnsupportedOperationException.class.getName()).contains(className))) {
+                || !(apiPackages.contains(className.substring(0, dot)) || JDK_THREE.contains(className))) {
             return null;
         }
         try {

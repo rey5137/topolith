@@ -55,6 +55,12 @@ Set `topolith.test.parity=warn` to log violations as TL0045 warnings instead of 
 The warnings name the module, method and JSON path without logging values. An internal contract provider needs a JSON
 HTTP message converter such as Jackson.
 
+A declared exception the provider throws reaches the caller as it would over HTTP: a checked exception named in the
+contract method's `throws` clause, a subclass outside the module's API packages as its API-package ancestor, and
+`IllegalArgumentException`, `IllegalStateException` or `UnsupportedOperationException` (or a subclass of one) as that
+JDK class with its message only. A bean that implements a contract its module lists in `provides` is checked even when
+its class lies outside the module's package, such as a factory result.
+
 `TopolithTestSupport.awaitVersionChecks(context, duration)` waits for version checks and their logs to finish and
 returns whether they completed within the timeout.
 

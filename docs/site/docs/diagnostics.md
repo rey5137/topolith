@@ -63,6 +63,7 @@ keeps running.
 | `TL0039` | A request carrying `Topolith-Tenant` reached a module route of a host with no `TenantContext` bean, so the provider answers 500 without running. | failure | Add a `TenantContext` bean to the provider host. |
 | `TL0046` | A bearer token reached a module route unauthenticated. | warning | Configure the host as a resource server for the caller's tokens. |
 | `TL0047` | Session relay has multiple registration or authorized-client repository beans. | failure | Keep one repository of each type. |
+| `TL0048` | A route Topolith registered for a listed contract clashes with an existing mapping, also when only path-variable names differ. | failure | Give the handlers distinct mappings. |
 
 ## Boundaries
 

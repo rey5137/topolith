@@ -57,6 +57,8 @@ Planned as 0.1.0.
   instead of failing on parity violations.
 - **Session relay and context (`topolith.modules.<id>.auth.type`).** Session-token relay supports outgoing calls, with
   TL0046 and TL0047 diagnostics; `ContextCarrier` extends propagated context.
+- **Listed-route clashes (`TL0048`).** A route Topolith registers for a listed contract that clashes with an existing
+  mapping, also when only path-variable names differ, fails startup with TL0048.
 - **Packaged application checks (`topolith.modules.<id>.mode`).** Tests cover packaged and extracted JARs, nested roots
   and restart-style class loaders.
 

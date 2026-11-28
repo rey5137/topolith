@@ -255,13 +255,19 @@ final class ContractTransactionBoundary implements BeanPostProcessor, PriorityOr
         @Override
         public Object invoke(MethodInvocation invocation) throws Throwable {
             Class<?> contract = provided.contractOf(invocation.getMethod());
-            CallObserver observing = contract == null ? null : observer();
             // the container's invocation of an exposed module's route handler is not a contract call (D-86)
-            if (observing == null || (WEB && RouteMark.consume(invocation.getThis(), invocation.getMethod()))) {
-                return invocation.proceed();
+            boolean handler = WEB && RouteMark.consume(invocation.getThis(), invocation.getMethod());
+            CallObserver observing = contract == null || handler ? null : observer();
+            try {
+                return observing == null ? invocation.proceed() : observing.observe(module, Mode.INTERNAL, contract,
+                        invocation.getMethod().getName(), invocation::proceed);
+            } catch (Throwable failure) {
+                if (handler) {
+                    // what the handler's body threw, as against what Spring raised around it (D-137)
+                    RouteMark.thrown(failure);
+                }
+                throw failure;
             }
-            return observing.observe(module, Mode.INTERNAL, contract, invocation.getMethod().getName(),
-                    invocation::proceed);
         }
     }
 

@@ -1,5 +1,6 @@
 package io.github.rey5137.topolith.spring.boot;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -83,12 +84,12 @@ class MyBatisRepositoriesModulesAutoConfiguration {
             var resolution = TopologyResolver.resolve(beanFactory, environment, loader);
             String type = "org.apache.ibatis.session.SqlSessionFactory";
             List<String> hosts = ModuleBeans.hostBeans(beanFactory, loader, resolution, type);
-            List<String> scanners = java.util.Arrays.stream(
+            List<String> scanners = Arrays.stream(
                     factory.getBeanNamesForType(MapperScannerConfigurer.class, true, false))
                     .filter(name -> !name.equals(beanName)).toList();
             boolean ownScanner = scanners.stream().anyMatch(name -> {
                 Object packages = factory.getBeanDefinition(name).getPropertyValues().get("basePackage");
-                return packages == null || java.util.Arrays.stream(packages.toString().split("[,;\\s]+"))
+                return packages == null || Arrays.stream(packages.toString().split("[,;\\s]+"))
                         .anyMatch(pkg -> resolution.topology().modulePackages().values().stream()
                                 .noneMatch(module -> pkg.equals(module) || pkg.startsWith(module + ".")));
             });
@@ -113,7 +114,7 @@ class MyBatisRepositoriesModulesAutoConfiguration {
                 String modulePackage = resolution.topology().modulePackages().get(id);
                 if (modulePackage == null || owned.contains(id) || scanners.stream().anyMatch(name -> {
                     Object packages = factory.getBeanDefinition(name).getPropertyValues().get("basePackage");
-                    return packages != null && java.util.Arrays.stream(packages.toString().split("[,;\\s]+"))
+                    return packages != null && Arrays.stream(packages.toString().split("[,;\\s]+"))
                             .anyMatch(pkg -> modulePackage.equals(pkg) || modulePackage.startsWith(pkg + "."));
                 })) {
                     continue;

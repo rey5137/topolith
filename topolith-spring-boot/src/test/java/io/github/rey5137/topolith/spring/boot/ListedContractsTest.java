@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -136,15 +137,37 @@ class ListedContractsTest {
     }
 
     @Test
-    void ac_ext_81_a_clashing_listed_route_fails_with_tl0005() throws Exception {
+    void ac_ext_81_a_clashing_listed_route_fails_with_tl0048() throws Exception {
         try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
             new WebApplicationContextRunner(AnnotationConfigServletWebServerApplicationContext::new)
                     .withClassLoader(loader).withUserConfiguration(ErrorHost.class, ClashController.class)
                     .withPropertyValues("server.port=0", "spring.liquibase.enabled=false",
                             "topolith.modules.clock.mode=internal", "topolith.modules.clock.expose.enabled=true")
-                    .run(context -> LoopbackTest.fails(context.getStartupFailure(), TopolithCode.TL0005,
+                    .run(context -> LoopbackTest.fails(context.getStartupFailure(), TopolithCode.TL0048,
                             "ClockContract.now", "ClashController", "clash"));
         }
+    }
+
+    @Test
+    void ac_ext_81_path_variable_names_do_not_hide_a_clash_and_other_conditions_do_not_fake_one() {
+        org.springframework.web.servlet.mvc.method.RequestMappingInfo.BuilderConfiguration options =
+                new org.springframework.web.servlet.mvc.method.RequestMappingInfo.BuilderConfiguration();
+        options.setPatternParser(new org.springframework.web.util.pattern.PathPatternParser());
+        java.util.function.Function<String, String> get = path -> ListedContractRoutes.normalized(
+                org.springframework.web.servlet.mvc.method.RequestMappingInfo.paths(path)
+                        .methods(org.springframework.web.bind.annotation.RequestMethod.GET).options(options).build());
+        assertEquals(get.apply("/a/{id}"), get.apply("/a/{key}"));
+        assertEquals(get.apply("/a/{*rest}"), get.apply("/a/{*other}"));
+        assertEquals(get.apply("/a/{id:\\d+}/b"), get.apply("/a/{key:\\d+}/b"));
+        assertNotEquals(get.apply("/a/{id}"), get.apply("/a/{id}/b"));
+        assertNotEquals(get.apply("/a/{id:\\d+}"), get.apply("/a/{id:[a-z]+}"));
+        assertNotEquals(get.apply("/a/{id}"), ListedContractRoutes.normalized(
+                org.springframework.web.servlet.mvc.method.RequestMappingInfo.paths("/a/{id}")
+                        .methods(org.springframework.web.bind.annotation.RequestMethod.POST).options(options).build()));
+        assertNotEquals(get.apply("/a/{id}"), ListedContractRoutes.normalized(
+                org.springframework.web.servlet.mvc.method.RequestMappingInfo.paths("/a/{id}")
+                        .methods(org.springframework.web.bind.annotation.RequestMethod.GET).params("x=1")
+                        .options(options).build()));
     }
 
     @RestController

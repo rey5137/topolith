@@ -35,12 +35,7 @@ final class ListedContractsCheck implements BeanFactoryPostProcessor, Environmen
         for (Map.Entry<String, Set<String>> entry : resolution.listed().entrySet()) {
             String id = entry.getKey();
             for (String contract : entry.getValue()) {
-                List<String> beans = new ArrayList<>();
-                ModuleBeans.ownedBy(factory, loader, resolution, contract).forEach((name, owner) -> {
-                    if (id.equals(owner)) {
-                        beans.add(name);
-                    }
-                });
+                List<String> beans = ModuleBeans.beansOf(factory, loader, resolution, contract, id);
                 if (beans.isEmpty()) {
                     found.add(new Diagnostic(TopolithCode.TL0044, "module '" + id + "' lists " + contract
                             + " in provides, but none of its definitions is a bean of it.", "Declare one @Bean of "
@@ -52,7 +47,6 @@ final class ListedContractsCheck implements BeanFactoryPostProcessor, Environmen
                             "Keep exactly one bean of " + contract + " in the module."));
                 }
             }
-
         }
         if (!found.isEmpty()) {
             throw new TopolithException(found);

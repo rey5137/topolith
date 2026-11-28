@@ -95,8 +95,16 @@ and the proxy never wraps a mock (a `@MockitoBean` or `@MockitoSpyBean` contract
   copy of a result, is not a failure (D-79). A change made on another thread after the test method ended is not seen.
 - **Exceptions.** A declared exception the provider throws (R-EXT-04) reaches the caller rebuilt as the caller's
   translation rebuilds it: the declared type through its public `(String)` or no-arg constructor, with the message and
-  the original as suppressed. `ModuleUnavailableException` and undeclared exceptions pass as thrown (D-55).
-- **Scope.** The proxy wraps only internal modules: an enabled module in `loopback` or `external` mode already crosses
+  the original as suppressed. That is the nearest class of the thrown one's superclass chain in an api package (a
+  subclass outside them arrives as its api-package ancestor), or `IllegalArgumentException`, `IllegalStateException`
+  or `UnsupportedOperationException` (a subclass such as `NumberFormatException` arrives as that JDK class, message
+  only, no cause). A checked exception is rebuilt only when the invoked contract method's `throws` clause names a
+  supertype of the rebuilt class (D-116, D-117). `ModuleUnavailableException` and every other exception pass as
+  thrown (D-55).
+- **Scope.** The proxy wraps only internal modules, and a bean by its owner as D-61 and D-110 define it: a bean that
+  implements a contract its definition's module lists in `provides` belongs to that module even when its class lies
+  outside the module's package (a factory result, a library implementation); otherwise the bean's class decides. The
+  proxy wraps only internal modules: an enabled module in `loopback` or `external` mode already crosses
   HTTP, and a `none` module has no calls, so none of them gets a proxy. An id that no descriptor names fails context
   load with `IllegalStateException` naming it. Without `@TopolithByValue` or `byValue()` there is no proxy and no
   recorded state (until M8.7; see Default below), and the proxy does not change R-EXT-07's transaction boundary.
@@ -127,8 +135,9 @@ Implements INV-6, P-2, D-55, D-74, D-79 and D-119.
   error; nothing is kept past the test method.
 - AC-TEST-11 (M5.2): An argument or result that does not survive the round trip (a `Page`, a type without a creator, a
   field lost on the way) fails the call with an `AssertionError` naming the type.
-- AC-TEST-12 (M5.2): A declared exception reaches the caller as its declared type with its message;
-  `ModuleUnavailableException` and an undeclared exception pass as thrown.
+- AC-TEST-12 (M5.2): A declared exception reaches the caller as its declared type with its message; a checked
+  exception named in `throws`, a subclass outside the api packages and a JDK-declared exception or its subclass reach
+  it as over HTTP (D-116, D-117); `ModuleUnavailableException` and an undeclared exception pass as thrown.
 - AC-TEST-13 (M5.2): An unknown module id, or a context with no JSON HTTP message converter, fails context load with
   `IllegalStateException`; an external or `none` module and a mocked contract bean get no proxy, and a test without the
   annotation or `byValue()` has none (until M8.7, D-119: then AC-TEST-26 replaces this clause).
@@ -143,6 +152,9 @@ Implements INV-6, P-2, D-55, D-74, D-79 and D-119.
   module, method and path and no value, the caller gets the provider's own result, and the test method passes.
 - AC-TEST-28 (M8.7): `topolith.test.parity=off` or any value other than `fail` and `warn` fails context load with
   `IllegalStateException` naming the key and its two values.
+- AC-TEST-29 (M8 gate): A bean that implements a contract its definition's module lists in `provides` is wrapped
+  although its class lies outside the module's package (a JDK proxy from a factory, or a class in another
+  module's package); a mutation by its provider fails, naming the definition's module (D-110).
 
 ### R-TEST-05 — Mode matrix
 

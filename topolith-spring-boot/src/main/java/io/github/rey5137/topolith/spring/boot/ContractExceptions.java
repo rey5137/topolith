@@ -10,9 +10,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-import io.github.rey5137.topolith.contract.ModuleUnavailableException;
 import io.github.rey5137.topolith.core.Diagnostic;
 import io.github.rey5137.topolith.core.TopolithCode;
+import io.github.rey5137.topolith.spring.boot.internal.DeclaredExceptions;
 import org.springframework.asm.AnnotationVisitor;
 import org.springframework.asm.ClassReader;
 import org.springframework.asm.ClassVisitor;
@@ -31,43 +31,6 @@ import org.springframework.util.ClassUtils;
  */
 final class ContractExceptions {
     private ContractExceptions() {
-    }
-
-    /**
-     * The class a caller rebuilds for {@code type}: {@link ModuleUnavailableException}, or the nearest non-abstract
-     * class from {@code type} up that lies in one of {@code apiPackages}; null when {@code type} is not declared.
-     */
-    static Class<?> declared(Class<?> type, Set<String> apiPackages) {
-        if (!Exception.class.isAssignableFrom(type)) {
-            return null;
-        }
-        for (Class<?> current = type; current != Exception.class && current != RuntimeException.class;
-                current = current.getSuperclass()) {
-            if (current == ModuleUnavailableException.class || current == IllegalArgumentException.class
-                    || current == IllegalStateException.class || current == UnsupportedOperationException.class) {
-                return current;
-            }
-            if (!Modifier.isAbstract(current.getModifiers()) && apiPackages.contains(current.getPackageName())) {
-                return current;
-            }
-        }
-        return null;
-    }
-
-    /** Whether a caller can rebuild {@code type}: public, and a public {@code (String)} or no-arg constructor. */
-    static boolean rebuildable(Class<?> type) {
-        if (!Modifier.isPublic(type.getModifiers()) || Modifier.isAbstract(type.getModifiers())) {
-            return false;
-        }
-        for (Class<?>[] parameters : List.<Class<?>[]>of(new Class<?>[] {String.class}, new Class<?>[0])) {
-            try {
-                type.getConstructor(parameters);
-                return true;
-            } catch (NoSuchMethodException e) {
-                // try the next shape
-            }
-        }
-        return false;
     }
 
     /**
@@ -124,7 +87,7 @@ final class ContractExceptions {
                     String status = file == null ? null : file.responseStatus(loader, 0);
                     if (!apiPackages.contains(thrown.getPackageName())) {
                         found.add(name + ", which is outside the module's api packages");
-                    } else if (!rebuildable(thrown) || file == null) {
+                    } else if (!DeclaredExceptions.rebuildable(thrown) || file == null) {
                         found.add(name + ", which a caller cannot rebuild");
                     } else if (status != null && !errorStatus(status, loader)) {
                         found.add(name + " with @ResponseStatus " + status + ", which is not an error status");

@@ -10,8 +10,6 @@ import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.core.Topology;
 
 import org.springframework.beans.factory.BeanClassLoaderAware;
-import org.springframework.beans.factory.BeanFactory;
-import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.boot.autoconfigure.AutoConfigurationImportEvent;
 import org.springframework.boot.autoconfigure.AutoConfigurationImportListener;
 import org.springframework.context.EnvironmentAware;
@@ -26,13 +24,13 @@ import org.springframework.core.env.Environment;
  */
 @Incubating
 public class TopolithExclusionCheck
-        implements AutoConfigurationImportListener, BeanFactoryAware, EnvironmentAware, BeanClassLoaderAware {
+        implements AutoConfigurationImportListener, EnvironmentAware, BeanClassLoaderAware {
     /**
      * The auto-configurations whose exclusion stops an internal or loopback module's contributions (D-111). An
      * explicit list, not a name prefix: excluding one that activates no module, such as the refresh or the resilience
      * configuration of topolith-spring-cloud, is allowed (TL0041 covers the resilience one).
      */
-    private static final Set<String> ACTIVATING = Set.of(
+    static final Set<String> ACTIVATING = Set.of(
             // imports the module component scan and the module-owned beans
             "io.github.rey5137.topolith.spring.boot.TopolithAutoConfiguration",
             // registers each module's entities and entity manager
@@ -47,7 +45,6 @@ public class TopolithExclusionCheck
             "io.github.rey5137.topolith.spring.boot.FlywayModulesAutoConfiguration",
             "io.github.rey5137.topolith.spring.boot.LiquibaseModulesAutoConfiguration");
 
-    private BeanFactory beanFactory;
     private Environment environment;
     private ClassLoader classLoader;
 
@@ -70,11 +67,6 @@ public class TopolithExclusionCheck
                             + " are internal or loopback, so their beans would not load.",
                     "Remove the exclusion, or set those modules to none or external.")).toList());
         }
-    }
-
-    @Override
-    public void setBeanFactory(BeanFactory beanFactory) {
-        this.beanFactory = beanFactory;
     }
 
     @Override

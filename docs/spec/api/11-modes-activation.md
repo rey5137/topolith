@@ -59,7 +59,7 @@ not checked. Implements INV-2, INV-4, INV-8, P-3, D-7, D-30 and D-111.
 - AC-MODE-24 (M1.3): A host component scan covering a non-internal module's package fails with TL0007.
 - AC-MODE-55 (M8.2): Excluding `TopolithAutoConfiguration`, or another Topolith auto-configuration that activates modules, by property or by
   `@SpringBootApplication(exclude)` while a module is `internal` or `loopback` fails startup with TL0042 (new, M8.2)
-  naming the class; the same exclusion with only `none` modules, and a `@WebMvcTest` slice of the host and an excluded auto-configuration that activates no module start.
+  naming the class (any of the nine activating auto-configurations of `topolith-spring-boot`, D-111); the same exclusion with only `none` modules, and a `@WebMvcTest` slice of the host and an excluded auto-configuration that activates no module start.
 
 - AC-MODE-63 (M8.9): The repackaged monolith starts with its nested module JARs discovered.
 - AC-MODE-64 (M8.9): The extracted monolith starts with its module JARs discovered.
@@ -102,7 +102,9 @@ without those libraries starts unchanged. Implements INV-2, INV-4, INV-9, D-7, D
   runner on that DataSource, with the same tool detection, tracking tables, ordering after the modules it requires and
   limits as on the host's DataSource, but none of the host's tool settings (D-130). A runner the module declares still
   owns its migrations, and Topolith adds none.
-  A module with several DataSources of its own and no runner fails with TL0020.
+  A module with several DataSources of its own and no runner fails with TL0020. So does one that contributes an R2DBC
+  `ConnectionFactory` and has scripts but no DataSource or runner of its own (D-134): the scripts' database is
+  ambiguous. A DataSource or a runner beside the ConnectionFactory leaves the rules above unchanged.
 - **Other stores (D-113).** Topolith also registers each internal and loopback module's Spring Data R2DBC and MongoDB
   repositories and MyBatis mappers, as it does JPA and JDBC: one auto-configuration per store, each
   `@ConditionalOnClass` on its store, scanning only the module's `package`, backing off for the module's own
@@ -113,7 +115,10 @@ without those libraries starts unchanged. Implements INV-2, INV-4, INV-9, D-7, D
 - **MyBatis mapper locations (D-114).** The host's `mybatis.mapper-locations` are resolved at startup, and a resource
   owned by a module (D-61's resource ownership) fails startup with TL0043 (new, M8.2) naming the location and the
   resource, whatever the module's mode, as TL0020 does for a host migration location. A module's mapper XML lives beside
-  its mapper interface, where MyBatis loads it.
+  its mapper interface, where MyBatis loads it. D-135 extends TL0043 to `mybatis.type-aliases-package` and
+  `mybatis.type-handlers-package`: an entry (comma or semicolon separated) that equals, contains or lies inside a
+  non-internal module's package fails naming the property and the module; internal and standalone modules are exempt,
+  and `mybatis.config-location`'s `<mappers>` is not parsed.
 
 - AC-MODE-10 (M1.4): Internal modules register only their own managed entities, repositories and migration locations.
 - AC-MODE-11 (M1.4): A non-internal module leaves no entity, repository, migration or table, even with its JAR present.
@@ -144,7 +149,8 @@ without those libraries starts unchanged. Implements INV-2, INV-4, INV-9, D-7, D
   an interface neither store can assign fails with TL0024, and a JDBC factory-bean registration covers its interface.
 - AC-MODE-56 (M8.3): An internal module with its own non-default-candidate DataSource, Flyway or Liquibase scripts
   under `db/modules/<id>` and no runner of its own has them run once on its DataSource, with its own tracking tables,
-  and none on the host's; a second start finds nothing pending.
+  and none on the host's; a second start finds nothing pending. An internal module with scripts, an R2DBC
+  `ConnectionFactory` and neither a DataSource nor a runner fails with TL0020 (D-134).
 - AC-MODE-57 (M8.3): A module that declares its own runner gets no Topolith runner; a module with two DataSources of
   its own and no runner fails with TL0020; a `none` module's scripts run on no DataSource.
 - AC-MODE-58 (M8.4): An internal module's MyBatis mapper is registered once under its fully qualified name against the
@@ -156,7 +162,7 @@ without those libraries starts unchanged. Implements INV-2, INV-4, INV-9, D-7, D
 - AC-MODE-60 (M8.4): A `none` or `external` module leaves no MyBatis mapper, MongoDB or R2DBC repository definition and
   no module class loaded, and a host without each store's classes loads none of its registration.
 - AC-MODE-61 (M8.2): A host `mybatis.mapper-locations` pattern that reaches a module's mapper XML fails startup with
-  TL0043 (new, M8.2) in every mode, `internal` and `none` included; a pattern that reaches only the host's XML starts; the standalone module's own XML is the host's and is exempt.
+  TL0043 (new, M8.2) in every mode, `internal` and `none` included; a pattern that reaches only the host's XML starts; the standalone module's own XML is the host's and is exempt. A `mybatis.type-aliases-package` or `mybatis.type-handlers-package` entry that equals, contains or lies inside a non-internal module's package fails the same way (D-135); a sibling package, an internal module and the standalone module start.
 
 ### R-MODE-05 — Refresh does not change topology
 

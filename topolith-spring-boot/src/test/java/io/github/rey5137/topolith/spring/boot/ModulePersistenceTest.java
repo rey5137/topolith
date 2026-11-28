@@ -730,6 +730,56 @@ class ModulePersistenceTest {
     }
 
     @Test
+    void ac_mode_56_a_module_with_its_own_connection_factory_and_scripts_but_no_data_source_fails_with_tl0020()
+            throws Exception {
+        for (String tool : List.of("", "ledger.runner=none")) {
+            run(Host.class, List.of(ledgerRoot, hostRoot), List.of("topolith.modules.ledger.mode=internal",
+                    "ledger.connection-factory=true", tool.isEmpty() ? "x=y" : tool), context -> {
+                assertEquals(List.of(TopolithCode.TL0020), codes(context));
+                String message = failure(context).getMessage();
+                assertTrue(message.contains("module 'ledger'") && message.contains("R2DBC ConnectionFactory"),
+                        message);
+            });
+        }
+    }
+
+    @Test
+    void ac_mode_56_a_connection_factory_beside_a_data_source_keeps_the_runner_on_that_data_source()
+            throws Exception {
+        run(Host.class, List.of(ledgerRoot, hostRoot), List.of("topolith.modules.ledger.mode=internal",
+                "ledger.connection-factory=true", "ledger.data-source=true"), context -> {
+            assertNull(context.getStartupFailure(), String.valueOf(context.getStartupFailure()));
+            assertTrue(context.containsBean("topolith.flyway.ledger"));
+            assertEquals(0, tables(jdbc(context), "%ledger%"), "the host's database stays clean");
+            DataSource own = context.getBean("ledgerDataSource", DataSource.class);
+            assertEquals(1, tables(new JdbcTemplate(own), "ledger_entry"));
+        });
+    }
+
+    @Test
+    void ac_mode_57_a_connection_factory_beside_a_runner_of_its_own_is_unchanged() throws Exception {
+        run(Host.class, List.of(ledgerRoot), List.of("topolith.modules.ledger.mode=internal",
+                "ledger.connection-factory=true", "ledger.runner=flyway", "spring.flyway.enabled=false"),
+                context -> {
+            assertNull(context.getStartupFailure(), String.valueOf(context.getStartupFailure()));
+            assertFalse(context.containsBean("topolith.flyway.ledger"));
+            assertEquals(List.of("V1__init.sql"), scripts(jdbc(context), LedgerRunnerConfiguration.HISTORY));
+        });
+    }
+
+    @Test
+    void ac_mode_56_a_connection_factory_without_scripts_or_in_a_none_module_changes_nothing() throws Exception {
+        org.springframework.util.FileSystemUtils.deleteRecursively(ledgerRoot.resolve("db"));
+        run(Host.class, List.of(ledgerRoot, hostRoot), List.of("topolith.modules.ledger.mode=internal",
+                "ledger.connection-factory=true", "spring.flyway.enabled=false"), context ->
+                assertNull(context.getStartupFailure(), String.valueOf(context.getStartupFailure())));
+        Fixtures.resource(ledgerRoot, "db/modules/ledger/V1__init.sql", LEDGER_V1);
+        run(Host.class, List.of(ledgerRoot, hostRoot), List.of("topolith.modules.ledger.mode=none",
+                "ledger.connection-factory=true"), context ->
+                assertNull(context.getStartupFailure(), String.valueOf(context.getStartupFailure())));
+    }
+
+    @Test
     void ac_mode_57_a_flyway_runner_of_its_own_on_the_hosts_data_source_gets_no_topolith_runner() throws Exception {
         // the host's own Flyway is off: a host runner and the module's own on one schema would race (P-2)
         run(Host.class, List.of(ledgerRoot), List.of("topolith.modules.ledger.mode=internal",

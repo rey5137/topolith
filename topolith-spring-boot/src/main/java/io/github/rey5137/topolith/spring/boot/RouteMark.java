@@ -17,6 +17,7 @@ import org.springframework.web.method.HandlerMethod;
  */
 final class RouteMark {
     private static final String ATTRIBUTE = RouteMark.class.getName() + ".handler";
+    private static final String THROWN = RouteMark.class.getName() + ".thrown";
 
     private RouteMark() {
     }
@@ -43,6 +44,35 @@ final class RouteMark {
                 && Arrays.equals(marked.getParameterTypes(), method.getParameterTypes())) {
             attributes.removeAttribute(ATTRIBUTE, RequestAttributes.SCOPE_REQUEST);
             return true;
+        }
+        return false;
+    }
+
+    /** Records what the marked handler's own invocation threw, so the resolver can tell it from a Spring-raised one (D-137). */
+    static void thrown(Throwable failure) {
+        RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+        if (attributes != null) {
+            attributes.setAttribute(THROWN, failure, RequestAttributes.SCOPE_REQUEST);
+        }
+    }
+
+    /**
+     * Whether {@code failure} came out of the handler's body (D-137): the advice recorded it, or, for a handler no
+     * advice wraps, its stack holds a frame of the handler method. One Spring raised before invoking the body (argument
+     * resolution, the reflective call) or after it (return-value handling) has neither.
+     */
+    static boolean entered(HttpServletRequest request, HandlerMethod handler, Throwable failure) {
+        if (request.getAttribute(THROWN) == failure) {
+            return true;
+        }
+        String name = handler.getMethod().getName();
+        String type = ClassUtils.getUserClass(handler.getBeanType()).getName();
+        String declaring = handler.getMethod().getDeclaringClass().getName();
+        for (StackTraceElement frame : failure.getStackTrace()) {
+            if (frame.getMethodName().equals(name)
+                    && (frame.getClassName().equals(type) || frame.getClassName().equals(declaring))) {
+                return true;
+            }
         }
         return false;
     }

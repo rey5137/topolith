@@ -156,14 +156,16 @@ final class ModuleMigrations {
     /**
      * The modules Topolith runs migrations for: internal, with exactly one tool, no runner of their own (which owns
      * their migrations, whatever DataSource it uses), and either no DataSource of their own (the runner uses the
-     * host's) or exactly one (the runner uses that one, D-112); several are TL0020. Sorted by id.
+     * host's) or exactly one (the runner uses that one, D-112); several are TL0020, as is an R2DBC connection
+     * factory of their own with no DataSource (D-134). Sorted by id.
      */
     static Map<String, Tool> runners(Topology topology, ClassLoader loader, Map<String, List<String>> ownDataSources,
-            Set<String> ownRunners) {
+            Set<String> ownRunners, Set<String> connectionFactoryOnly) {
         Map<String, Tool> runners = new TreeMap<>();
         withMigrations(topology, loader).forEach((id, migrations) -> {
             List<String> own = ownDataSources.getOrDefault(id, List.of());
-            if (migrations.tool() != null && !ownRunners.contains(id) && own.size() <= 1) {
+            if (migrations.tool() != null && !ownRunners.contains(id) && own.size() <= 1
+                    && !connectionFactoryOnly.contains(id)) {
                 runners.put(id, migrations.tool());
             }
         });

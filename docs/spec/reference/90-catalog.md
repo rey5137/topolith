@@ -57,6 +57,8 @@ violation in the frozen baseline. Implements INV-4, INV-9, INV-10, D-11, D-12, D
 | TL0043 | A host's `mybatis.mapper-locations` resolves to a resource owned by a module (under the module's package path, D-61), in every mode, except the standalone module's own; the message names the location and the resource; narrow the location to the host's own XML, since a module's mapper XML lives beside its mapper interface (D-114) | failure | M8.2 (AC-MODE-61) |
 | TL0044 | A module does not serve a contract it provides: an internal module has no bean, among the definitions it contributes, of a contract its declaration lists in `provides`; or a module that is internal and exposed, or loopback, has a provided contract method that no module route serves, such as an inferred contract implemented only by a non-handler `@Service`. The message names the module and contract, and the method when route coverage fails; declare the missing bean or provide the uncovered contract method from a module `@RestController` (D-110, D-126) | failure | M8.3 (AC-DESC-16, AC-EXT-82) |
 | TL0045 | A by-value parity violation in `warn` mode; names the module, method, argument or result, and JSON path without the value (D-119) | warning | M8.7 (AC-TEST-27) |
+| TL0046 | A bearer reaches a module route unauthenticated; configure the host as a resource server (D-121) | warning | M8.8 (AC-EXT-76) |
+| TL0047 | Session relay has multiple registration or authorized-client repository beans; keep one of each (D-121) | failure | M8.8 (AC-EXT-75) |
 
 The owning slice names the slice that owns the code's acceptance criterion, not the first slice that raises it. M1.3
 raises TL0007 early, only when a host's component scan covers a non-internal module's package (AC-MODE-24); M1.4 also

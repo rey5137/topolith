@@ -55,12 +55,14 @@ keeps running.
 | Code | Meaning | Severity | Fix |
 |---|---|---|---|
 | `TL0033` | More than one `ModuleCallObservationConvention` bean exists. | failure | Keep one convention bean. |
-| `TL0034` | Context propagation is misconfigured: an invalid or duplicate `topolith.context.mdc-keys` entry, more than 16 keys, a key without SLF4J, or more than one `TenantContext` bean. | failure | Fix the key list, or keep one `TenantContext` bean. |
-| `TL0035` | An outgoing MDC value is over 1024 characters once encoded or has a control character, so it is not sent. | warning | Shorten the value or remove the control characters, or stop listing the key. |
+| `TL0034` | An MDC key or carrier name is invalid or duplicated, more than 16 keys and carriers are configured, a key lacks SLF4J, or multiple `TenantContext` beans exist. | failure | Correct the key list and carriers, or keep one `TenantContext` bean. |
+| `TL0035` | An outgoing MDC or carrier value is over 1024 characters once encoded or has a control character, so it is not sent. | warning | Shorten the value or remove its control characters. |
 | `TL0036` | A module has more than one outgoing-auth hook, or a hook changes an `Authorization` header a client customizer set. | failure | Keep one hook: `topolith.modules.<id>.auth.type` or one `ModuleClients.authenticate` bean. |
 | `TL0037` | `auth.type=client-credentials` cannot be satisfied: no OAuth2 client classes, a missing or unknown `auth.registration-id`, or not exactly one `ClientRegistrationRepository` and one `OAuth2AuthorizedClientService` bean. | failure | Add Spring Security's OAuth2 client (`spring-security-oauth2-client`) and a matching client registration. |
 | `TL0038` | An outgoing tenant is over 1024 characters once encoded or has a control character, so the call fails before it is sent. | failure | Shorten the tenant id your `TenantContext` returns, or remove its control characters. |
 | `TL0039` | A request carrying `Topolith-Tenant` reached a module route of a host with no `TenantContext` bean, so the provider answers 500 without running. | failure | Add a `TenantContext` bean to the provider host. |
+| `TL0046` | A bearer token reached a module route unauthenticated. | warning | Configure the host as a resource server for the caller's tokens. |
+| `TL0047` | Session relay has multiple registration or authorized-client repository beans. | failure | Keep one repository of each type. |
 
 ## Boundaries
 

@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import io.github.rey5137.topolith.core.Diagnostic;
 import io.github.rey5137.topolith.core.Mode;
@@ -113,6 +114,8 @@ final class OutgoingAuth {
     private final TokenRequests tokenRequests;
     private Map<String, ClientHttpRequestInterceptor> hooks;
     private Set<String> relays;
+    private final Map<String, Supplier<String>> sessionTokens = new TreeMap<>();
+    private boolean resourceTokens;
 
     OutgoingAuth(Topology topology, Binder binder, ListableBeanFactory beans, ClassLoader classLoader,
             TokenRequests tokenRequests) {
@@ -140,6 +143,11 @@ final class OutgoingAuth {
         return relays.contains(id);
     }
 
+    String relayToken(String id) {
+        String token = resourceTokens ? BearerToken.current() : null;
+        return token != null ? token : sessionTokens.getOrDefault(id, () -> null).get();
+    }
+
     private void resolve() {
         Map<String, List<ModuleAuthConfigurer>> hosts = new TreeMap<>();
         for (RestClientHttpServiceGroupConfigurer configurer
@@ -152,6 +160,9 @@ final class OutgoingAuth {
         Map<String, ClientHttpRequestInterceptor> found = new TreeMap<>();
         Set<String> relaying = new TreeSet<>();
         boolean tokens = ClassUtils.isPresent(TOKEN_CLASS, classLoader);
+        boolean sessions = ClassUtils.isPresent(CLIENT_CLASS, classLoader)
+                && ClassUtils.isPresent("jakarta.servlet.http.HttpServletRequest", classLoader);
+        resourceTokens = tokens;
         for (String id : ExternalHttpServicesRegistrar.clientModules(topology)) {
             Settings settings = read(binder, id, topology.known());
             List<ModuleAuthConfigurer> own = hosts.getOrDefault(id, List.of());
@@ -167,7 +178,11 @@ final class OutgoingAuth {
                 found.put(id, own.get(0).interceptor());
             } else if (settings.type() == null || settings.type().equals(RELAY)) {
                 // without the resource-server classes there is no token to relay (D-93)
-                if (tokens) {
+                if (sessions) {
+                    sessionTokens.put(id, SessionRelay.create(beans, problems,
+                            tokenRequests == null ? null : () -> tokenRequests.forModule(id)));
+                }
+                if (tokens || sessions) {
                     found.put(id, new RelayHook());
                     relaying.add(id);
                 }

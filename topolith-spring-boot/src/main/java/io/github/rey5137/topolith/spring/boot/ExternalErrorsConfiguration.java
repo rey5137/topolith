@@ -128,7 +128,7 @@ class ExternalErrorsConfiguration {
                         if (current != null) {
                             ObservationHandoff.capture(current, values);
                         }
-                        String token = relay ? BearerToken.current() : null;
+                        String token = relay ? hooks.relayToken(group.name()) : null;
                         if (token != null) {
                             values.addAttribute(RelayHook.TOKEN, token);
                         }

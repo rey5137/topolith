@@ -232,7 +232,13 @@ keeps a client from forging log lines. A request carrying `Topolith-Tenant` to a
 answers 500 with `TL0039` logged, so a provider never runs with a tenant it cannot honour; the caller gets the
 unspecified exception. The values are current on the request's dispatch threads only, and your own interceptors registered through `WebMvcConfigurer` see
 them too (a `MappedInterceptor` bean runs before them). A host that exposes no module checks nothing. An invalid key list, or two `TenantContext` beans, fails startup with `TL0034`. Routes outside every module
-ignore these headers. Trace and baggage propagation stay Micrometer Tracing's.
+ignore these headers.
+
+A host can also supply `ContextCarrier` beans to carry string values. Each has a unique `name()`, a `current()`
+value, and `open(value)` returning a scope that restores the previous value when closed. Topolith sends each value in
+`Topolith-Context-<name>` with the same encoding and limits as MDC; invalid values are dropped with `TL0035`. Carrier
+names follow the MDC key rules, and at most 16 carriers and MDC keys may be configured together (`TL0034`). For
+Micrometer Tracing baggage, configure `management.tracing.baggage.remote-fields` instead.
 
 ## Authenticating calls
 
@@ -241,14 +247,16 @@ Each loopback or external module's client authenticates its calls through one ou
 
 | `auth.type` | What a call sends |
 |---|---|
-| `relay` (default) | `Authorization: Bearer <token>` when the calling thread's `Authentication` is a bearer token (a `JwtAuthenticationToken` or `BearerTokenAuthentication`); nothing otherwise |
+| `relay` (default) | The calling thread's bearer token or OAuth2 login session's authorized-client access token, when available |
 | `client-credentials` | The access token Spring Security's OAuth2 client obtains for the registration `auth.registration-id` |
 | `none` | Nothing |
 
 With `relay`, give the provider a resource-server configuration and it sees the caller's name and authorities, as an
-internal provider sees the caller's own `SecurityContext`. A caller logged in without a bearer token (a session login,
-anonymous) relays nothing, so a loopback or external provider sees what its security chain makes of a request without
-credentials. Without Spring Security's resource-server classes there is nothing to relay and no hook is installed.
+internal provider sees the caller's own `SecurityContext`. With OAuth2 client support and one each of
+`ClientRegistrationRepository` and `OAuth2AuthorizedClientRepository`, a session login relays its authorized client's
+access token, refreshing it when expired. Multiple beans of either repository fail startup with `TL0047`. Without a
+current servlet request, or when no authorized client resolves, session relay sends nothing. A bearer that reaches a
+module route unauthenticated logs `TL0046` once per module; configure the provider as a resource server for those tokens.
 
 With `client-credentials`, Topolith builds its own `AuthorizedClientServiceOAuth2AuthorizedClientManager` from your one
 `ClientRegistrationRepository` and one `OAuth2AuthorizedClientService` bean (Boot's OAuth2 client starter declares

@@ -527,8 +527,8 @@ Each external or loopback module's client authenticates its calls through at mos
   off; with two or more of either, a host with a `relay` module fails startup with TL0047 (new, M8.8) naming the beans
   (INV-4). That manager needs the current servlet request, so a call with no current request (on another thread,
   even with the `SecurityContext` propagated) sends no `Authorization` and nothing fails, which is a documented gap.
-  When no client resolves it sends no `Authorization` and nothing fails (D-121). The relay hook is then installed with
-  either classpath.
+  When no client resolves or a refresh fails it sends no `Authorization` and nothing fails (D-121, D-131). The relay
+  hook is then installed with either classpath.
 - **Unauthenticated relay warning (D-121).** On a host with Spring Security, a request to an internal or loopback
   module's route that carries `Authorization: Bearer` but reaches the handler with no `Authentication`, an
   unauthenticated one or an `AnonymousAuthenticationToken` logs warning TL0046 (new, M8.8) once per module, naming the
@@ -603,7 +603,8 @@ Implements INV-2, INV-4, INV-6, INV-7, D-92 through D-97 and D-121.
   AC-EXT-75).
 - AC-EXT-75 (M8.8): With `relay` and `spring-security-oauth2-client`, a loopback and an external call from a thread
   whose `Authentication` is an `OAuth2AuthenticationToken` send its authorized client's access token, refreshed when
-  expired, also with a host `OAuth2AuthorizedClientManager` bean present; with no authorized client, and from an
+  expired, also with a host `OAuth2AuthorizedClientManager` bean present; with no authorized client, a failed refresh,
+  and from an
   `@Async` thread with the `SecurityContext` propagated but no current request, the call sends no `Authorization` and
   succeeds; two `OAuth2AuthorizedClientRepository` beans (or two `ClientRegistrationRepository` beans) with a `relay`
   module fail startup with TL0047 (new, M8.8); with no `ClientRegistrationRepository` session relay is off.

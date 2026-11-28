@@ -106,7 +106,7 @@ topolith:
 - A host maps an audience route only when the module is internal (or loopback) **and** the host lists the
   audience, whether or not the module is exposed. Its source path is `<audience path>/<module id><handler path>`,
   for example `/mobile/order/orders/{id}/summary`. A route with two listed audiences is mapped once per audience.
-- **The module id segment is forced** in the source path for 0.2. It keeps the gateway's route table to one route
+- **The module id segment is forced** in the source path for 0.1.0. It keeps the gateway's route table to one route
   per (audience, module) and makes two modules' audience routes unable to clash. It can be relaxed later without a
   break: the key `topolith.audiences.<a>.modules.<id>.path` is reserved now and fails startup if set (new TL code),
   and every uniqueness check is written over resolved source prefixes, not over `<audience path>/<id>`. Relaxing
@@ -169,7 +169,7 @@ module's resolved source prefix:
   security chain (one `SecurityFilterChain` per `AudienceRequestMatcher`) are per route and fully separate. These are
   process-wide and shared by every audience the host gateways: one server port, `server.forward-headers-strategy`,
   SCG's `spring.cloud.gateway.server.webmvc.*` settings (trusted proxies, `X-Forwarded-*` handling), and a rate
-  limiter's backing store. An audience on its own port is out of scope for 0.2; it needs its own host.
+  limiter's backing store. An audience on its own port is out of scope for 0.1.0; it needs its own host.
 - Client prefixes of all gateway routes in a host must not overlap each other, an audience source path or a `/<id>`
   contract prefix (new TL code). `gateway.modules.<id>.*` for a module that is `none`, unknown, or doesn't declare
   the audience fails startup (INV-4).
@@ -295,7 +295,7 @@ the gateway reaches it in-process or over HTTP.
   host, per module the client prefix, resolved source prefix, target (in-process, loopback, URL or service id) and
   resolved filter list. A reactive SCG gateway or a non-Spring gateway can read it to build its own table, and must
   use the resolved source prefix rather than assume `<audience path>/<id>`. Topolith generates no other gateway's
-  configuration in 0.2.
+  configuration in 0.1.0.
 
 ### 7. Source-side behaviour (G-7)
 
@@ -328,7 +328,7 @@ cannot see.
 
 ### 9. Scope (G-9)
 
-In 0.2: §1 to §8 on servlet hosts. Out: a source path override (reserved, §2), a gateway audience on its own port,
+In 0.1.0 (owner, 2026-11-28; was planned for 0.2): §1 to §8 on servlet hosts. Out: a source path override (reserved, §2), a gateway audience on its own port,
 OpenAPI groups per audience (a springdoc `GroupedOpenApi` per audience is a small follow-up), WebSocket and SSE
 through the gateway, reactive gateways hosting modules, generated configuration for non-Spring gateways.
 
@@ -349,10 +349,10 @@ through the gateway, reactive gateways hosting modules, generated configuration 
 
 ## Compatibility
 
-Additive. `@Audience`, the `topolith.audiences.*` keys and the descriptor's `audiences` field are new and `@Incubating`
-in 0.2. A host that lists no audience behaves exactly as in 0.1, including D-44's unmapping. The descriptor change is
-an optional field that 0.1 readers ignore (D-27); a 0.1-built module has no audiences, so a 0.2 gateway routes none of
-its routes. Relaxing the forced source segment later is additive (§2).
+Nothing released breaks: 0.1.0 is not yet tagged (D-133), and this RFC ships in it. `@Audience`, the
+`topolith.audiences.*` keys and the descriptor's `audiences` field are new and `@Incubating`. A host that lists no
+audience behaves exactly as before this RFC, including D-44's unmapping. The descriptor change is an optional field
+that readers without it ignore (D-27). Relaxing the forced source segment later is additive (§2).
 
 ## Alternatives
 

@@ -869,3 +869,4 @@ Implements INV-2, INV-4, INV-6, INV-7, D-51, D-102 through D-107 and D-124.
   global key unset and every module's retry and breaker off, Spring Cloud's global breaker is applied, so refreshing
   `max-attempts=3` (or `circuit-breaker.enabled=true`) is not applied: one attempt, no Topolith breaker in the
   registry, TL0010 and restart pending; setting `max-attempts` back to `1` clears it.
+- AC-EXT-83 (M8.9): A rebuilt circuit breaker retains the registry tags.

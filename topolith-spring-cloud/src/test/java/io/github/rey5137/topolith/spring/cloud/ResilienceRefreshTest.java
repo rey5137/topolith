@@ -516,6 +516,28 @@ class ResilienceRefreshTest {
         }
     }
 
+    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    static class TaggedRegistry {
+        @org.springframework.context.annotation.Bean
+        CircuitBreakerRegistry taggedRegistry() {
+            return CircuitBreakerRegistry.custom().withTags(Map.of("region", "test")).build();
+        }
+    }
+
+    @Test
+    void ac_ext_83_rebuilt_breaker_retains_registry_tags() throws Exception {
+        try (Stub stub = new Stub()) {
+            run(stub.url(), context -> {
+                CircuitBreaker old = breaker(context);
+                assertEquals(Map.of("region", "test"), old.getTags());
+                refresh(context, R + "circuit-breaker.sliding-window-size", "6");
+                CircuitBreaker rebuilt = breaker(context);
+                assertFalse(old == rebuilt);
+                assertEquals(Map.of("region", "test"), rebuilt.getTags());
+            }, TaggedRegistry.class, TRIPPING);
+        }
+    }
+
     @Test
     void ac_ext_68_a_hosts_replacement_of_the_breaker_is_a_conflict_not_overwritten(CapturedOutput output)
             throws Exception {

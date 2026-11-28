@@ -267,4 +267,63 @@ class TopolithBoundaryCheckTest {
             assertTrue(TopolithBoundaryCheck.descriptorRoots(loader, "missing").isEmpty());
         }
     }
+    @Test
+    void ac_arch_36_nested_jar_roots_are_not_descriptorless_directories() throws Exception {
+        var directory = TopolithBoundaryCheck.class.getDeclaredMethod("descriptorlessDirectory", String.class);
+        directory.setAccessible(true);
+        for (String root : java.util.List.of("jar:nested:/app.jar/!BOOT-INF/lib/a.jar!/",
+                "jar:file:/app.jar!/BOOT-INF/lib/a.jar!/")) {
+            var roots = java.util.Set.of(root);
+            assertTrue(TopolithBoundaryCheck.inRoot(root + "META-INF/topolith/baseline/a.txt", roots));
+            assertFalse(TopolithBoundaryCheck.inRoot(root.replace("a.jar", "b.jar")
+                    + "META-INF/topolith/baseline/a.txt", roots));
+            assertFalse((boolean) directory.invoke(null, root));
+        }
+    }
+
+    @Test
+    void ac_arch_37_split_gradle_roots_read_descriptors_baselines_and_migrations() throws Exception {
+        Path classes = fixture("fixture.beta.Hidden", null, false);
+        Path gradleClasses = root.resolve("build/classes/java/main");
+        Path resources = root.resolve("build/resources/main");
+        Files.createDirectories(gradleClasses.getParent());
+        Files.move(classes, gradleClasses);
+        Files.createDirectories(resources.resolve("META-INF/topolith"));
+        Fixtures.resource(resources, "db/modules/alpha/V1__fixture.sql", "select 1;");
+        try (var loader = new URLClassLoader(new java.net.URL[] {gradleClasses.toUri().toURL(),
+                resources.toUri().toURL()}, getClass().getClassLoader())) {
+            assertEquals(List.of("alpha", "beta"), DescriptorDiscovery.discover(loader).modules().stream()
+                    .map(module -> module.id()).sorted().toList());
+            assertNotNull(loader.loadClass("fixture.alpha.Caller"));
+            assertTrue(ModuleMigrations.hasFlywayScripts(loader, "alpha"));
+        }
+        run(new Path[] {gradleClasses, resources}, TopolithCode.TL0012, "fixture.alpha.Caller", "fixture.beta.Hidden");
+        Fixtures.resource(resources, "META-INF/topolith/baseline/alpha.txt", PAIR);
+        run(new Path[] {gradleClasses, resources}, null);
+        Files.delete(resources.resolve("META-INF/topolith/baseline/alpha.txt"));
+        run(new Path[] {gradleClasses, resources}, TopolithCode.TL0012, "fixture.alpha.Caller", "fixture.beta.Hidden");
+    }
+
+    @Test
+    void ac_mode_65_restart_style_child_loader_resolves_topology_on_each_context() throws Exception {
+        Path classes = fixture("fixture.beta.api.Contract", null, false);
+        for (int restart = 0; restart < 2; restart++) {
+            try (var loader = new URLClassLoader(new java.net.URL[] {classes.toUri().toURL()},
+                    getClass().getClassLoader())) {
+                String active = restart == 0 ? "alpha" : "beta";
+                String inactive = restart == 0 ? "beta" : "alpha";
+                assertSame(loader, loader.loadClass("fixture.alpha.Caller").getClassLoader());
+                assertEquals(2, DescriptorDiscovery.discover(loader).modules().size());
+                new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(Host.class)
+                        .withPropertyValues("topolith.modules." + active + ".mode=internal",
+                                "topolith.modules." + inactive + ".mode=none", "spring.liquibase.enabled=false")
+                        .run(context -> {
+                            assertNull(context.getStartupFailure());
+                            assertEquals(java.util.Set.of(active),
+                                    context.getBean(io.github.rey5137.topolith.core.Topology.class).internal());
+                        });
+            }
+        }
+    }
+
 }

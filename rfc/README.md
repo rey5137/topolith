@@ -12,4 +12,4 @@ Bug fixes, new tests, documentation and anything behind an existing escape hatch
 |---|---|---|
 | [0001](0001-architecture.md) | Topolith architecture | accepted |
 | [0002](0002-open-questions-0-1.md) | Answering the open questions before 0.1.0 | accepted |
-| [0003](0003-gateway-audiences.md) | Gateway audiences | draft |
+| [0003](0003-gateway-audiences.md) | Gateway audiences | accepted |

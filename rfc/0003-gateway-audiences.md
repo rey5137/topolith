@@ -1,9 +1,9 @@
 # RFC 0003 — Gateway audiences
 
-- **Status:** draft
+- **Status:** accepted
 - **Affects:** Q-34 (`docs/spec/reference/92-decisions-questions.md`); D-27, D-44, D-46, D-127, D-129, D-136;
   R-DESC-*, R-EXT-04, R-EXT-05, R-EXT-12; TL0028, TL0048; INV-1, INV-2, INV-3, INV-4, INV-9 (applied, not changed)
-- **Decisions:** proposed G-1 to G-9 below, numbered D-138 onward on acceptance
+- **Decisions:** G-1 to G-9 below, recorded as D-138 to D-146 (`docs/spec/reference/92-decisions-questions.md`)
 - **Discussion:** none (owner decision)
 
 ## Summary
@@ -315,7 +315,9 @@ cannot see.
   `REQUEST`) to that audience's source paths; only its own in-process target reaches them (spike: a
   `HandlerInterceptor` on dispatcher type works). A host that serves an audience without being its gateway accepts
   direct requests, since the gateway reaches it over HTTP. A loopback target is also a `REQUEST` dispatch into the
-  same host, so the rule would answer it 404 too; how loopback is let through is open (Unresolved 1).
+  same host, so the gateway adds a random key, generated at each start, to its own loopback hop, and strips that
+  header from every client request; the 404 rule lets a request carrying the key through. The key never leaves the
+  process, so loopback is held to the same bypass rule as internal.
 - **Direct access to proxied hosts.** Those hosts' audience routes are reachable without the gateway too. The
   recommended setup, shown in the samples, is **token pass-through**: the gateway keeps the client's `Authorization`
   header, and each host validates the token as an OAuth2 resource server on its `AudienceRequestMatcher`. SCG's
@@ -384,10 +386,6 @@ audience route is a startup warning (G-7); `gateway.max-body-size` defaults to 2
 A spike (Spring Boot 4.2.0, Spring Cloud 2026.0.0, SCG Server MVC 5.1.0; one app gatewaying two audiences, every
 assertion run against the in-process wrapper and loopback HTTP) confirmed the wrapper target honours path, header,
 method and body rewrites, rejection, `ModifyResponseBody`, one security decision per hop and per-audience filter
-lists, and that shortcut resolution works from a library on public SCG classes (§4, §5). Still open:
-
-1. **Letting a loopback target through G-8's 404** (§8): (a) a random per-start key that the gateway adds to its own
-   loopback hop and strips from every client request, never leaving the host or the process (recommended; keeps the
-   404 in loopback, so loopback tests the same bypass rule as internal); or (b) the 404 applies only to internal
-   targets, and a loopback module's audience paths accept direct requests (simpler, but loopback then differs from
-   internal on bypass).
+lists, and that shortcut resolution works from a library on public SCG classes (§4, §5). The loopback exemption from
+G-8's 404 is a per-start key on the gateway's own loopback hop (§8; the alternative, a 404 for internal targets only,
+lost because loopback would then differ from internal on bypass). No question is left open.

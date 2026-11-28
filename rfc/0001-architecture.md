@@ -2,6 +2,7 @@
 
 - **Status:** accepted
 - **Note:** D-30 (M1.3) replaces the `TopolithImportRegistrar` of §2 and §3.2 with an import selector.
+- **Note:** D-32 (M1.4) replaces `db/migration/<id>` with `db/modules/<id>` in §3.2 and §4.3 step 5.
 - **Affects:** all initial `INV-*`, `P-*` and `D-1..D-5` (`docs/spec/SPEC.md`, `docs/spec/reference/92-decisions-questions.md`)
 - **Discussion:** none (founding RFC)
 
@@ -77,7 +78,7 @@ topolith:
 
 | Mode | Behaviour |
 |---|---|
-| `internal` | Imports the module's configuration and packages, its filtered auto-configs, its entities and its migrations (`db/migration/<id>`) |
+| `internal` | Imports the module's configuration and packages, its filtered auto-configs, its entities and its migrations (`db/modules/<id>`) |
 | `external` | Imports nothing from the module and registers an HTTP service group per module for its `provides` contracts |
 | `loopback` | **New, for tests and dev.** The module runs in-process, but every call goes through real HTTP serialization and error mapping on the same server. Optional latency and fault injection. |
 | `none` | Imports nothing. Startup fails if a module that is active `requires` it. |
@@ -139,7 +140,7 @@ This replaces in-JVM isolation of unmodified services (§12). It is a small, mec
 | 2 | Add `@TopolithModule` in `package-info.java` | Descriptor |
 | 3 | Move the root `application.yml` defaults into `@ConfigurationProperties(prefix="<id>")`, or into `config/<id>.yml` imported by the module | Avoids resources at the classpath root shadowing each other in a bundle |
 | 4 | Module-owned `DataSource`/EMF/TX manager (pattern A), or shared JPA with entities filtered | No silent sharing of infrastructure |
-| 5 | Flyway location `db/migration/<id>` | Each module's migrations stay separate |
+| 5 | Flyway location `db/modules/<id>` | Each module's migrations stay separate |
 | 6 | Fixed path prefix `/<id>` | URLs stay the same in every topology |
 | 7 | Upgrade to the platform BOM's Boot major version | Same JVM, same libraries |
 

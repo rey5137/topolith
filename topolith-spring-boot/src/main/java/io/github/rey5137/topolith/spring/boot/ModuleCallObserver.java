@@ -5,6 +5,7 @@ import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.core.Topology;
+import io.github.rey5137.topolith.spring.boot.internal.DeclaredExceptions;
 import io.github.rey5137.topolith.spring.boot.observation.DefaultModuleCallObservationConvention;
 import io.github.rey5137.topolith.spring.boot.observation.ModuleCallContext;
 import io.github.rey5137.topolith.spring.boot.observation.ModuleCallObservationConvention;
@@ -93,7 +94,7 @@ final class ModuleCallObserver implements CallObserver {
 
     /** The declared class the caller receives, by simple name, or {@code undeclared}. */
     private String exception(Throwable failure) {
-        Class<?> declared = ContractExceptions.declared(failure.getClass(), topology.apiPackages());
+        Class<?> declared = DeclaredExceptions.declared(failure.getClass(), topology.apiPackages());
         return declared == null ? ModuleCallContext.UNDECLARED : declared.getSimpleName();
     }
 

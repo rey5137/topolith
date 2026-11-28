@@ -433,7 +433,7 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
 
     /**
      * TL0020: a module's migrations that would not run exactly once: both tools or several master files, a module
-     * runner of its own that runs the other tool, several DataSources of its own and no runner (D-112), a tool that
+     * runner of its own that runs the other tool, several DataSources of its own or an R2DBC ConnectionFactory alone and no runner (D-112, D-134), a tool that
      * is not on the class path, no DataSource for the runner, or a tracking table name that is too long. A host
      * location or changelog that reaches the files is caught when the host's runner bean is created.
      */
@@ -446,6 +446,7 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
         }
         Map<String, List<String>> ownDataSources = ModuleBeans.dataSourcesByModule(factory, loader, resolution);
         Set<String> ownRunners = ModuleBeans.ownRunners(factory, loader, resolution);
+        Set<String> connectionFactoryOnly = ModuleBeans.connectionFactoryOnly(factory, loader, resolution);
         Set<String> ownFlyway = ModuleBeans.flywayRunners(factory, loader, resolution);
         Set<String> ownLiquibase = new TreeSet<>(ModuleBeans.contributors(factory, loader, resolution,
                 ModuleBeans.LIQUIBASE));
@@ -482,6 +483,13 @@ final class TopolithPersistenceCheck implements BeanFactoryPostProcessor, Enviro
                         + "ambiguous.", "Declare " + (tool == Tool.LIQUIBASE ? "a SpringLiquibase"
                         : "a Flyway and a FlywayMigrationInitializer") + " bean in the module on the DataSource the "
                         + "migrations belong to, or keep one DataSource in the module."));
+            } else if (connectionFactoryOnly.contains(id)) {
+                found.add(new Diagnostic(TopolithCode.TL0020, "module '" + id + "' has migrations under " + location
+                        + " and an R2DBC ConnectionFactory of its own but no DataSource and no runner of its own, so "
+                        + "whether they belong to its database or the host's is ambiguous.", "Declare "
+                        + (tool == Tool.LIQUIBASE ? "a SpringLiquibase" : "a Flyway and a FlywayMigrationInitializer")
+                        + " bean in the module on the database the migrations belong to, or one DataSource in the "
+                        + "module for Topolith's runner."));
             } else if (tool == Tool.FLYWAY ? !flyway : !liquibase) {
                 found.add(new Diagnostic(TopolithCode.TL0020, "module '" + id + "' has " + tool.name().toLowerCase()
                         + " migrations under " + location + " but " + (tool == Tool.FLYWAY ? "Flyway" : "Liquibase")

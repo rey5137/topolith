@@ -64,7 +64,8 @@ failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6
   api package the host knows (exact packages, D-27). Only the top-level exception counts, never its cause chain.
   `ModuleUnavailableException` is always declared, so a provider's own failed call reaches its caller unchanged.
   `IllegalArgumentException`, `IllegalStateException` and `UnsupportedOperationException` are declared for every
-  module, and a subclass of one outside the api packages is declared as its nearest listed class (D-117). A checked
+  module, when the handler's body threw them (one Spring raised around the handler is undeclared, D-137), and a
+  subclass of one outside the api packages is declared as its nearest listed class (D-117). A checked
   exception class named in a contract method's `throws` clause must itself lie in an api package (TL0027 otherwise);
   a checked exception the provider throws is then declared as R-EXT-04's declared class, the thrown class in an api
   package or else its nearest non-abstract superclass there, which is the named class or a subclass of it, so the
@@ -138,7 +139,8 @@ failures raise `ModuleUnavailableException`. Implements INV-2 (AC-EXT-31), INV-6
 - AC-EXT-73 (M8.5): An `IllegalArgumentException`, `IllegalStateException`, `UnsupportedOperationException` and a
   `NumberFormatException` thrown by a provider reach a loopback and an external caller as the first three types and
   `IllegalArgumentException` respectively, with their messages, and R-EXT-11's `exception` names the same class in
-  every mode.
+  every mode; one Spring raised before or after the handler's body (an unresolvable parameter) answers as any
+  undeclared exception does and sends no message (D-137).
 - AC-EXT-74 (M8.5): A `TenantContext` rejection (403) reaches the loopback or external caller as
   `ModuleUnavailableException` with kind `status 403`.
 
@@ -167,7 +169,7 @@ has one discovery registration. Implements INV-8, P-2, D-125 and D-126.
   `SmartInitializingSingleton`, before the server starts. No functional route is used. Every abstract contract method
   must carry an `@HttpExchange`-family annotation, or startup fails with TL0026 naming the method (AC-EXT-28's
   meaning). A missing `requestMappingHandlerMapping` also fails with TL0026 naming the module and listed contracts;
-  a path clash with another handler fails with TL0005 naming both. A registry maps each registered handler
+  a clash with another mapping fails with TL0048 naming both, also when only the path-variable names differ (D-136). A registry maps each registered handler
   to its module and is consulted first wherever Topolith decides a handler's module, so the route gets the `/<id>`
   prefix, R-EXT-12's tenant check, D-117's `Topolith-Module` header, R-EXT-04's problem translation and exactly one
   R-EXT-11 observation per call, as a module controller does; the route invokes the context bean, so R-EXT-07's
@@ -193,7 +195,8 @@ has one discovery registration. Implements INV-8, P-2, D-125 and D-126.
   `ModuleUnavailableException` with kind `status 403`, a handler error carries the `Topolith-Module` header, and each
   call records exactly one `topolith.module.call` observation.
 - AC-EXT-81 (M8.6): A listed contract method without an `@HttpExchange`-family annotation fails startup with TL0026
-  naming the method, and a registered route clashing with another handler fails with TL0005 naming both; the route
+  naming the method, and a registered route clashing with another mapping fails with TL0048 naming both, also when only the path-variable
+  names differ (D-136); the route
   invokes the module-owned bean even when an external module's client proxy of the same contract type exists; an
   unexposed internal module, a `none` module and an `external` module register no route (INV-2).
 
@@ -438,10 +441,12 @@ A loopback or external contract call carries the caller's MDC values for the key
   `equals`, `hashCode` and a `toString` that prints the principal's name only; a later field adds an accessor. It uses JDK types only but is not in `topolith-core`: only
   the HTTP path uses it, and business code needs no Topolith type (INV-1). With no bean no tenant crosses; two beans
   fail startup with TL0034.
-- **Parity.** For each listed key and for the tenant the provider observes the caller's value in every mode, and none
+- **Parity.** For each listed key, for the tenant and for each `ContextCarrier` value the provider observes the caller's value in every mode, and none
   when the caller has none, whatever the provider's server thread held (INV-6). Unlisted MDC keys reach the provider in
   internal mode only. A stated exception: an MDC value or tenant with a control character is refused or dropped on the
-  caller and answers 400 on the provider, whereas an internal provider sees the raw value (D-99).
+  caller and answers 400 on the provider, whereas an internal provider sees the raw value (D-99). A carrier's
+  oversize or control-character value is not sent (TL0035), so an external provider sees none where an internal one
+  sees the raw value (D-122).
 - **Validation.** A listed key that is not a run of letters, digits, `.`, `_` and `-` starting with a letter or digit,
   two keys equal ignoring case, more than 16 keys, or a listed key without SLF4J on the classpath fail startup with
   TL0034 naming the key. The list is read once at startup; a refresh does not change it.

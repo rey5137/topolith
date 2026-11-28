@@ -33,6 +33,8 @@ final class ModuleBeans {
             "org.springframework.data.jdbc.repository.config.AbstractJdbcConfiguration";
     static final String ENTITY_MANAGER_FACTORY = "jakarta.persistence.EntityManagerFactory";
     static final String TRANSACTION_MANAGER = "org.springframework.transaction.TransactionManager";
+    /** R2DBC's connection factory, by name: R2DBC stays optional. */
+    static final String CONNECTION_FACTORY = "io.r2dbc.spi.ConnectionFactory";
     static final String FLYWAY = "org.flywaydb.core.Flyway";
     static final String LIQUIBASE = "liquibase.integration.spring.SpringLiquibase";
     static final String FLYWAY_INITIALIZER = "org.springframework.boot.flyway.autoconfigure.FlywayMigrationInitializer";
@@ -207,6 +209,13 @@ final class ModuleBeans {
         return ids;
     }
 
+    /** The beans of {@code typeName} that module {@code id}'s definitions contribute, sorted by name. */
+    static List<String> beansOf(BeanFactory beanFactory, ClassLoader loader, Resolution resolution, String typeName,
+            String id) {
+        return ownedBy(beanFactory, loader, resolution, typeName).entrySet().stream()
+                .filter(entry -> id.equals(entry.getValue())).map(Map.Entry::getKey).toList();
+    }
+
     /** Each module's own DataSource beans, sorted by name, by module id; a module without one is absent. */
     static Map<String, List<String>> dataSourcesByModule(BeanFactory beanFactory, ClassLoader loader,
             Resolution resolution) {
@@ -214,6 +223,16 @@ final class ModuleBeans {
         ownedBy(beanFactory, loader, resolution, DATA_SOURCE)
                 .forEach((name, id) -> found.computeIfAbsent(id, key -> new ArrayList<>()).add(name));
         return found;
+    }
+
+    /**
+     * The modules that contribute an R2DBC {@code ConnectionFactory} and no DataSource of their own: their scripts may
+     * belong to that database, which Topolith's runners cannot reach, or to the host's (D-134).
+     */
+    static Set<String> connectionFactoryOnly(BeanFactory beanFactory, ClassLoader loader, Resolution resolution) {
+        Set<String> ids = new TreeSet<>(contributors(beanFactory, loader, resolution, CONNECTION_FACTORY));
+        ids.removeAll(dataSourcesByModule(beanFactory, loader, resolution).keySet());
+        return ids;
     }
 
     /**

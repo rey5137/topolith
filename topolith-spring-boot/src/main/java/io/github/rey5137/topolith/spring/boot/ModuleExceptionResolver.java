@@ -13,6 +13,7 @@ import java.util.function.Supplier;
 
 import io.github.rey5137.topolith.contract.ModuleUnavailableException;
 import io.github.rey5137.topolith.core.Topology;
+import io.github.rey5137.topolith.spring.boot.internal.DeclaredExceptions;
 import io.github.rey5137.topolith.spring.boot.internal.Outcomes;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -42,6 +43,8 @@ final class ModuleExceptionResolver implements HandlerExceptionResolver, Ordered
     static final String TYPE = Outcomes.PROBLEM_TYPE;
     static final String EXCEPTION = "exception";
     static final String MODULE = "module";
+    private static final Set<Class<?>> JDK_THREE = Set.of(IllegalArgumentException.class, IllegalStateException.class,
+            UnsupportedOperationException.class);
 
     private final Topology topology;
     private final TopologyResolver.Resolution resolution;
@@ -63,8 +66,13 @@ final class ModuleExceptionResolver implements HandlerExceptionResolver, Ordered
             return null;
         }
         String module = routes.internalOwner(topology, method);
-        Class<?> declared = module == null ? null : ContractExceptions.declared(exception.getClass(),
+        Class<?> declared = module == null ? null : DeclaredExceptions.declared(exception.getClass(),
                 topology.apiPackages());
+        if (declared != null && JDK_THREE.contains(declared) && !RouteMark.entered(request, method, exception)) {
+            // Spring raised it around the handler (argument resolution, the reflective call): it has no in-process
+            // equivalent, so it is undeclared and its message stays here (D-137)
+            declared = null;
+        }
         if (declared == null || (!(exception instanceof RuntimeException)
                 && !declaredByContract(module, method, declared))) {
             return null;

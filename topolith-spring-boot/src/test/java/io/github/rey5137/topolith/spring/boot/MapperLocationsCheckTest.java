@@ -134,4 +134,67 @@ class MapperLocationsCheckTest {
         run("none", null, MapperLocationsCheckTest::assertStarted);
         run("none", "classpath*:nothing/here/*.xml", MapperLocationsCheckTest::assertStarted);
     }
+
+    private void runPackages(String mode, String property, String value, Check check) throws IOException {
+        try (RecordingLoader loader = new RecordingLoader(userRoot, hostRoot)) {
+            new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(Host.class)
+                    .withPropertyValues("spring.liquibase.enabled=false",
+                            "spring.autoconfigure.exclude=org.mybatis.spring.boot.autoconfigure."
+                                    + "MybatisAutoConfiguration",
+                            mode.equals("standalone") ? "topolith.standalone=user" : "topolith.modules.user.mode=" + mode,
+                            "topolith.modules.user.remote.url=http://localhost", property + "=" + value)
+                    .run(check::check);
+        }
+    }
+
+    private static void assertPackageTl0043(AssertableApplicationContext context, String property) {
+        Throwable failure = context.getStartupFailure();
+        assertNotNull(failure, "the context should have failed to start");
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof TopolithException topolith) {
+                assertEquals(List.of(TopolithCode.TL0043),
+                        topolith.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
+                assertTrue(topolith.getMessage().contains(property) && topolith.getMessage().contains("module 'user'"),
+                        topolith.getMessage());
+                return;
+            }
+        }
+        fail("no TopolithException in " + failure);
+    }
+
+    @Test
+    void ac_mode_61_a_type_package_equal_to_a_parent_of_or_inside_a_non_internal_module_fails_with_tl0043()
+            throws IOException {
+        for (String property : List.of("mybatis.type-aliases-package", "mybatis.type-handlers-package")) {
+            for (String mode : List.of("none", "external")) {
+                for (String value : List.of(USER, BASE, USER + ".mapper", "com.other, " + BASE + ".user.;x.y",
+                        "com.other;" + USER)) {
+                    runPackages(mode, property, value, context -> assertPackageTl0043(context, property));
+                }
+            }
+        }
+    }
+
+    @Test
+    void ac_mode_61_a_sibling_or_non_boundary_type_package_starts() throws IOException {
+        for (String property : List.of("mybatis.type-aliases-package", "mybatis.type-handlers-package")) {
+            for (String value : List.of(BASE + ".username", BASE + ".use", BASE + ".hostmappers", "", " , ")) {
+                runPackages("none", property, value, MapperLocationsCheckTest::assertStarted);
+            }
+        }
+    }
+
+    @Test
+    void ac_mode_61_an_internal_or_standalone_module_is_exempt_from_the_type_package_check() throws IOException {
+        for (String mode : List.of("internal", "standalone")) {
+            runPackages(mode, "mybatis.type-aliases-package", BASE, MapperLocationsCheckTest::assertStarted);
+            runPackages(mode, "mybatis.type-handlers-package", USER, MapperLocationsCheckTest::assertStarted);
+        }
+    }
+
+    @Test
+    void ac_mode_61_a_whitespace_separated_type_package_entry_is_checked() throws IOException {
+        runPackages("none", "mybatis.type-aliases-package", "com.other " + USER,
+                context -> assertPackageTl0043(context, "mybatis.type-aliases-package"));
+    }
 }

@@ -7,6 +7,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
@@ -61,6 +62,11 @@ class ProviderErrorsTest {
 
     private static void serve(Path root, String mode, Consumer<AssertableWebApplicationContext> check,
             Class<?>... configurations) throws Exception {
+        serve(root, mode, check, List.of(), configurations);
+    }
+
+    private static void serve(Path root, String mode, Consumer<AssertableWebApplicationContext> check,
+            List<String> properties, Class<?>... configurations) throws Exception {
         try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
             new WebApplicationContextRunner(AnnotationConfigServletWebServerApplicationContext::new)
                     .withClassLoader(loader).withUserConfiguration(configurations)
@@ -68,6 +74,7 @@ class ProviderErrorsTest {
                             "topolith.modules.account.mode=" + mode, "topolith.modules.payment.mode=none",
                             "topolith.modules.account.expose.enabled=" + mode.equals("internal"),
                             "topolith.modules.account.remote.url=http://localhost:1")
+                    .withPropertyValues(properties.toArray(String[]::new))
                     .run(context -> {
                         assertNull(context.getStartupFailure());
                         check.accept(context);
@@ -213,6 +220,29 @@ class ProviderErrorsTest {
                     "unsupported");
             assertProblem(context, "jdk-number", 500, IllegalArgumentException.class, "account", "number");
         });
+    }
+
+    @Test
+    void ac_ext_73_a_spring_raised_jdk_exception_takes_the_undeclared_path() throws Exception {
+        serve(root, "internal", context -> {
+            Answer undeclared = get(context, "/account/find?case=secret");
+            for (String path : new String[] {"/account/unresolved", "/account/plain/unresolved"}) {
+                Answer raised = get(context, path);
+                // exactly what an undeclared exception from a handler body carries: status, marker, no problem
+                assertEquals(undeclared.status(), raised.status(), raised.body());
+                assertEquals("account", raised.module());
+                assertEquals(undeclared.module(), raised.module());
+                assertFalse(raised.contentType().startsWith("application/problem+json"), raised.contentType());
+                assertFalse(raised.body().contains(ModuleExceptionResolver.TYPE), raised.body());
+                assertFalse(raised.body().contains("constructor"), raised.body());
+            }
+            // a handler body's own exception on a bean no advice wraps stays declared (D-137)
+            Answer plain = get(context, "/account/plain/state");
+            assertEquals(500, plain.status(), plain.body());
+            assertTrue(plain.contentType().startsWith("application/problem+json"), plain.contentType());
+            assertTrue(plain.body().contains("plain state"), plain.body());
+            assertTrue(plain.body().contains(IllegalStateException.class.getName()), plain.body());
+        }, List.of("test.plain=true"), ErrorHost.class);
     }
 
     @Test

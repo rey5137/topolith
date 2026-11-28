@@ -71,17 +71,22 @@ public class InvoicesImpl implements Invoices {
         RuntimeException failure = switch (kind) {
             case "declared" -> new InvoiceException("declared failure");
             case "unavailable" -> new ModuleUnavailableException("ledger", "down");
-            default -> new IllegalStateException("undeclared failure");
+            case "jdk" -> new IllegalStateException("jdk failure", new RuntimeException("cause"));
+            case "nfe" -> new NumberFormatException("nfe failure");
+            default -> new ArithmeticException("undeclared failure");
         };
         thrown = failure;
         throw failure;
     }
 
     public InvoiceCheckedException checkedFailure;
+    /** Set by a test to throw a subclass outside the api package from {@link #checked}. */
+    public volatile boolean checkedSub;
 
     @Override
     public void checked() throws InvoiceCheckedException {
-        checkedFailure = new InvoiceCheckedException("checked failure");
+        checkedFailure = checkedSub ? new InvoiceCheckedSub("checked sub failure")
+                : new InvoiceCheckedException("checked failure");
         throw checkedFailure;
     }
 

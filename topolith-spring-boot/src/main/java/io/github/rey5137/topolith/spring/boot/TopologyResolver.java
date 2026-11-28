@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -23,9 +24,11 @@ import io.github.rey5137.topolith.core.ModuleDescriptor;
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
 import io.github.rey5137.topolith.core.Topology;
+import io.github.rey5137.topolith.spring.boot.internal.ListedContracts;
 import io.github.rey5137.topolith.spring.boot.internal.ResilienceSettings;
 
 import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.SingletonBeanRegistry;
 import org.springframework.boot.context.properties.bind.BindException;
 import org.springframework.boot.context.properties.bind.Bindable;
@@ -64,7 +67,16 @@ final class TopologyResolver {
             List<String> versionWarnings, Map<String, Set<String>> contracts, Set<String> exposed,
             Map<String, String> apiVersions, Map<String, String> hostApiVersions,
             Map<String, Map<String, String>> httpInterfaces, Map<String, Set<String>> idempotent,
-            Map<String, Set<String>> listed) {
+            Map<String, Set<String>> listed) implements ListedContracts {
+        @Override
+        public Optional<String> definitionOwner(BeanDefinition definition) {
+            return ModuleBeans.owner(definition, this);
+        }
+
+        @Override
+        public Set<String> listed(String module) {
+            return listed.getOrDefault(module, Set.of());
+        }
     }
 
     private TopologyResolver() {

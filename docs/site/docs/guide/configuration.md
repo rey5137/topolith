@@ -71,7 +71,8 @@ These terms are used in descriptors, configuration, diagnostics and the actuator
 Internal and loopback modules register their own Spring Data R2DBC and MongoDB repositories and MyBatis mappers,
 in addition to JPA and JDBC. A module's own registration takes precedence. MyBatis uses the host's single
 `SqlSessionFactory`; put module mapper XML beside its interface and keep it out of the host's
-`mybatis.mapper-locations` (TL0043). External and none modules register no module repositories or mappers.
+`mybatis.mapper-locations`, and do not name its package in `mybatis.type-aliases-package` or
+`mybatis.type-handlers-package` (TL0043). External and none modules register no module repositories or mappers.
 
 ## Compile-Time Annotation Processor Option
 

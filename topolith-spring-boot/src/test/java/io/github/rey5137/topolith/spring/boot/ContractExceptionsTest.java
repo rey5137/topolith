@@ -19,6 +19,7 @@ import io.github.rey5137.topolith.core.Diagnostic;
 import io.github.rey5137.topolith.core.ModuleDescriptor;
 import io.github.rey5137.topolith.core.TopolithCode;
 import io.github.rey5137.topolith.core.TopolithException;
+import io.github.rey5137.topolith.spring.boot.internal.DeclaredExceptions;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountContract;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountException;
 import io.github.rey5137.topolith.spring.boot.errorfixture.account.api.AccountFailure;
@@ -122,15 +123,15 @@ class ContractExceptionsTest {
         Set<String> api = Set.of(ERRORS + ".account.api");
         RuntimeException subclass = new AccountNotFoundException() {
         };
-        assertEquals(AccountNotFoundException.class, ContractExceptions.declared(subclass.getClass(), api));
-        assertEquals(AccountException.class, ContractExceptions.declared(AccountException.class, api));
+        assertEquals(AccountNotFoundException.class, DeclaredExceptions.declared(subclass.getClass(), api));
+        assertEquals(AccountException.class, DeclaredExceptions.declared(AccountException.class, api));
         // abstract classes are walked past; nothing concrete above them is in an api package
-        assertNull(ContractExceptions.declared(AccountFailure.class, api));
-        assertEquals(IllegalStateException.class, ContractExceptions.declared(IllegalStateException.class, api));
-        assertNull(ContractExceptions.declared(AccountException.class, Set.of(ERRORS + ".account")));
+        assertNull(DeclaredExceptions.declared(AccountFailure.class, api));
+        assertEquals(IllegalStateException.class, DeclaredExceptions.declared(IllegalStateException.class, api));
+        assertNull(DeclaredExceptions.declared(AccountException.class, Set.of(ERRORS + ".account")));
         assertEquals(ModuleUnavailableException.class,
-                ContractExceptions.declared(ModuleUnavailableException.class, Set.of()));
-        assertNull(ContractExceptions.declared(IOException.class, api));
+                DeclaredExceptions.declared(ModuleUnavailableException.class, Set.of()));
+        assertNull(DeclaredExceptions.declared(IOException.class, api));
     }
 
     @Test
@@ -204,10 +205,10 @@ class ContractExceptionsTest {
     @Test
     void ac_ext_73_jdk_exceptions_use_the_nearest_listed_class() {
         assertEquals(IllegalArgumentException.class,
-                ContractExceptions.declared(NumberFormatException.class, Set.of()));
-        assertEquals(IllegalStateException.class, ContractExceptions.declared(IllegalStateException.class, Set.of()));
+                DeclaredExceptions.declared(NumberFormatException.class, Set.of()));
+        assertEquals(IllegalStateException.class, DeclaredExceptions.declared(IllegalStateException.class, Set.of()));
         assertEquals(UnsupportedOperationException.class,
-                ContractExceptions.declared(UnsupportedOperationException.class, Set.of()));
+                DeclaredExceptions.declared(UnsupportedOperationException.class, Set.of()));
     }
 
     @Test
@@ -239,8 +240,8 @@ class ContractExceptionsTest {
         run(context -> assertNull(context.getStartupFailure()), "topolith.modules.account.mode=internal");
         run(context -> assertNull(context.getStartupFailure()), "topolith.modules.account.mode=external",
                 "topolith.modules.account.remote.url=http://localhost:1");
-        assertFalse(ContractExceptions.rebuildable(AccountFailure.class));
-        assertTrue(ContractExceptions.rebuildable(AccountNotFoundException.class));
+        assertFalse(DeclaredExceptions.rebuildable(AccountFailure.class));
+        assertTrue(DeclaredExceptions.rebuildable(AccountNotFoundException.class));
     }
 
     @Test

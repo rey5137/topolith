@@ -1,6 +1,7 @@
 package io.github.rey5137.topolith.spring.test;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.framework.Advised;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -58,6 +60,22 @@ class TopolithByValueTest {
     private static ApplicationContextRunner runner() {
         return new ApplicationContextRunner().withClassLoader(fixtures)
                 .withUserConfiguration(TopolithTestModesTest.Host.class);
+    }
+
+    /** The ledger module internal and the invoice module, whose package holds a ledger bean's class, off. */
+    private static void ledger(String shape, Consumer<AssertableApplicationContext> test) throws java.io.IOException {
+        try (var loader = FixtureLoader.create("ledger-descriptors/")) {
+            Thread.currentThread().setContextClassLoader(loader);
+            var builder = TopolithTestModes.module("ledger").internal().byValue();
+            TopolithTestModes.module("invoice").none().applyTo(builder.applyTo(
+                    new ApplicationContextRunner().withClassLoader(loader).withPropertyValues("ledger.shape=" + shape)
+                            .withUserConfiguration(TopolithTestModesTest.Host.class))).run(context -> {
+                assertNull(context.getStartupFailure());
+                test.accept(context);
+            });
+        } finally {
+            Thread.currentThread().setContextClassLoader(fixtures);
+        }
     }
 
     private static void byValue(Consumer<AssertableApplicationContext> test) {
@@ -416,12 +434,40 @@ class TopolithByValueTest {
     }
 
     @Test
-    void ac_ext_70_checked_exception_passes_through_by_value_unchanged() {
+    void ac_test_12_checked_exception_is_rebuilt_with_the_original_suppressed() {
         byValue(context -> {
             var failure = assertThrows(fixture.invoice.api.InvoiceCheckedException.class,
                     () -> context.getBean(Invoices.class).checked());
-            assertSame(provider(context).checkedFailure, failure);
+            assertNotSame(provider(context).checkedFailure, failure);
             assertEquals("checked failure", failure.getMessage());
+            assertSame(provider(context).checkedFailure, failure.getSuppressed()[0]);
+        });
+    }
+
+    @Test
+    void ac_test_12_checked_subclass_outside_the_api_package_arrives_as_its_api_ancestor() {
+        byValue(context -> {
+            provider(context).checkedSub = true;
+            var failure = assertThrows(fixture.invoice.api.InvoiceCheckedException.class,
+                    () -> context.getBean(Invoices.class).checked());
+            assertEquals(fixture.invoice.api.InvoiceCheckedException.class, failure.getClass());
+            assertEquals("checked sub failure", failure.getMessage());
+            assertSame(provider(context).checkedFailure, failure.getSuppressed()[0]);
+        });
+    }
+
+    @Test
+    void ac_test_12_jdk_declared_exception_and_its_subclass_arrive_as_the_jdk_class_with_message_only() {
+        byValue(context -> {
+            Invoices invoices = context.getBean(Invoices.class);
+            var jdk = assertThrows(IllegalStateException.class, () -> invoices.fail("jdk"));
+            assertEquals("jdk failure", jdk.getMessage());
+            assertNull(jdk.getCause());
+            assertSame(provider(context).thrown, jdk.getSuppressed()[0]);
+            var parse = assertThrows(IllegalArgumentException.class, () -> invoices.fail("nfe"));
+            assertEquals(IllegalArgumentException.class, parse.getClass());
+            assertEquals("nfe failure", parse.getMessage());
+            assertSame(provider(context).thrown, parse.getSuppressed()[0]);
         });
     }
 
@@ -431,8 +477,30 @@ class TopolithByValueTest {
             Invoices invoices = context.getBean(Invoices.class);
             var unavailable = assertThrows(ModuleUnavailableException.class, () -> invoices.fail("unavailable"));
             assertSame(provider(context).thrown, unavailable);
-            var undeclared = assertThrows(IllegalStateException.class, () -> invoices.fail("undeclared"));
+            var undeclared = assertThrows(ArithmeticException.class, () -> invoices.fail("undeclared"));
             assertSame(provider(context).thrown, undeclared);
+        });
+    }
+
+    @Test
+    void ac_test_29_listed_contract_from_a_factory_outside_the_module_package_is_wrapped() throws Exception {
+        ledger("proxy", context -> {
+            fixture.ledger.api.Rates rates = context.getBean("rates", fixture.ledger.api.Rates.class);
+            assertTrue(Proxy.isProxyClass(AopTestUtils.getUltimateTargetObject(rates).getClass()));
+            var original = new java.util.ArrayList<>(List.of(1, 2));
+            AssertionError error = assertThrows(AssertionError.class, () -> rates.total(original));
+            assertTrue(error.getMessage().contains("module 'ledger'"), error.getMessage());
+        });
+    }
+
+    @Test
+    void ac_test_29_listed_contract_follows_its_definition_owner_not_the_class_owner() throws Exception {
+        ledger("foreign", context -> {
+            fixture.ledger.api.Rates rates = context.getBean("invoiceRates", fixture.ledger.api.Rates.class);
+            assertTrue(AopUtils.isAopProxy(rates));
+            AssertionError error = assertThrows(AssertionError.class,
+                    () -> rates.total(new java.util.ArrayList<>(List.of(1, 2))));
+            assertTrue(error.getMessage().contains("module 'ledger'"), error.getMessage());
         });
     }
 

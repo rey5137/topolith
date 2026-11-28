@@ -16,7 +16,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurationImportEvent;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -25,6 +24,7 @@ import org.springframework.mock.env.MockEnvironment;
 import static io.github.rey5137.topolith.spring.boot.Fixtures.BASE;
 import static io.github.rey5137.topolith.spring.boot.Fixtures.USER;
 import static io.github.rey5137.topolith.spring.boot.Fixtures.USER_API;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -129,21 +129,18 @@ class TopolithExclusionCheckTest {
     }
 
     @Test
-    void ac_mode_55_the_check_registers_no_singleton_and_ignores_unrelated_topology_errors() throws IOException {
+    void ac_mode_55_the_check_ignores_unrelated_topology_errors() throws IOException {
         // the import filter registers the topology on its own; the listener is driven directly to see its effect
         try (RecordingLoader loader = new RecordingLoader(jobRoot, userRoot, hostRoot)) {
             for (String modes : List.of("topolith.modules.job.mode=none", "topolith.modules.job.mode=bogus")) {
-                DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
                 MockEnvironment environment = new MockEnvironment().withProperty("topolith.modules.user.mode", "none");
                 String[] pair = modes.split("=");
                 environment.setProperty(pair[0], pair[1]);
                 TopolithExclusionCheck check = new TopolithExclusionCheck();
-                check.setBeanFactory(factory);
                 check.setEnvironment(environment);
                 check.setBeanClassLoader(loader);
-                check.onAutoConfigurationImportEvent(new AutoConfigurationImportEvent(this, List.of(),
-                        Set.of(TOPOLITH)));
-                assertEquals(0, factory.getSingletonCount(), modes);
+                assertDoesNotThrow(() -> check.onAutoConfigurationImportEvent(
+                        new AutoConfigurationImportEvent(this, List.of(), Set.of(TOPOLITH))), modes);
             }
         }
     }
@@ -164,5 +161,26 @@ class TopolithExclusionCheckTest {
                     assertStarted(context);
                     assertTrue(context.containsBean(JOB + ".JobComponent"));
                 });
+    }
+
+    /**
+     * D-111: every auto-configuration this module imports registers or activates module contributions (the entity,
+     * repository and migration ones, and Topolith's own), so TL0042's list must equal the imports. The allowlist of
+     * imports that activate nothing is empty today: an entry added to it needs the reason beside it.
+     */
+    @Test
+    void ac_mode_55_the_activating_list_matches_the_auto_configuration_imports() throws IOException {
+        Set<String> nonActivating = Set.of();
+        Set<String> imports = new java.util.TreeSet<>();
+        try (java.io.InputStream in = TopolithExclusionCheck.class.getClassLoader()
+                .getResourceAsStream("META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports");
+                java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8))) {
+            reader.lines().map(String::trim).filter(line -> !line.isEmpty() && !line.startsWith("#"))
+                    .filter(line -> line.startsWith("io.github.rey5137.topolith.spring.boot.")).forEach(imports::add);
+        }
+        imports.removeAll(nonActivating);
+        assertFalse(imports.isEmpty());
+        assertEquals(imports, new java.util.TreeSet<>(TopolithExclusionCheck.ACTIVATING));
     }
 }

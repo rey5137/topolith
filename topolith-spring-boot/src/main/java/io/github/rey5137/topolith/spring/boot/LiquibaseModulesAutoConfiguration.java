@@ -118,7 +118,8 @@ class LiquibaseModulesAutoConfiguration {
             Topology topology = resolution.topology();
             Map<String, List<String>> ownDataSources = ModuleBeans.dataSourcesByModule(factory, loader, resolution);
             Map<String, Tool> runners = ModuleMigrations.runners(topology, loader, ownDataSources,
-                    ModuleBeans.ownRunners(factory, loader, resolution));
+                    ModuleBeans.ownRunners(factory, loader, resolution),
+                    ModuleBeans.connectionFactoryOnly(factory, loader, resolution));
             if (!runners.containsValue(Tool.LIQUIBASE)) {
                 return;
             }

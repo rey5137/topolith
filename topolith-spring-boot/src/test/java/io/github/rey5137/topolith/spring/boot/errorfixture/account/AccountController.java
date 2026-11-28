@@ -97,6 +97,12 @@ public class AccountController implements AccountContract {
                 TimeUnit.MILLISECONDS));
     }
 
+    /** Spring cannot resolve this parameter (a collection is no model attribute), so the body never runs (D-137). */
+    @GetMapping("/unresolved")
+    String unresolved(java.util.List<String> values) {
+        return "never";
+    }
+
     /** A forward from one module route to another. */
     @GetMapping("/forward")
     ModelAndView forward() {

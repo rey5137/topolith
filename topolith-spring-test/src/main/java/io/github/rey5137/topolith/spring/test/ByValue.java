@@ -24,6 +24,8 @@ import io.github.rey5137.topolith.contract.ModuleUnavailableException;
 import io.github.rey5137.topolith.core.Mode;
 import io.github.rey5137.topolith.core.ModuleDescriptor;
 import io.github.rey5137.topolith.core.Topology;
+import io.github.rey5137.topolith.spring.boot.internal.DeclaredExceptions;
+import io.github.rey5137.topolith.spring.boot.internal.ListedContracts;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import org.springframework.aop.framework.Advised;
@@ -57,6 +59,8 @@ final class ByValue {
     static final String RECORDER = ByValueRecorder.class.getName();
     /** The name {@code TopologyResolver} registers the topology under. */
     private static final String TOPOLOGY = "topolithTopology";
+    /** The name {@code TopologyResolver} registers its resolution under, which answers {@link ListedContracts}. */
+    private static final String RESOLUTION = "topolithResolution";
 
     private ByValue() { }
 
@@ -177,7 +181,10 @@ final class ByValue {
             Class<?> type = AopProxyUtils.ultimateTargetClass(bean);
             if (mock(bean, type)) { return bean; }
             Topology topology = factory.getBean(TOPOLOGY, Topology.class);
-            String module = topology.ownerOfClass(ClassUtils.getUserClass(type).getName()).orElse(null);
+            String module = definitionOwner(factory, beanName, type);
+            if (module == null) {
+                module = topology.ownerOfClass(ClassUtils.getUserClass(type).getName()).orElse(null);
+            }
             if (module == null || topology.mode(module) != Mode.INTERNAL || !(ids.isEmpty() || ids.contains(module))) {
                 return bean;
             }
@@ -223,6 +230,23 @@ final class ByValue {
         private synchronized ByValueRecorder recorder() {
             if (recorder == null) { recorder = beans.getBean(RECORDER, ByValueRecorder.class); }
             return recorder;
+        }
+
+        /** The module whose listed contract the bean's definition provides, even from outside its package (D-110). */
+        private static String definitionOwner(DefaultListableBeanFactory factory, String beanName, Class<?> type) {
+            if (!factory.containsSingleton(RESOLUTION) || !factory.containsBeanDefinition(beanName)) { return null; }
+            ListedContracts resolution = factory.getBean(RESOLUTION, ListedContracts.class);
+            String owner = resolution.definitionOwner(factory.getBeanDefinition(beanName)).orElse(null);
+            if (owner == null) { return null; }
+            for (String name : resolution.listed(owner)) {
+                try {
+                    Class<?> contract = Class.forName(name, false, type.getClassLoader());
+                    if (contract.isInterface() && contract.isAssignableFrom(type)) { return owner; }
+                } catch (ClassNotFoundException | LinkageError e) {
+                    // not loadable here: nothing to wrap
+                }
+            }
+            return null;
         }
 
         private static List<Class<?>> contracts(Topology topology, String module, Class<?> type) {
@@ -311,12 +335,11 @@ final class ByValue {
                 }
                 recorder.keep(module, new ByValueRecorder.Kept(where, arguments[i], types[i], trees[i]));
             }
-            if (thrown != null) { throw violated ? thrown : rebuilt(thrown); }
+            if (thrown != null) { throw violated ? thrown : rebuilt(thrown, method); }
             if (result == null || method.getReturnType() == void.class || immutable(result)) { return result; }
             Type type = found.returnType();
             ByValueSerializer.Copy copy = copy(recorder, label, "result", result, type);
-            if (copy == null) { return result; }
-            if (violated) { return result; }
+            if (copy == null || violated) { return result; }
             recorder.keep(module, new ByValueRecorder.Kept(label + ", result", result, type, copy.tree()));
             return copy.copy();
         }
@@ -419,34 +442,28 @@ final class ByValue {
             };
         }
 
-        /** A declared exception as the caller's translation rebuilds it; anything else as thrown (D-55). */
-        private Throwable rebuilt(Throwable thrown) {
-            if (!(thrown instanceof RuntimeException) || thrown instanceof ModuleUnavailableException) {
+        /** A declared exception as the caller's translation rebuilds it; anything else as thrown (D-55, D-116, D-117). */
+        private Throwable rebuilt(Throwable thrown, Method method) {
+            if (!(thrown instanceof Exception) || thrown instanceof ModuleUnavailableException) { return thrown; }
+            Class<?> type = DeclaredExceptions.declared(thrown.getClass(), apiPackages);
+            if (type == null || type == ModuleUnavailableException.class || !DeclaredExceptions.rebuildable(type)
+                    || (!RuntimeException.class.isAssignableFrom(type)
+                            && Arrays.stream(method.getExceptionTypes()).noneMatch(t -> t.isAssignableFrom(type)))) {
                 return thrown;
             }
-            Class<?> type = null;
-            for (Class<?> current = thrown.getClass(); current != RuntimeException.class;
-                    current = current.getSuperclass()) {
-                if (current == ModuleUnavailableException.class) { return thrown; }
-                if (!Modifier.isAbstract(current.getModifiers()) && apiPackages.contains(current.getPackageName())) {
-                    type = current;
-                    break;
-                }
-            }
-            if (type == null || !Modifier.isPublic(type.getModifiers())) { return thrown; }
-            RuntimeException rebuilt = construct(type, thrown.getMessage());
+            Exception rebuilt = construct(type, thrown.getMessage());
             if (rebuilt == null) { return thrown; }
             rebuilt.addSuppressed(thrown);
             return rebuilt;
         }
 
-        private static RuntimeException construct(Class<?> type, String message) {
+        private static Exception construct(Class<?> type, String message) {
             try {
                 Constructor<?> withMessage = type.getConstructor(String.class);
-                return (RuntimeException) withMessage.newInstance(message);
+                return (Exception) withMessage.newInstance(message);
             } catch (NoSuchMethodException e) {
                 try {
-                    return (RuntimeException) type.getConstructor().newInstance();
+                    return (Exception) type.getConstructor().newInstance();
                 } catch (ReflectiveOperationException | RuntimeException none) {
                     return null;
                 }

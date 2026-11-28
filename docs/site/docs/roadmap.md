@@ -27,7 +27,9 @@
 ## Not in 0.1
 
 - The Maven goal that verifies a hand-written descriptor against bytecode. Startup still validates descriptors.
-- Native images and the build-time topology guard.
+- Native images and the build-time topology guard. Carried to 0.2: startup reads a module declaration's listed
+  contracts from its `package-info.class` as a class-path resource, which a native image does not have, so the AOT
+  work registers resource hints for those files or writes the listed set into the generated code.
 
 ## Tested environments
 

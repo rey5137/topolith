@@ -8,6 +8,7 @@ stateDiagram-v2
     [*] --> Declared: topolith.modules.id.mode
     Declared --> internal: runs in this JVM
     Declared --> external: called over HTTP
+    Declared --> loopback: runs here, called over HTTP
     Declared --> none: not active
     Declared --> Failed: missing or invalid value, TL0001
 ```
@@ -15,11 +16,19 @@ stateDiagram-v2
 | Mode | What it contributes | What it leaves out |
 |---|---|---|
 | `internal` | The module's configuration and packages, its owned auto-configurations, its entities and repositories, and its migrations. | Nothing. It needs the implementation JAR (`TL0002` otherwise). |
+| `loopback` | The implementation and an HTTP client calling it on the host server. | Nothing. It needs the implementation JAR (`TL0002`) and a listening servlet server (`TL0026`). |
 | `external` | One HTTP service group for the module's provided contracts. | The implementation: no beans, routes, entities, tables or auto-configurations. |
 | `none` | Nothing. | Everything, including the client. An `internal` module that `requires` it fails startup (`TL0004`). |
 
 A `none` or `external` module leaves no trace even when its JAR is on the classpath: no component, owned
 auto-configuration, entity, repository, migration, route, listener or scheduled task.
+
+## Loopback faults
+
+For a loopback module, `topolith.modules.<id>.loopback.latency` delays responses (default `0`).
+`topolith.modules.<id>.loopback.fault.rate` selects the share of failed calls from `0` to `1` (default `0`);
+`topolith.modules.<id>.loopback.fault.kind` selects `connection-failure` (default), `unavailable` or `timeout`.
+`topolith.modules.<id>.loopback.fault.seed` sets the sequence seed (default `0`).
 
 ## No implicit defaults
 

@@ -164,8 +164,8 @@ The RFC's "mutation proxy" (§6) is the by-value proxy of M5.2.
 | M8.8 | OAuth2 login-session token relay and loopback warning (Q-28); wider context propagation (Q-29) | M8.8-owned ACs |
 | M8.9 | Untested paths: fat-JAR nested resources, `java -jar`, DevTools, exploded war, Gradle layout, AOT, load-time weaving | Each has a test or a documented deferral |
 | M8.10 | CI runs the getting-started commands; CI job timeouts; RFC/spec migration-path conflict resolved; Dependabot PRs handled | CI green |
-| M8.11 | Docs-site pages for M5–M8, CHANGELOG, `v0.1.0` tag | 0.1.0 published |
+| M8.11 | Docs-site pages for M5–M8, CHANGELOG | Docs site and CHANGELOG cover M5–M8 (D-133) |
 
 **Model:** `opus` / `high` for M8.1, M8.3, M8.5, M8.6 and M8.7 (public annotation and descriptor shape, wire format, parity).
 
-**Exit:** 0.1.0 published.
+**Exit:** every open Q answered, docs cover M5–M8; 0.1.0 not yet published (D-133).

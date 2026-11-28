@@ -212,14 +212,15 @@ class ReleaseTest(unittest.TestCase):
 
         changelog = CHANGELOG.read_text()
         self.assertIn('## [Unreleased]', changelog)
-        self.assertRegex(changelog, r'(?m)^## \[0\.1\.0\] - \d{4}-\d{2}-\d{2}\b')
+        self.assertNotIn('## [0.1.0]', changelog)
+        self.assertIn('Planned as 0.1.0.', changelog)
         self.assertIn('### Added', changelog)
         self.assertIn('### Notes for adopters', changelog)
         self.assertIn('@Incubating', changelog)
         self.assertIn('topolith-bom', changelog)
         self.assertIn('@TopolithMock(id =', changelog)
-        self.assertIn('[Unreleased]: https://github.com/rey5137/topolith/compare/v0.1.0...HEAD', changelog)
-        self.assertIn('[0.1.0]: https://github.com/rey5137/topolith/releases/tag/v0.1.0', changelog)
+        self.assertIn('[Unreleased]: https://github.com/rey5137/topolith/commits/main', changelog)
+        self.assertNotIn('[0.1.0]:', changelog)
 
 
 if __name__ == '__main__':

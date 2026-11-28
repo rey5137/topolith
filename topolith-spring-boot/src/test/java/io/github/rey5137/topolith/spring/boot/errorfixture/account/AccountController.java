@@ -37,6 +37,9 @@ public class AccountController implements AccountContract {
     @Override
     @org.springframework.security.access.prepost.PreAuthorize("#p0 != 'method-security'")
     public String find(String failure) {
+        if (failure.equals("carrier")) {
+            return String.valueOf(io.github.rey5137.topolith.spring.boot.errorfixture.host.ThreadCarrier.VALUE.get());
+        }
         if (failure.equals("ok")) {
             return "found";
         }

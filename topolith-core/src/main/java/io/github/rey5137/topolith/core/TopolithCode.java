@@ -47,7 +47,9 @@ public enum TopolithCode {
     TL0042(Severity.FAILURE),
     TL0043(Severity.FAILURE),
     TL0044(Severity.FAILURE),
-    TL0045(Severity.WARNING);
+    TL0045(Severity.WARNING),
+    TL0046(Severity.WARNING),
+    TL0047(Severity.FAILURE);
 
     /** Whether a diagnostic fails startup or is only reported. */
     @Incubating

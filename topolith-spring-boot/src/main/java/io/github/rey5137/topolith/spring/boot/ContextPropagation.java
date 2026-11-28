@@ -31,6 +31,7 @@ final class ContextPropagation {
     private static final Logger LOG = LoggerFactory.getLogger(ContextPropagation.class);
     static final String KEYS_PROPERTY = "topolith.context.mdc-keys";
     static final String MDC_PREFIX = "Topolith-Mdc-";
+    static final String CARRIER_PREFIX = "Topolith-Context-";
     static final String TENANT_HEADER = "Topolith-Tenant";
     static final int MAX_KEYS = 16;
     static final int MAX_ENCODED = 1024;
@@ -39,10 +40,12 @@ final class ContextPropagation {
     private final List<String> keys;
     private final Map<String, String> byLowerCase = new LinkedHashMap<>();
     private final ObjectProvider<TenantContext> tenants;
+    private final Map<String, ContextCarrier> carriers = new LinkedHashMap<>();
     private final boolean active;
 
     /** TL0034 for an invalid key list or for {@code tenantBeans} over one. */
-    ContextPropagation(List<String> listed, int tenantBeans, boolean slf4j, ObjectProvider<TenantContext> tenants) {
+    ContextPropagation(List<String> listed, int tenantBeans, boolean slf4j, ObjectProvider<TenantContext> tenants,
+            List<ContextCarrier> carrierBeans) {
         List<Diagnostic> problems = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (String key : listed) {
@@ -54,9 +57,19 @@ final class ContextPropagation {
                         "List key '" + key + "' once."));
             }
         }
-        if (listed.size() > MAX_KEYS) {
+        for (ContextCarrier carrier : carrierBeans) {
+            String name = carrier.name();
+            if (name == null || !KEY.matcher(name).matches()) {
+                problems.add(problem("carrier name '" + name + "' is invalid.", "Rename the carrier."));
+            } else if (carriers.putIfAbsent(name.toLowerCase(Locale.ROOT), carrier) != null) {
+                problems.add(problem("carrier name '" + name + "' equals another ignoring case.",
+                        "Give each carrier a distinct name."));
+            }
+        }
+        if (listed.size() + carrierBeans.size() > MAX_KEYS) {
             problems.add(problem(listed.size() + " MDC keys are listed in " + KEYS_PROPERTY + ", more than "
-                    + MAX_KEYS + ".", "List at most " + MAX_KEYS + " keys."));
+                    + MAX_KEYS + " together with " + carrierBeans.size() + " carriers.",
+                    "List at most " + MAX_KEYS + " keys and carriers together."));
         }
         if (!listed.isEmpty() && !slf4j) {
             problems.add(problem("MDC key '" + listed.get(0) + "' is listed in " + KEYS_PROPERTY
@@ -72,7 +85,7 @@ final class ContextPropagation {
         this.keys = List.copyOf(listed);
         keys.forEach(key -> byLowerCase.put(key.toLowerCase(Locale.ROOT), key));
         this.tenants = tenants;
-        this.active = !keys.isEmpty() || tenantBeans > 0;
+        this.active = !keys.isEmpty() || tenantBeans > 0 || !carriers.isEmpty();
     }
 
     private static Diagnostic problem(String message, String hint) {
@@ -86,6 +99,10 @@ final class ContextPropagation {
 
     List<String> keys() {
         return keys;
+    }
+
+    Map<String, ContextCarrier> carriers() {
+        return carriers;
     }
 
     /** Listed key by its lower-case spelling, for the provider's case-insensitive header match. */
@@ -106,6 +123,19 @@ final class ContextPropagation {
      */
     Map<String, String> headers() {
         Map<String, String> headers = new LinkedHashMap<>();
+        for (ContextCarrier carrier : carriers.values()) {
+            String value = carrier.current();
+            if (value != null) {
+                String encoded = encode(value);
+                if (value.chars().anyMatch(Character::isISOControl) || encoded.length() > MAX_ENCODED) {
+                    LOG.warn(new Diagnostic(TopolithCode.TL0035, "carrier '" + carrier.name()
+                            + "' has an invalid or oversize value, so it is not sent.",
+                            "Use a shorter value without control characters.").toString());
+                } else {
+                    headers.put(CARRIER_PREFIX + carrier.name(), encoded);
+                }
+            }
+        }
         for (String key : keys) {
             String value = MDC.get(key);
             if (value == null) {

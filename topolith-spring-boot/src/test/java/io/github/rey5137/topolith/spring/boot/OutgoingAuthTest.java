@@ -54,18 +54,28 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.concurrent.DelegatingSecurityContextRunnable;
 import org.springframework.security.oauth2.client.InMemoryOAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.endpoint.OAuth2AccessTokenResponseClient;
 import org.springframework.security.oauth2.client.endpoint.OAuth2ClientCredentialsGrantRequest;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.registration.InMemoryClientRegistrationRepository;
-import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizedClientManager;
 import org.springframework.security.oauth2.client.web.AuthenticatedPrincipalOAuth2AuthorizedClientRepository;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
+import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+import java.util.Map;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
+import org.springframework.security.oauth2.core.OAuth2RefreshToken;
 import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AccessTokenResponse;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
@@ -88,6 +98,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /** M6.4: the outgoing-auth hook per module, token relay by default, client credentials (R-EXT-13, D-92..D-95). */
 class OutgoingAuthTest {
@@ -112,12 +123,14 @@ class OutgoingAuthTest {
         ContractExceptionsTest.contracts(root, "payment", PaymentContract.class);
         ContractExceptionsTest.contracts(root, "boundary", BoundaryContract.class);
         SeenAuth.clear();
+        Registrations.MANAGER_CALLS.set(0);
         Hooks.SAW.set(null);
     }
 
     @AfterEach
     void clean() {
         SecurityContextHolder.clearContext();
+        RequestContextHolder.resetRequestAttributes();
         ThreadTenant.lastPrincipal = null;
     }
 
@@ -147,6 +160,30 @@ class OutgoingAuthTest {
                     .csrf(csrf -> csrf.disable())
                     .oauth2ResourceServer(server -> server.jwt(jwt -> jwt.decoder(DECODER))).build();
         }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableWebSecurity
+    static class PermitAll {
+        @Bean
+        SecurityFilterChain permitAll(HttpSecurity http) throws Exception {
+            return http.authorizeHttpRequests(requests -> requests.anyRequest().permitAll())
+                    .csrf(csrf -> csrf.disable()).build();
+        }
+    }
+
+    @Test
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void ac_ext_76_loopback_warns_once_when_bearer_is_not_authenticated(
+            org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+        loopback(account -> {
+            as(jwt("alice"));
+            assertEquals(ANONYMOUS, account.find("auth"));
+            assertEquals(ANONYMOUS, account.find("auth"));
+            assertEquals(1, output.getOut().split("TL0046", -1).length - 1);
+            assertTrue(output.getOut().contains("account"));
+            assertFalse(output.getOut().contains(SeenAuth.AUTHORIZATION.get().substring("Bearer ".length())));
+        }, Fixtures.class.getClassLoader(), new Class<?>[] {PermitAll.class}, AUTH + "type=relay");
     }
 
     private WebApplicationContextRunner server(Fixtures.RecordingLoader loader, String... properties) {
@@ -266,6 +303,7 @@ class OutgoingAuthTest {
     @Configuration(proxyBeanMethods = false)
     static class Registrations {
         static volatile String tokenUri = "http://127.0.0.1:1/token";
+        static final AtomicInteger MANAGER_CALLS = new AtomicInteger();
 
         static ClientRegistrationRepository repository() {
             return new InMemoryClientRegistrationRepository(ClientRegistration.withRegistrationId("svc")
@@ -286,8 +324,201 @@ class OutgoingAuthTest {
         /** Needs the current servlet request, as Spring Security's default manager does; Topolith never uses it. */
         @Bean
         OAuth2AuthorizedClientManager hostManager() {
-            return new DefaultOAuth2AuthorizedClientManager(repository(),
-                    new AuthenticatedPrincipalOAuth2AuthorizedClientRepository(authorizedClients()));
+            return request -> {
+                MANAGER_CALLS.incrementAndGet();
+                throw new AssertionError("host manager must not be used");
+            };
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class SessionRepository {
+        @Bean
+        OAuth2AuthorizedClientRepository sessionRepository(OAuth2AuthorizedClientService service) {
+            return new AuthenticatedPrincipalOAuth2AuthorizedClientRepository(service);
+        }
+    }
+
+    @Test
+    void ac_ext_75_session_login_relays_its_authorized_client_and_requires_a_request() throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            server(loader, "topolith.modules.account.mode=loopback")
+                    .withUserConfiguration(ResourceServer.class, Registrations.class, SessionRepository.class)
+                    .run(context -> {
+                        assertNull(context.getStartupFailure());
+                        var user = new DefaultOAuth2User(List.of(new SimpleGrantedAuthority("ROLE_USER")),
+                                Map.of("name", "alice"), "name");
+                        var login = new OAuth2AuthenticationToken(user, user.getAuthorities(), "svc");
+                        as(login);
+                        String token = jwt("alice").getToken().getTokenValue();
+                        var access = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, token,
+                                Instant.now(), Instant.now().plusSeconds(600));
+                        var registration = context.getBean(ClientRegistrationRepository.class)
+                                .findByRegistrationId("svc");
+                        context.getBean(OAuth2AuthorizedClientService.class).saveAuthorizedClient(
+                                new OAuth2AuthorizedClient(registration, "alice", access), login);
+                        AccountContract account = context.getBean(ContextPropagationTest.Holder.class).account();
+                        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(
+                                new MockHttpServletRequest(), new MockHttpServletResponse()));
+                        assertEquals(ALICE, account.find("auth"));
+                        assertEquals("Bearer " + token, SeenAuth.AUTHORIZATION.get());
+                        assertEquals(0, Registrations.MANAGER_CALLS.get());
+                        CompletableFuture.runAsync(new DelegatingSecurityContextRunnable(
+                                () -> {
+                                    assertNull(RequestContextHolder.getRequestAttributes());
+                                    assertInstanceOf(OAuth2AuthenticationToken.class,
+                                            SecurityContextHolder.getContext().getAuthentication());
+                                    assertEquals(ANONYMOUS, account.find("auth"));
+                                    assertNull(SeenAuth.AUTHORIZATION.get());
+                                })).join();
+                        context.getBean(OAuth2AuthorizedClientService.class).removeAuthorizedClient("svc", "alice");
+                        assertEquals(ANONYMOUS, account.find("auth"));
+                        assertNull(SeenAuth.AUTHORIZATION.get());
+                        RequestContextHolder.resetRequestAttributes();
+                        assertEquals(ANONYMOUS, account.find("auth"));
+                        assertNull(SeenAuth.AUTHORIZATION.get());
+                    });
+        }
+    }
+
+    @Test
+    void ac_ext_75_76_77_none_modules_install_no_relay_or_carrier_hooks() throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            new WebApplicationContextRunner(AnnotationConfigServletWebServerApplicationContext::new)
+                    .withClassLoader(loader).withUserConfiguration(ErrorHost.class, Registrations.class,
+                            SecondRepository.class)
+                    .withBean(ContextCarrier.class, () -> new ContextCarrierTest.Carrier("!"))
+                    .withPropertyValues("server.port=0").withPropertyValues(NONE).run(context -> {
+                        assertNull(context.getStartupFailure());
+                        assertTrue(context.getBeansOfType(OutgoingAuth.class).isEmpty());
+                        assertTrue(context.getBeansOfType(ContextPropagation.class).isEmpty());
+                        assertTrue(context.getBeansOfType(ExposureConfiguration.class).isEmpty());
+                    });
+        }
+    }
+
+    @Test
+    void ac_ext_76_external_only_installs_no_warning_hook() throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            server(loader, "topolith.modules.account.mode=external",
+                    "topolith.modules.account.remote.url=http://127.0.0.1:1").run(context -> {
+                        assertNull(context.getStartupFailure());
+                        assertTrue(context.getBeansOfType(ExposureConfiguration.class).isEmpty());
+                        assertTrue(context.getBeansOfType(UnauthenticatedRelay.class).isEmpty());
+                    });
+        }
+    }
+
+    @Test
+    void ac_ext_75_failed_refresh_sends_no_authorization_and_call_succeeds() throws Exception {
+        HttpServer tokens = failingTokens(400, "{\"error\":\"invalid_grant\"}");
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            server(loader, "topolith.modules.account.mode=loopback")
+                    .withUserConfiguration(ResourceServer.class, Registrations.class, SessionRepository.class)
+                    .run(context -> {
+                        assertNull(context.getStartupFailure());
+                        var user = new DefaultOAuth2User(List.of(new SimpleGrantedAuthority("ROLE_USER")),
+                                Map.of("name", "alice"), "name");
+                        var login = new OAuth2AuthenticationToken(user, user.getAuthorities(), "svc");
+                        as(login);
+                        var registration = context.getBean(ClientRegistrationRepository.class)
+                                .findByRegistrationId("svc");
+                        var access = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, "expired",
+                                Instant.now().minusSeconds(120), Instant.now().minusSeconds(60));
+                        var refresh = new OAuth2RefreshToken("refresh", Instant.now().minusSeconds(120));
+                        context.getBean(OAuth2AuthorizedClientService.class).saveAuthorizedClient(
+                                new OAuth2AuthorizedClient(registration, "alice", access, refresh), login);
+                        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(
+                                new MockHttpServletRequest(), new MockHttpServletResponse()));
+                        assertEquals(ANONYMOUS, context.getBean(ContextPropagationTest.Holder.class)
+                                .account().find("auth"));
+                        assertNull(SeenAuth.AUTHORIZATION.get());
+                    });
+        } finally {
+            stop(tokens);
+        }
+    }
+
+    @Test
+    void ac_ext_75_duplicate_repositories_fail_with_tl0047() throws Exception {
+        startup(context -> assertEquals(TopolithCode.TL0047, failure(context)),
+                new Class<?>[] {Registrations.class, SecondRepository.class});
+        startup(context -> assertEquals(TopolithCode.TL0047, failure(context)),
+                new Class<?>[] {Registrations.class, SessionRepository.class, SecondSessionRepository.class});
+    }
+
+    @Test
+    void ac_ext_75_expired_session_token_is_refreshed() throws Exception {
+        AtomicInteger issued = new AtomicInteger();
+        HttpServer tokenServer = tokens(issued, 0);
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            client(loader, "topolith.modules.account.mode=external",
+                    "topolith.modules.account.remote.url=http://127.0.0.1:1")
+                    .withUserConfiguration(Registrations.class, SessionRepository.class).run(context -> {
+                        assertNull(context.getStartupFailure());
+                        var user = new DefaultOAuth2User(List.of(new SimpleGrantedAuthority("ROLE_USER")),
+                                Map.of("name", "alice"), "name");
+                        var login = new OAuth2AuthenticationToken(user, user.getAuthorities(), "svc");
+                        as(login);
+                        var registration = context.getBean(ClientRegistrationRepository.class)
+                                .findByRegistrationId("svc");
+                        var access = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, "expired",
+                                Instant.now().minusSeconds(120), Instant.now().minusSeconds(60));
+                        var refresh = new OAuth2RefreshToken("refresh", Instant.now().minusSeconds(120));
+                        context.getBean(OAuth2AuthorizedClientService.class).saveAuthorizedClient(
+                                new OAuth2AuthorizedClient(registration, "alice", access, refresh), login);
+                        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(
+                                new MockHttpServletRequest(), new MockHttpServletResponse()));
+                        assertEquals("cc-1", context.getBean(OutgoingAuth.class).relayToken("account"));
+                        assertEquals(1, issued.get());
+                    });
+        } finally {
+            stop(tokenServer);
+        }
+    }
+
+    @Test
+    void ac_ext_75_external_session_login_relays_authorized_client() throws Exception {
+        try (Fixtures.RecordingLoader served = new Fixtures.RecordingLoader(root)) {
+            server(served, "topolith.modules.account.mode=internal", "topolith.modules.account.expose.enabled=true")
+                    .withUserConfiguration(ResourceServer.class).run(provider -> {
+                        assertNull(provider.getStartupFailure());
+                        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+                            client(loader, "topolith.modules.account.mode=external",
+                                    "topolith.modules.account.remote.url=http://127.0.0.1:"
+                                            + ProviderErrorsTest.port(provider))
+                                    .withUserConfiguration(Registrations.class, SessionRepository.class)
+                                    .run(context -> {
+                                        assertNull(context.getStartupFailure());
+                                        var user = new DefaultOAuth2User(
+                                                List.of(new SimpleGrantedAuthority("ROLE_USER")),
+                                                Map.of("name", "alice"), "name");
+                                        var login = new OAuth2AuthenticationToken(user, user.getAuthorities(), "svc");
+                                        as(login);
+                                        String token = jwt("alice").getToken().getTokenValue();
+                                        var access = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, token,
+                                                Instant.now(), Instant.now().plusSeconds(600));
+                                        var registration = context.getBean(ClientRegistrationRepository.class)
+                                                .findByRegistrationId("svc");
+                                        context.getBean(OAuth2AuthorizedClientService.class).saveAuthorizedClient(
+                                                new OAuth2AuthorizedClient(registration, "alice", access), login);
+                                        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(
+                                                new MockHttpServletRequest(), new MockHttpServletResponse()));
+                                        assertEquals(ALICE, context.getBean(AccountContract.class).find("auth"));
+                                        assertEquals("Bearer " + token, SeenAuth.AUTHORIZATION.get());
+                                    });
+                        } catch (IOException e) {
+                            throw new IllegalStateException(e);
+                        }
+                    });
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class SecondSessionRepository {
+        @Bean
+        OAuth2AuthorizedClientRepository otherSessionRepository(OAuth2AuthorizedClientService service) {
+            return new AuthenticatedPrincipalOAuth2AuthorizedClientRepository(service);
         }
     }
 
@@ -670,7 +901,8 @@ class OutgoingAuthTest {
                 public void postProcessBeanDefinitionRegistry(BeanDefinitionRegistry registry) {
                     registry.registerBeanDefinition("lateBasicCustomizer", new RootBeanDefinition(
                             RestClientHttpServiceGroupConfigurer.class, () -> ModuleClients.configure("account",
-                                    builder -> builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Basic dXNlcjpwdw=="))));
+                                    builder -> builder.defaultHeader(HttpHeaders.AUTHORIZATION,
+                                            "Basic dXNlcjpwdw=="))));
                 }
 
                 @Override
@@ -766,7 +998,8 @@ class OutgoingAuthTest {
                     root)) {
                 server(loader, "topolith.modules.account.mode=loopback").withUserConfiguration(Basic.class)
                         .withPropertyValues(auth)
-                        .run(context -> startsOrFailsWithTl0036(context.getStartupFailure(), true, "loopback " + List.of(auth)));
+                        .run(context -> startsOrFailsWithTl0036(context.getStartupFailure(), true,
+                                "loopback " + List.of(auth)));
             }
         }
     }

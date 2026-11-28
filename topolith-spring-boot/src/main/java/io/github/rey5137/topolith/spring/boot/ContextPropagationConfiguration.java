@@ -22,11 +22,12 @@ import org.springframework.util.ClassUtils;
 class ContextPropagationConfiguration {
     @Bean
     static ContextPropagation topolithContextPropagation(Environment environment, ListableBeanFactory beans,
-            ObjectProvider<TenantContext> tenants) {
+            ObjectProvider<TenantContext> tenants, ObjectProvider<ContextCarrier> carriers) {
         ClassLoader loader = beans instanceof ConfigurableBeanFactory configurable
                 ? configurable.getBeanClassLoader() : ClassUtils.getDefaultClassLoader();
         return new ContextPropagation(keys(environment), beans.getBeanNamesForType(TenantContext.class, true,
-                false).length, ClassUtils.isPresent("org.slf4j.MDC", loader), tenants);
+                false).length, ClassUtils.isPresent("org.slf4j.MDC", loader), tenants,
+                carriers.orderedStream().toList());
     }
 
     static List<String> keys(Environment environment) {

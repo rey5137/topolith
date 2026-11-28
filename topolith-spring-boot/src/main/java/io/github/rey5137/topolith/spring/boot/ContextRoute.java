@@ -6,6 +6,8 @@ import java.util.Collections;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -27,13 +29,14 @@ final class ContextRoute {
     private static final String STATES = ContextRoute.class.getName() + ".states";
     private static final String MDC_HEADER = ContextPropagation.MDC_PREFIX.toLowerCase(Locale.ROOT);
     private static final String TENANT_HEADER = ContextPropagation.TENANT_HEADER.toLowerCase(Locale.ROOT);
+    private static final String CARRIER_HEADER = ContextPropagation.CARRIER_PREFIX.toLowerCase(Locale.ROOT);
 
     private final ContextPropagation context;
     // a client can send Topolith-Tenant on every request: only the first is an error in the log
     private final AtomicBoolean tenantMissingLogged = new AtomicBoolean();
 
     /** The restored values of one dispatch: the listed keys' previous MDC values (null when absent) and the scope. */
-    private record State(Map<String, String> previous, TenantContext.Scope scope) {
+    private record State(Map<String, String> previous, TenantContext.Scope scope, List<ContextCarrier.Scope> carriers) {
     }
 
     ContextRoute(ContextPropagation context) {
@@ -46,6 +49,7 @@ final class ContextRoute {
      */
     boolean open(HttpServletRequest request, HttpServletResponse response, String moduleId) throws IOException {
         Map<String, String> sent = new LinkedHashMap<>();
+        Map<String, String> carrierValues = new LinkedHashMap<>();
         String tenant = null;
         try {
             for (String name : Collections.list(request.getHeaderNames())) {
@@ -54,6 +58,11 @@ final class ContextRoute {
                     String key = context.keysByLowerCase().get(lower.substring(MDC_HEADER.length()));
                     if (key != null) {
                         sent.put(key, ContextPropagation.decode(request.getHeader(name)));
+                    }
+                } else if (lower.startsWith(CARRIER_HEADER)) {
+                    String key = lower.substring(CARRIER_HEADER.length());
+                    if (context.carriers().containsKey(key)) {
+                        carrierValues.put(key, ContextPropagation.decode(request.getHeader(name)));
                     }
                 } else if (lower.equals(TENANT_HEADER)) {
                     tenant = ContextPropagation.decode(request.getHeader(name));
@@ -92,7 +101,18 @@ final class ContextRoute {
                 return false;
             }
         }
-        states(request, true).push(new State(previous, scope));
+        List<ContextCarrier.Scope> carrierScopes = new ArrayList<>();
+        try {
+            context.carriers().forEach((name, carrier) -> carrierScopes.add(carrier.open(carrierValues.get(name))));
+        } catch (RuntimeException failure) {
+            closeCarriers(carrierScopes);
+            restore(previous);
+            if (scope != null) {
+                scope.close();
+            }
+            throw failure;
+        }
+        states(request, true).push(new State(previous, scope, carrierScopes));
         return true;
     }
 
@@ -110,10 +130,27 @@ final class ContextRoute {
             request.removeAttribute(STATES);
         }
         try {
-            restore(state.previous());
+            closeCarriers(state.carriers());
         } finally {
-            if (state.scope() != null) {
-                state.scope().close();
+            try {
+                restore(state.previous());
+            } finally {
+                if (state.scope() != null) {
+                    state.scope().close();
+                }
+            }
+        }
+    }
+
+    private static void closeCarriers(List<ContextCarrier.Scope> scopes) {
+        if (!scopes.isEmpty()) {
+            ContextCarrier.Scope scope = scopes.remove(scopes.size() - 1);
+            try {
+                if (scope != null) {
+                    scope.close();
+                }
+            } finally {
+                closeCarriers(scopes);
             }
         }
     }

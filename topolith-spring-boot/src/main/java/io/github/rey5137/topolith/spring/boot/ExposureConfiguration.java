@@ -9,6 +9,7 @@ import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
@@ -16,6 +17,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.util.ClassUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.method.HandlerMethod;
@@ -42,14 +44,18 @@ class ExposureConfiguration implements WebMvcConfigurer {
     private final Set<String> exposed;
     private final ContextRoute context;
     private final ListedContractRoutes routes;
+    private final UnauthenticatedRelay relayWarning;
 
     ExposureConfiguration(TopologyResolver.Resolution resolution, ObjectProvider<ContextPropagation> context,
-            ListedContractRoutes routes) {
+            ListedContractRoutes routes, ConfigurableBeanFactory beans) {
         this.topology = resolution.topology();
         this.exposed = resolution.exposed();
         this.routes = routes;
         ContextPropagation propagation = context.getIfAvailable();
         this.context = propagation == null || exposed.isEmpty() ? null : new ContextRoute(propagation);
+        this.relayWarning = !exposed.isEmpty() && ClassUtils.isPresent(
+                "org.springframework.security.core.context.SecurityContextHolder", beans.getBeanClassLoader())
+                ? new UnauthenticatedRelay() : null;
     }
 
     @Override
@@ -72,6 +78,9 @@ class ExposureConfiguration implements WebMvcConfigurer {
                 if (handler instanceof HandlerMethod method) {
                     String owner = routes.internalOwner(topology, method);
                     if (owner != null && exposed.contains(owner)) {
+                        if (relayWarning != null) {
+                            relayWarning.check(request, owner);
+                        }
                         RouteMark.mark(request, method, routes.owner(method) != null);
                         if (context != null && !context.open(request, response, owner)) {
                             return false;

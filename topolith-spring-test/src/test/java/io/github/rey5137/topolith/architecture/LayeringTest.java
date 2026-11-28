@@ -44,7 +44,8 @@ class LayeringTest {
     // R-EXT-13). A nested class counts as its top-level class.
     private static final String SPRING_BOOT = BASE + ".spring.boot.";
     private static final ArchRule SECURITY_CONFINED = confined("org.springframework.security..",
-            SPRING_BOOT + "BearerToken", SPRING_BOOT + "ClientCredentialsHook", SPRING_BOOT + "ExposedRequestMatcher");
+            SPRING_BOOT + "BearerToken", SPRING_BOOT + "ClientCredentialsHook", SPRING_BOOT + "ExposedRequestMatcher",
+            SPRING_BOOT + "SessionRelay", SPRING_BOOT + "UnauthenticatedRelay");
     private static final ArchRule OBSERVATION_CONFINED = confined("io.micrometer.observation..",
             SPRING_BOOT + "ModuleCallObserver", SPRING_BOOT + "observation.ModuleCallContext",
             SPRING_BOOT + "observation.ModuleCallObservationConvention",
@@ -52,7 +53,8 @@ class LayeringTest {
             BASE + ".spring.test.RestClientSerializer");
     private static final ArchRule SERVLET_CONFINED = confined("jakarta.servlet..",
             SPRING_BOOT + "ContextRoute", SPRING_BOOT + "ExposedRequestMatcher", SPRING_BOOT + "ExposureConfiguration",
-            SPRING_BOOT + "ModuleExceptionResolver", SPRING_BOOT + "RouteMark");
+            SPRING_BOOT + "ModuleExceptionResolver", SPRING_BOOT + "RouteMark", SPRING_BOOT + "SessionRelay",
+            SPRING_BOOT + "UnauthenticatedRelay");
     private static final ArchRule GUARDED = classes().that().resideInAnyPackage(OPTIONAL)
             .and(new com.tngtech.archunit.base.DescribedPredicate<com.tngtech.archunit.core.domain.JavaClass>(
                     "depend on an integration and are Spring configurations") {

@@ -26,6 +26,7 @@ import io.github.rey5137.topolith.spring.boot.errorfixture.boundary.api.Boundary
 import io.github.rey5137.topolith.spring.boot.errorfixture.host.ClientHost;
 import io.github.rey5137.topolith.spring.boot.errorfixture.host.ErrorHost;
 import io.github.rey5137.topolith.spring.boot.errorfixture.host.ThreadTenant;
+import io.github.rey5137.topolith.spring.boot.errorfixture.host.ThreadCarrier;
 import io.github.rey5137.topolith.spring.boot.errorfixture.payment.api.PaymentContract;
 import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.FilterChain;
@@ -87,17 +88,22 @@ class ContextPropagationTest {
         ContractExceptionsTest.contracts(root, "boundary", BoundaryContract.class);
         ThreadTenant.HANDLED.set(0);
         Seen.AFTER.clear();
+        Seen.CARRIERS.clear();
+        Seen.CARRIER_HEADERS.clear();
     }
 
     @AfterEach
     void clean() {
         MDC.clear();
         ThreadTenant.set(null);
+        ThreadCarrier.set(null);
     }
 
     /** What a server thread's own filter put before the module route, and what is left once the request ends. */
     static final class Seen extends OncePerRequestFilter {
         static final List<String> AFTER = new CopyOnWriteArrayList<>();
+        static final List<String> CARRIERS = new CopyOnWriteArrayList<>();
+        static final List<String> CARRIER_HEADERS = new CopyOnWriteArrayList<>();
 
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -115,8 +121,10 @@ class ContextPropagationTest {
                 };
             }
             try {
+                CARRIER_HEADERS.add(String.valueOf(request.getHeader("Topolith-Context-example")));
                 chain.doFilter(seen, response);
             } finally {
+                CARRIERS.add(String.valueOf(ThreadCarrier.VALUE.get()));
                 AFTER.add(MDC.get("user.id") + "|" + MDC.get("trace") + "|" + ThreadTenant.tenant());
                 MDC.remove("user.id");
                 MDC.remove("trace");
@@ -178,7 +186,7 @@ class ContextPropagationTest {
     private void provider(Consumer<AssertableWebApplicationContext> check, String... properties) throws Exception {
         try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
             server(loader, "topolith.modules.account.mode=internal", "topolith.modules.account.expose.enabled=true")
-                    .withPropertyValues(properties).run(context -> {
+                    .withBean(ThreadCarrier.class).withPropertyValues(properties).run(context -> {
                         assertNull(context.getStartupFailure());
                         check.accept(context);
                     });
@@ -252,6 +260,47 @@ class ContextPropagationTest {
                 throw new IllegalStateException(e);
             }
         });
+    }
+
+    @Test
+    void ac_ext_77_internal_loopback_and_external_carry_and_restore_context() throws Exception {
+        try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+            new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(ClientHost.class)
+                    .withBean(ThreadCarrier.class).withPropertyValues(NONE)
+                    .withPropertyValues("topolith.modules.account.mode=internal")
+                    .run(context -> {
+                        assertNull(context.getStartupFailure());
+                        ThreadCarrier.set("café");
+                        assertEquals("café", context.getBean(AccountContract.class).find("carrier"));
+                    });
+            server(loader, "topolith.modules.account.mode=loopback").withBean(ThreadCarrier.class).run(context -> {
+                assertNull(context.getStartupFailure());
+                ThreadCarrier.set("café");
+                assertEquals("café", context.getBean(Holder.class).account().find("carrier"));
+                assertTrue(Seen.CARRIER_HEADERS.contains("caf%C3%A9"));
+                ThreadCarrier.set(null);
+                assertEquals("null", context.getBean(Holder.class).account().find("carrier"));
+                assertFalse(Seen.CARRIERS.isEmpty());
+                assertTrue(Seen.CARRIERS.stream().allMatch("null"::equals));
+            });
+        }
+        provider(served -> {
+            try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
+                new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(ClientHost.class)
+                        .withBean(ThreadCarrier.class).withPropertyValues(NONE).withPropertyValues(
+                                "topolith.modules.account.mode=external", "topolith.modules.account.remote.url=http://"
+                                        + "127.0.0.1:" + ProviderErrorsTest.port(served)).run(context -> {
+                                            assertNull(context.getStartupFailure());
+                                            ThreadCarrier.set("café");
+                                            assertEquals("café", context.getBean(AccountContract.class)
+                                                    .find("carrier"));
+                                            assertTrue(Seen.CARRIER_HEADERS.contains("caf%C3%A9"));
+                                            assertTrue(Seen.CARRIERS.stream().allMatch("null"::equals));
+                                        });
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        }, "topolith.modules.account.mode=internal");
     }
 
     @Test
@@ -674,7 +723,9 @@ class ContextPropagationTest {
     void ac_ext_52_a_none_module_gets_no_propagation_even_with_a_key_and_a_tenant_bean() throws Exception {
         try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
             new ApplicationContextRunner().withClassLoader(loader).withUserConfiguration(ClientHost.class)
-                    .withBean(ThreadTenant.class).withPropertyValues(NONE).withPropertyValues(KEYS)
+                    .withBean(ThreadTenant.class)
+                    .withBean(ContextCarrier.class, () -> new ContextCarrierTest.Carrier("example"))
+                    .withPropertyValues(NONE).withPropertyValues(KEYS)
                     .run(context -> {
                         assertNull(context.getStartupFailure());
                         assertEquals(0, context.getBeansOfType(ContextPropagation.class).size());

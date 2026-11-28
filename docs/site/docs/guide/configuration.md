@@ -11,6 +11,7 @@ These terms are used in descriptors, configuration, diagnostics and the actuator
 |---|---|
 | Internal | Mode that runs a module's implementation in the host. |
 | External | Mode that calls a module through a remote client. |
+| Loopback | Mode that runs a module's implementation in the host and calls its contracts over HTTP on the host's own server. |
 | None | Mode that does not activate a module or its client. |
 | Restart pending | Configuration requests wiring or a mode different from the running topology. |
 
@@ -29,7 +30,7 @@ These terms are used in descriptors, configuration, diagnostics and the actuator
 
 ### Property Details
 
-- **`topolith.modules.<id>.mode`:** Required explicit mode (`internal`, `external` or `none`,
+- **`topolith.modules.<id>.mode`:** Required explicit mode (`internal`, `external`, `loopback` or `none`,
   trimmed and case-insensitive) for each known module (a module with a module or API descriptor on the classpath).
   Default: required — absent or invalid values fail startup with `TL0001`, except that the module named by
   `topolith.standalone` defaults to `internal`. Setting `internal` without the module implementation descriptor JAR
@@ -64,6 +65,13 @@ These terms are used in descriptors, configuration, diagnostics and the actuator
   `/<id>` and its `/<id>/.topolith/api-version` endpoint. Defaults to `false` in every topology so a monolith exposes no
   module routes unless opted in. Fails with `TL0003` if non-boolean, set on a non-internal module, or set under
   `expose.*` for an unknown module id; fails with `TL0028` when enabled in a reactive WebFlux application.
+
+## Module persistence
+
+Internal and loopback modules register their own Spring Data R2DBC and MongoDB repositories and MyBatis mappers,
+in addition to JPA and JDBC. A module's own registration takes precedence. MyBatis uses the host's single
+`SqlSessionFactory`; put module mapper XML beside its interface and keep it out of the host's
+`mybatis.mapper-locations` (TL0043). External and none modules register no module repositories or mappers.
 
 ## Compile-Time Annotation Processor Option
 

@@ -71,7 +71,7 @@ group to different values fails with `TL0003`. See the [configuration reference]
 
 ## Errors
 
-- **Declared exceptions** (unchecked, in the contract's API packages) cross HTTP as `application/problem+json` and are
+- **Declared exceptions** (including checked exceptions in the contract's API packages) cross HTTP as `application/problem+json` and are
   rebuilt as the same type on the caller's side. The message is carried; the caller's HTTP exception travels as a
   suppressed exception.
 - **Transport failures** (connection refused, timeouts, 502, 503 or 504 without a Topolith problem, no instances from
@@ -80,7 +80,11 @@ group to different values fails with `TL0003`. See the [configuration reference]
 - **Anything else** raises an unchecked exception whose type is unspecified. An undeclared exception's message is not
   sent by Topolith.
 
-A contract method that declares a checked exception fails startup with `TL0027`.
+A declared checked exception outside the module's API packages fails startup with `TL0027`.
+
+A bare 401, 403, 404, 405 or 415 without a Topolith problem or the `Topolith-Module` response header raises
+`ModuleUnavailableException`. Topolith sets `Topolith-Module: <id>` before a module handler runs, after the tenant
+check; a marked response came from the provider and is treated as an undeclared error.
 
 ## Exposing a module
 
@@ -89,6 +93,11 @@ A module served by a `*-service`, or by a host that others call, exposes its rou
 default. Only an `internal` module in a servlet application can be exposed (`TL0003`, `TL0028`). For security, Topolith
 registers no filter chain; it provides the `ExposedEndpoints` and `ExposedRequestMatcher` beans for your own
 `SecurityFilterChain`.
+
+A consumer-provided SPI interface can be marked `@ConsumerImplemented` so it is excluded from provided contracts.
+For a contract supplied only by a `@Bean` method, list its fully qualified name in `@TopolithModule.provides`.
+The module must contribute exactly one such bean. For exposed internal and loopback modules, Topolith registers its
+HTTP routes from the contract's mappings.
 
 ## Version readiness
 

@@ -36,8 +36,7 @@ Avoid anything that works only when caller and callee share a JVM:
 
 Arguments and results must be values.
 
-## Planned
+## Parity tools
 
-Further parity machinery is on the [roadmap](roadmap.md): a loopback mode that runs a module in-process through real
-HTTP serialization, a by-value test proxy, fault injection, outgoing-authentication hooks, context propagation and a
-shared observation for both modes. None of these ships in 0.1.
+[Loopback mode](modes.md) calls an in-process module over HTTP. [Testing](testing.md) covers the by-value proxy and mode matrix; [Modes](modes.md) describes fault injection. [External mode](external-mode.md) explains outgoing authentication, context
+propagation and call observations across modes.

@@ -23,7 +23,7 @@ by AC-MODE-13 and AC-EXT-18 through AC-EXT-24.
 
 The 0.1.0 milestones are M0 spec and bootstrap, M1 modules and activation, M2 external mode, M3 boundaries, M4
 reference adopter and release tooling, M5 parity and loopback, M6 call context and observability, M7 resilience and M8
-hardening and release (D-74). Implements P-3 and P-4.
+hardening and documentation (D-74, D-133); the tag and publication await a later decision. Implements P-3 and P-4.
 
 - AC-ROAD-01 (M1.5): A two-module host covers internal and none combinations without non-internal contributions.
 - AC-ROAD-02 (M2.5): A hybrid host passes the same contract tests as the monolith.

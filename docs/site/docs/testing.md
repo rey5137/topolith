@@ -89,3 +89,9 @@ Add `TopolithArchitecture.verify()` to a test in each module. See [Boundaries](b
 ## The same tests across topologies
 
 The samples run the same payment test cases against the monolith, hybrid and `none` hosts. See [Samples](samples.md).
+
+## Mode matrix
+
+Run the same contract tests with the provider in `internal`, `loopback` and `external` modes using separate host
+configurations. The internal run uses the by-value proxy; loopback crosses HTTP on the host's own server, and external
+calls a separate provider. The sample payment tests show the three runs; there is no built-in matrix runner.

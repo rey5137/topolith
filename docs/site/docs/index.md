@@ -21,7 +21,7 @@ topolith:
 
 - **A module is metadata.** One optional annotation, `@TopolithModule`, on a `package-info.java`. Business code has no
   base class and no framework type.
-- **Modes in configuration.** Each host states every module's mode: `internal`, `external` or `none`.
+- **Modes in configuration.** Each host states every module's mode: `internal`, `external`, `loopback` or `none`.
 - **Inclusion-based activation.** A module that is not `internal` contributes no beans, routes, entities, tables or
   auto-configurations, even when its JAR is on the classpath.
 - **External calls with mandatory timeouts.** A fixed URL or service discovery, ProblemDetail errors that rebuild the

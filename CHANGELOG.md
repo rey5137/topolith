@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-11-26
+Planned as 0.1.0.
 
 ### Added
 
@@ -37,6 +37,29 @@ All notable changes to this project are documented here. The format follows
   `user` and `payment` modules with monolith, hybrid and `payment-host` topologies, and user guides for getting
   started, legacy adoption and configuration.
 
+- **Loopback and parity (`topolith.modules.<id>.mode=loopback`).** Exercise in-process implementations through HTTP,
+  with by-value contract checks, configurable latency and fault injection, and an internal/loopback/external test
+  matrix.
+- **Call context and observability (`topolith.module.call`).** Observations and tags cover calls in every mode;
+  `topolith.context.mdc-keys` propagates selected MDC values alongside tenant context. `ModuleClients.authenticate`
+  supplies outgoing authentication, including token relay.
+- **Resilience (`@Idempotent`).** Declare safe contract calls and configure per-group retry and circuit breakers for
+  external and loopback clients.
+- **Startup guards (TL0042 and TL0043).** Detect excluded module activation auto-configuration and host MyBatis mapper
+  locations that include module XML, alongside checks for modules without contracts.
+- **Consumer-implemented contracts (`@ConsumerImplemented` and `provides`).** Declare who supplies a contract and
+  expose listed contracts through Topolith-registered routes.
+- **Module persistence (`db/modules/<id>`).** Run Pattern A migrations against the module DataSource and register
+  per-module R2DBC and MongoDB repositories and MyBatis mappers.
+- **HTTP failure parity (`Topolith-Module`).** Declared checked exceptions cross HTTP; bare 4xx responses map to
+  unavailability, with a response header marking Topolith module responses.
+- **Default by-value tests (`topolith.test.parity`).** Internal contracts are checked by default; `warn` logs TL0045
+  instead of failing on parity violations.
+- **Session relay and context (`topolith.modules.<id>.auth.type`).** Session-token relay supports outgoing calls, with
+  TL0046 and TL0047 diagnostics; `ContextCarrier` extends propagated context.
+- **Packaged application checks (`topolith.modules.<id>.mode`).** Tests cover packaged and extracted JARs, nested roots
+  and restart-style class loaders.
+
 ### Notes for adopters
 
 - **Every public type is `@Incubating` until 1.0.** Public types across all published modules carry `@Incubating` and
@@ -56,5 +79,12 @@ All notable changes to this project are documented here. The format follows
   (never a JAR, failing `TL0030` otherwise). The startup dependency set matches ArchUnit's for `NON_API_ACCESS`; casts,
   array creation, inlined constants, accessed field types and called-member signature types are no longer checked.
 
-[Unreleased]: https://github.com/rey5137/topolith/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/rey5137/topolith/releases/tag/v0.1.0
+- **Internal topology (D-83).** `Topology.internal()` includes both internal and loopback modules.
+- **Mode ordinals.** `Mode.LOOPBACK` shifts enum ordinals; migrate any persisted `Mode.ordinal()` values.
+- **By-value proxy default (D-119).** Spring test contexts with internal contract providers need a JSON HTTP message
+  converter. Set `topolith.test.parity=warn` to log parity violations instead of failing.
+- **Migration paths (D-32).** Place module migrations under `db/modules/<id>`.
+- **Deferred environment coverage (D-132).** See [Tested environments](docs/site/docs/roadmap.md#tested-environments)
+  for integrations and environments still awaiting end-to-end coverage.
+
+[Unreleased]: https://github.com/rey5137/topolith/commits/main

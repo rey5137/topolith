@@ -57,7 +57,7 @@ REQUIRED_CONFIG_KEYS = (
 NAV_PAGE_RE = re.compile(r'^\s*-\s+(?:[^:#]+:\s+)?([A-Za-z0-9_./-]+\.md)\s*$')
 TL_CODE_RE = re.compile(r'\bTL\d{4}\b')
 
-CATALOG_TERMS = ('Internal', 'External', 'None', 'Restart pending')
+CATALOG_TERMS = ('Internal', 'External', 'Loopback', 'None', 'Restart pending')
 
 
 def normalize_block(text):
@@ -330,6 +330,12 @@ class DocsTest(unittest.TestCase):
 
         config_meanings = parse_markdown_table(CONFIGURATION.read_text(), CATALOG_TERMS)
         self.assertEqual(catalog_meanings, config_meanings)
+
+    def test_ac_cat_02_configuration_reference_uses_loopback_meaning(self):
+        catalog = parse_markdown_table(CATALOG.read_text(), ('Loopback',))
+        config = parse_markdown_table(CONFIGURATION.read_text(), ('Loopback',))
+        self.assertTrue(catalog.get('Loopback'))
+        self.assertEqual(catalog, config)
 
     def test_ac_build_16_mkdocs_is_strict_and_lists_every_page_in_nav(self):
         config = MKDOCS.read_text()

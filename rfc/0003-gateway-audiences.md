@@ -198,7 +198,7 @@ topolith:
         modules:
           order:
             filters:                      # run after the audience's
-              - RewritePath=/v1/(?<rest>.*), /${rest}
+              - RewritePath=/v1/(?<rest>.*), /$\{rest}   # `$\{` so Spring's placeholders leave it alone
 ```
 
 An adopter's filter is a standard SCG Server MVC custom filter, registered as a `SimpleFilterSupplier` `@Bean`, with
@@ -206,6 +206,7 @@ no Topolith type:
 
 ```java
 public final class ClientVersionFilters {
+    @Shortcut   // org.springframework.cloud.gateway.server.mvc.common.Shortcut: binds `=2.4` positionally
     public static HandlerFilterFunction<ServerResponse, ServerResponse> requireClientVersion(String minimum) {
         return (request, next) -> {
             var version = request.headers().firstHeader("X-Client-Version");
@@ -239,9 +240,14 @@ Why this shape rather than a Topolith `AudienceFilter` SPI:
   INV-4 to police. A filter name that cannot be resolved fails startup (new TL code), never skipped.
 
 Topolith adds only what SCG cannot know: the route table derived from the topology, the in-process or HTTP target per
-mode, and the checks in §2, §3 and §5. Whether SCG's shortcut resolution can be called from a library without its
-internal classes is the spike's first question; if not, Topolith resolves names against `FilterSupplier` beans itself,
-using SCG's public `FilterSupplier` contract.
+mode, and the checks in §2, §3 and §5.
+
+- **Shortcut resolution (spike, SCG Server MVC 5.1.0).** Topolith resolves names with SCG's public pieces:
+  `FilterDiscoverer` (the `FilterBeanFactoryDiscoverer` bean), `FilterProperties` to parse `Name=a,b`, and SCG's
+  operation invoker classes. About 25 lines of `RouterFunctionHolderFactory`'s private binding are reimplemented on
+  top of them, so a test pins the behaviour against each SCG upgrade.
+- **Body filters take functions,** not shortcut arguments, so `ModifyRequestBody`/`ModifyResponseBody` are used from
+  an adopter's named filter (`envelope`, `uppercaseBody`) that wraps them, and listed by that name.
 
 ### 5. Parity across placements (G-5)
 
@@ -253,18 +259,26 @@ the gateway reaches it in-process or over HTTP.
 - **The in-process target honours every rewrite.** SCG's `forward()` dispatches the original servlet request, so a
   rebuilt `ServerRequest`'s method, URI and headers would be lost in-process and kept over HTTP. Topolith's internal
   target therefore dispatches a servlet request wrapper built from the final `ServerRequest` (method, URI, query,
-  headers, body) and buffers the response for the response-side filters. Every internal route uses it; no route
+  headers, body) and buffers the response for the response-side filters. Every internal route uses it; the spike
+  (SCG Server MVC 5.1.0, Tomcat 11) fixed its shape: it reads the body from the servlet request, since
+  `ServerRequest.body()` still sees the consumed original after `ModifyRequestBody`; it forwards into a buffering
+  response over a stub, since Tomcat commits the real response at the end of a forward even through a wrapper; it
+  publishes the buffered body as SCG's client-response stream attribute, without which `ModifyResponseBody` does
+  nothing; and it returns a `GatewayServerResponse`, whose headers SCG's response-header filters can change. No route
   switches target by which filters it has, and no filter may
   silently do nothing in one placement (for example `ModifyResponseBody` without a proxied response stream). A
   built-in filter that cannot be made to work in-process is rejected at startup on internal targets (new TL code).
 - **Body limit.** A body a filter buffers, request or response side and chunked included, is limited by the
   audience's `gateway.max-body-size` (default 256 KiB, as Spring WebFlux's codecs): over it answers 413 (request) or
   502 (response) before the filter sees it. Routes whose filters buffer nothing keep streaming.
-- **Security and observation parity.** Spring Security's default dispatcher types (`REQUEST`, `ASYNC`, `ERROR`) skip
-  an in-process dispatch, while the HTTP placement runs the target host's chain. The internal target runs the host's
-  `SecurityFilterChain` for the audience's `AudienceRequestMatcher` on its dispatch, and records Spring MVC's server
-  observation the same way, so both placements see one security decision and one server observation per hop. ACs test
-  both.
+- **Security parity.** Spring Boot 4.2 registers the security filter for every dispatcher type, so the host's chain
+  for the audience's `AudienceRequestMatcher` runs on the in-process forward exactly once, as it does on the HTTP
+  hop (spike: one decision per hop in both placements). A host that narrows `spring.security.filter.dispatcher-types`
+  to exclude `FORWARD` while it gateways an internal module would bypass that chain, so it fails startup (new TL
+  code).
+- **Observation parity.** Boot's server observation filter does not run on a forward, so the internal target records
+  one `http.server.requests` observation for the target hop itself, matching the HTTP placement's two (gateway hop,
+  target hop). ACs test security and observation in both placements.
 - **Loopback proves it.** A loopback module goes over real HTTP to its own host (§3), so a test that runs the gateway
   routes with the module `internal` and again `loopback` catches a filter that works only one way.
   `topolith-spring-test` gets a helper that runs one test class in both placements, as M5 did for contract calls.
@@ -298,8 +312,10 @@ cannot see.
 
 - **Direct access in the gateway host.** In the monolith, `<audience path>/<id>/…` is reachable directly, skipping
   the gateway's filters. A host that is the gateway for an audience answers 404 to a direct request (dispatcher type
-  `REQUEST`) to that audience's source paths; only its own in-process target reaches them. A host that serves an
-  audience without being its gateway accepts direct requests, since the gateway reaches it over HTTP.
+  `REQUEST`) to that audience's source paths; only its own in-process target reaches them (spike: a
+  `HandlerInterceptor` on dispatcher type works). A host that serves an audience without being its gateway accepts
+  direct requests, since the gateway reaches it over HTTP. A loopback target is also a `REQUEST` dispatch into the
+  same host, so the rule would answer it 404 too; how loopback is let through is open (Unresolved 1).
 - **Direct access to proxied hosts.** Those hosts' audience routes are reachable without the gateway too. The
   recommended setup, shown in the samples, is **token pass-through**: the gateway keeps the client's `Authorization`
   header, and each host validates the token as an OAuth2 resource server on its `AudienceRequestMatcher`. SCG's
@@ -322,7 +338,7 @@ through the gateway, reactive gateways hosting modules, generated configuration 
 - **TL codes** (TL0049 onward): audience on a contract method; misplaced `@Audience`; `@ExceptionHandler` in a mixed
   class (warning); unknown or undeclared audience; audience or gateway path clash; reserved source-path key set;
   stray gateway module config; gateway enabled without SCG Server MVC; unresolved filter name; filter unsupported on
-  an internal target; descriptor audiences disagree with classes; `ModuleUnavailableException` unhandled on an
+  an internal target; security filter dispatcher types exclude `FORWARD` with an internal target; descriptor audiences disagree with classes; `ModuleUnavailableException` unhandled on an
   audience route (warning). TL0028 and TL0048 widen.
 - **ACs:** each rule's ACs include an INV-2 test (a `none` module leaves no audience route and no gateway route), a
   placement-parity test (internal and loopback) per built-in filter family, a security and observation parity test,
@@ -365,7 +381,13 @@ is a servlet-request wrapper built from the final `ServerRequest` with a buffere
 answers 404 to direct requests on its own audiences' source paths (G-8); `ModuleUnavailableException` unhandled on an
 audience route is a startup warning (G-7); `gateway.max-body-size` defaults to 256 KiB, buffered bodies only (G-5).
 
-Left to a spike before the plan, not to the owner: one module, two audiences in one host, internal and loopback, with
-`RewritePath`, `AddRequestHeader`, `ModifyRequestBody`, `ModifyResponseBody` and pass-through auth. It confirms that the
-wrapper target honours every rewrite and security dispatch (if it cannot, the fallback is loopback HTTP for every
-internal target, which returns to the owner), and whether SCG's shortcut resolution is usable from a library (§4).
+A spike (Spring Boot 4.2.0, Spring Cloud 2026.0.0, SCG Server MVC 5.1.0; one app gatewaying two audiences, every
+assertion run against the in-process wrapper and loopback HTTP) confirmed the wrapper target honours path, header,
+method and body rewrites, rejection, `ModifyResponseBody`, one security decision per hop and per-audience filter
+lists, and that shortcut resolution works from a library on public SCG classes (§4, §5). Still open:
+
+1. **Letting a loopback target through G-8's 404** (§8): (a) a random per-start key that the gateway adds to its own
+   loopback hop and strips from every client request, never leaving the host or the process (recommended; keeps the
+   404 in loopback, so loopback tests the same bypass rule as internal); or (b) the 404 applies only to internal
+   targets, and a loopback module's audience paths accept direct requests (simpler, but loopback then differs from
+   internal on bypass).

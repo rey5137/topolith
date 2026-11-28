@@ -26,6 +26,9 @@ bean. A module whose descriptor has no `api-packages` (R-DESC-01, D-115) has no 
 - AC-MODE-62 (M8.2): `external` or `loopback` for a module without api packages fails with TL0003 naming the module
   and the fix (`internal` or `none`).
 
+- AC-MODE-65 (M8.9): A restart-style child loader resolves changed module topology on successive contexts.
+- AC-MODE-66 (M8.9): A loopback provider remains available by its bean name.
+
 ### R-MODE-02 — Inclusion-based activation
 
 The host scans only its own package. `TopolithAutoConfiguration`, ordered first, imports a non-deferred
@@ -57,6 +60,9 @@ not checked. Implements INV-2, INV-4, INV-8, P-3, D-7, D-30 and D-111.
 - AC-MODE-55 (M8.2): Excluding `TopolithAutoConfiguration`, or another Topolith auto-configuration that activates modules, by property or by
   `@SpringBootApplication(exclude)` while a module is `internal` or `loopback` fails startup with TL0042 (new, M8.2)
   naming the class; the same exclusion with only `none` modules, and a `@WebMvcTest` slice of the host and an excluded auto-configuration that activates no module start.
+
+- AC-MODE-63 (M8.9): The repackaged monolith starts with its nested module JARs discovered.
+- AC-MODE-64 (M8.9): The extracted monolith starts with its module JARs discovered.
 
 ### R-MODE-03 — Non-internal isolation and dependencies
 

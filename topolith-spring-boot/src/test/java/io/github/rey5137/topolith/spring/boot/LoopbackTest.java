@@ -356,6 +356,16 @@ class LoopbackTest {
     }
 
     @Test
+    void ac_mode_66_a_lookup_by_the_provider_name_returns_the_provider() throws Exception {
+        serve(context -> {
+            Object provider = context.getBean(
+                    "io.github.rey5137.topolith.spring.boot.loopfixture.wallet.WalletController");
+            assertInstanceOf(WalletController.class, provider);
+            assertSame(context.getBean(WalletInside.class).contract, provider);
+        });
+    }
+
+    @Test
     void ac_mode_54_a_primary_or_priority_loopback_provider_fails_with_tl0003() throws Exception {
         try (Fixtures.RecordingLoader loader = new Fixtures.RecordingLoader(root)) {
             server(LoopbackHost.class).withClassLoader(loader).withUserConfiguration(PrimaryWalletConfig.class)

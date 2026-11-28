@@ -81,6 +81,9 @@ the signature types of a called member, the type of an accessed field, casts, ar
 - AC-ARCH-18 (M3.3): A registered bean declared in a non-internal module's resource fails TL0007 naming it.
 - AC-ARCH-33 (M3.3): An annotation class value referencing another module's internals fails TL0012.
 
+- AC-ARCH-36 (M8.9): Nested JAR baseline URLs belong only to their descriptor root and are not directories.
+- AC-ARCH-37 (M8.9): Split Gradle class and resource roots discover descriptors, baselines and module resources.
+
 ### R-ARCH-06 — Topolith dependencies in module code
 
 Module code may depend on Topolith only through its annotation and contract packages; any other Topolith dependency

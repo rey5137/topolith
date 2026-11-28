@@ -26,6 +26,14 @@
 - The Maven goal that verifies a hand-written descriptor against bytecode. Startup still validates descriptors.
 - Native images and the build-time topology guard.
 
+## Tested environments
+
+Tests start the packaged monolith JAR and its extracted layout, and exercise split Gradle-style class and resource
+directories and a restart-style child class loader. A real Gradle build, WAR packaging, DevTools restart loader,
+JVM AOT processing and AspectJ load-time weaving are deferred. Other deferred integration cases are recorded in
+decision D-132. With a hand-written Gradle descriptor in resources, startup scans no module classes; ArchUnit still
+checks the build.
+
 ## Not planned
 
 - Changing the topology at runtime without a redeploy.
